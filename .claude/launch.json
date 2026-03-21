@@ -1,0 +1,20 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "web",
+      "runtimeExecutable": "cmd.exe",
+      "runtimeArgs": ["/c", "cd /d C:\\Users\\Pranav\\.gemini\\antigravity\\scratch\\Rectangled.io_V6 && npm run dev --workspace=apps/web"],
+      "port": 3000,
+      "autoPort": false
+    },
+    {
+      "name": "api",
+      "runtimeExecutable": "cmd.exe",
+      "runtimeArgs": ["/c", "cd /d C:\\Users\\Pranav\\.gemini\\antigravity\\scratch\\Rectangled.io_V6 && set NODE_OPTIONS=--max-old-space-size=4096 && npm run dev --workspace=apps/api"],
+      "port": 3001,
+      "autoPort": false
+    }
+  ],
+  "autoVerify": false
+}

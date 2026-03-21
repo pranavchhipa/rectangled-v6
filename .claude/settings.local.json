@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git init)",
+      "Bash(find \"C:/Users/Pranav/.gemini/antigravity/brain\" -name \"*.md\" -type f -exec grep -l \"Rectangled\\\\|V6\\\\|SaaS\" {} ;)",
+      "WebFetch(domain:wapisnap.com)",
+      "WebFetch(domain:rectangled.io)",
+      "Bash(npx nest build)",
+      "Bash(docker compose up -d)",
+      "mcp__Claude_Preview__preview_start",
+      "Bash(node -e \":*)"
+    ]
+  }
+}

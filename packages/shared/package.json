@@ -1,0 +1,19 @@
+{
+  "name": "@rectangled/shared",
+  "version": "0.0.1",
+  "private": true,
+  "main": "./dist/index.js",
+  "types": "./src/index.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "lint": "eslint src/",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "zod": "^3.24"
+  },
+  "devDependencies": {
+    "typescript": "^5.7"
+  }
+}

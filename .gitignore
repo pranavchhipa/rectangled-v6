@@ -1,0 +1,36 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+.next/
+.turbo/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Drizzle
+drizzle/meta/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Testing
+coverage/
+
+# Docker volumes (local)
+pgdata/
+redisdata/

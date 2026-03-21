@@ -1,0 +1,28 @@
+{
+  "name": "optimizerv6",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "turbo dev",
+    "build": "turbo build",
+    "lint": "turbo lint",
+    "db:push": "turbo db:push",
+    "db:generate": "turbo db:generate",
+    "db:studio": "cd packages/db && npx drizzle-kit studio",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\"",
+    "clean": "turbo clean && rm -rf node_modules"
+  },
+  "devDependencies": {
+    "turbo": "^2",
+    "typescript": "^5.7",
+    "prettier": "^3.4",
+    "eslint": "^9"
+  },
+  "packageManager": "npm@10.8.0",
+  "engines": {
+    "node": ">=20"
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "name": "@rectangled/db",
+  "version": "0.0.1",
+  "private": true,
+  "main": "./dist/index.js",
+  "types": "./src/index.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "db:push": "drizzle-kit push",
+    "db:generate": "drizzle-kit generate",
+    "db:studio": "drizzle-kit studio",
+    "lint": "eslint src/",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "drizzle-orm": "^0.38",
+    "postgres": "^3.4"
+  },
+  "devDependencies": {
+    "drizzle-kit": "^0.30",
+    "typescript": "^5.7"
+  }
+}

@@ -1,0 +1,12 @@
+node_modules
+.next
+dist
+.git
+.env
+.env.local
+*.md
+.claude
+.gemini
+.turbo
+coverage
+.vscode

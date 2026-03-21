@@ -1,0 +1,55 @@
+name: rectangled-io
+
+region: blr
+
+services:
+  - name: api
+    dockerfile_path: Dockerfile.api
+    http_port: 3001
+    instance_count: 1
+    instance_size_slug: basic-xxs
+    routes:
+      - path: /api
+      - path: /trpc
+      - path: /health
+    envs:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        type: SECRET
+      - key: REDIS_URL
+        type: SECRET
+      - key: JWT_SECRET
+        type: SECRET
+      - key: OPENROUTER_API_KEY
+        type: SECRET
+      - key: GOOGLE_CLIENT_ID
+        type: SECRET
+      - key: GOOGLE_CLIENT_SECRET
+        type: SECRET
+      - key: RESEND_API_KEY
+        type: SECRET
+      - key: RAZORPAY_KEY_ID
+        type: SECRET
+      - key: RAZORPAY_KEY_SECRET
+        type: SECRET
+      - key: EMAIL_FROM
+        value: noreply@rectangled.io
+      - key: API_PORT
+        value: "3001"
+      - key: NEXT_PUBLIC_APP_URL
+        value: ${APP_URL}
+
+  - name: web
+    dockerfile_path: Dockerfile.web
+    http_port: 3000
+    instance_count: 1
+    instance_size_slug: basic-xxs
+    routes:
+      - path: /
+    build_command: echo "built via Dockerfile"
+    envs:
+      - key: NEXT_PUBLIC_API_URL
+        value: ${API_URL}
+      - key: NEXT_PUBLIC_APP_URL
+        value: ${APP_URL}
