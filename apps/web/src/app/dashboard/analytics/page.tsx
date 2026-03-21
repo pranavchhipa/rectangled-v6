@@ -696,7 +696,7 @@ function ReportHistorySection({ workspaceId }: { workspaceId: string | null }) {
   const [reportType, setReportType] = useState('orm_overview')
 
   const reportsQuery = trpc.report?.list?.useQuery?.(
-    { workspaceId: workspaceId!, page: 1, limit: 10 },
+    { workspaceId: workspaceId!, membershipId: workspaceId!, page: 1, limit: 10 },
     { enabled: !!workspaceId }
   )
 
@@ -777,7 +777,10 @@ function ReportHistorySection({ workspaceId }: { workspaceId: string | null }) {
                 if (!workspaceId) return
                 generateMutation?.mutate?.({
                   workspaceId,
+                  membershipId: workspaceId,
                   reportType: reportType as any,
+                  dateFrom: new Date(Date.now() - 30 * 86400000).toISOString(),
+                  dateTo: new Date().toISOString(),
                 })
               }}
               disabled={generateMutation?.isPending}
@@ -806,7 +809,7 @@ function ReportHistorySection({ workspaceId }: { workspaceId: string | null }) {
                   variant="ghost"
                   size="sm"
                   className="h-7 text-xs shrink-0"
-                  onClick={() => exportPdfMutation?.mutate?.({ workspaceId: workspaceId!, reportId: report.id })}
+                  onClick={() => exportPdfMutation?.mutate?.({ workspaceId: workspaceId!, membershipId: workspaceId!, reportId: report.id })}
                   disabled={exportPdfMutation?.isPending}
                 >
                   PDF
@@ -815,7 +818,7 @@ function ReportHistorySection({ workspaceId }: { workspaceId: string | null }) {
                   variant="ghost"
                   size="sm"
                   className="h-7 text-xs text-destructive shrink-0"
-                  onClick={() => deleteMutation?.mutate?.({ workspaceId: workspaceId!, reportId: report.id })}
+                  onClick={() => deleteMutation?.mutate?.({ workspaceId: workspaceId!, membershipId: workspaceId!, reportId: report.id })}
                 >
                   Delete
                 </Button>
