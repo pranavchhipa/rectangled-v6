@@ -33,7 +33,7 @@ export default function AppointmentsPage() {
   const appointmentsQuery = trpc.appointment?.list?.useQuery?.(
     {
       workspaceId: currentWorkspaceId!,
-      status: statusFilter !== 'all' ? statusFilter : undefined,
+      status: statusFilter !== 'all' ? statusFilter as 'scheduled' | 'completed' | 'cancelled' | 'no_show' : undefined,
       page,
       limit: 20,
     },
