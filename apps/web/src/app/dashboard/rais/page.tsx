@@ -338,7 +338,7 @@ function CreateFromReviewsTab() {
   // Step 4 state
   const [scheduledDate, setScheduledDate] = useState('')
   const [selectedPlatform, setSelectedPlatform] = useState('instagram')
-  const [trendsCountry, setTrendsCountry] = useState('United States')
+  const [trendsCountry, setTrendsCountry] = useState('India')
   const [trendsResult, setTrendsResult] = useState<any>(null)
   const [industryInput, setIndustryInput] = useState('')
   const [industryResult, setIndustryResult] = useState<any>(null)
@@ -369,9 +369,12 @@ function CreateFromReviewsTab() {
 
   const generatePost = trpc.rais.generatePost.useMutation({
     onSuccess: (data: any) => {
-      const posts = data.options || data.posts || [data]
+      const posts = Array.isArray(data) ? data : data.options || data.posts || [data]
       setGeneratedPosts(posts)
       setEditedPosts(posts.map((p: any) => ({ ...p })))
+      if (posts.length > 0 && posts[0]?.title) {
+        setSelectedPostIndex(0)
+      }
       toast.success('Posts created!')
     },
     onError: (err) => toast.error(err.message),
@@ -592,34 +595,32 @@ function CreateFromReviewsTab() {
                 <h3 className="font-semibold">Analysis Complete</h3>
               </div>
 
-              {analysisResult.summary && (
+              {analysisResult.aiSummary && (
                 <div>
                   <Label className="text-xs text-muted-foreground">AI Summary</Label>
-                  <p className="text-sm mt-1">{analysisResult.summary}</p>
+                  <p className="text-sm mt-1">{analysisResult.aiSummary}</p>
                 </div>
               )}
 
-              {analysisResult.sentiment && (
+              {analysisResult.overallSentiment != null && (
                 <div>
                   <Label className="text-xs text-muted-foreground">Overall Sentiment</Label>
                   <div className="flex items-center gap-2 mt-1">
                     <Badge
                       variant="secondary"
                       className={
-                        analysisResult.sentiment === 'positive'
+                        analysisResult.overallSentiment > 0.3
                           ? 'bg-green-100 text-green-700'
-                          : analysisResult.sentiment === 'negative'
+                          : analysisResult.overallSentiment < -0.3
                             ? 'bg-red-100 text-red-700'
                             : 'bg-yellow-100 text-yellow-700'
                       }
                     >
-                      {analysisResult.sentiment}
+                      {analysisResult.overallSentiment > 0.3 ? 'Positive' : analysisResult.overallSentiment < -0.3 ? 'Negative' : 'Neutral'}
                     </Badge>
-                    {analysisResult.sentimentScore != null && (
-                      <span className="text-sm text-muted-foreground">
-                        ({(analysisResult.sentimentScore * 100).toFixed(0)}%)
-                      </span>
-                    )}
+                    <span className="text-sm text-muted-foreground">
+                      ({(analysisResult.overallSentiment * 100).toFixed(0)}%)
+                    </span>
                   </div>
                 </div>
               )}
@@ -628,9 +629,9 @@ function CreateFromReviewsTab() {
                 <div>
                   <Label className="text-xs text-muted-foreground">Positive Aspects</Label>
                   <div className="flex flex-wrap gap-1.5 mt-1">
-                    {analysisResult.positiveAspects.map((aspect: string, i: number) => (
+                    {analysisResult.positiveAspects.map((a: any, i: number) => (
                       <Badge key={i} variant="secondary" className="bg-green-50 text-green-700 border-green-200">
-                        {aspect}
+                        {typeof a === 'string' ? a : a.aspect || JSON.stringify(a)}
                       </Badge>
                     ))}
                   </div>
@@ -641,9 +642,9 @@ function CreateFromReviewsTab() {
                 <div>
                   <Label className="text-xs text-muted-foreground">Top Themes</Label>
                   <div className="flex flex-wrap gap-1.5 mt-1">
-                    {analysisResult.topThemes.map((theme: string, i: number) => (
+                    {analysisResult.topThemes.map((t: any, i: number) => (
                       <Badge key={i} variant="outline">
-                        {theme}
+                        {typeof t === 'string' ? t : t.theme || JSON.stringify(t)}
                       </Badge>
                     ))}
                   </div>
@@ -702,7 +703,7 @@ function CreateFromReviewsTab() {
                   return (
                     <Card
                       key={i}
-                      className={`p-5 cursor-pointer transition-all hover:shadow-md ${
+                      className={`p-5 cursor-pointer transition-all hover:shadow-md overflow-hidden ${
                         isSelected
                           ? 'ring-2 ring-purple-500 border-purple-300 shadow-md'
                           : 'hover:border-purple-200'
@@ -710,7 +711,7 @@ function CreateFromReviewsTab() {
                       onClick={() => setSelectedIdeaIndex(i)}
                     >
                       <div className="flex items-start justify-between mb-2">
-                        <h3 className="font-semibold text-sm line-clamp-2">{idea.title}</h3>
+                        <h3 className="font-semibold text-sm line-clamp-2 break-words">{idea.title}</h3>
                         {isSelected && (
                           <CheckCircle2 className="h-5 w-5 text-purple-500 shrink-0 ml-2" />
                         )}
@@ -728,17 +729,17 @@ function CreateFromReviewsTab() {
                           <span key={j} className="text-xs text-purple-500">#{tag}</span>
                         ))}
                       </div>
-                      <div className="flex items-center justify-between mt-2">
+                      <div className="flex items-center justify-between mt-2 gap-2 min-w-0">
                         {idea.viralityAngle && (
-                          <div className="flex items-center gap-1">
-                            <Zap className="h-3 w-3 text-amber-500" />
-                            <span className="text-xs text-muted-foreground truncate">
+                          <div className="flex items-center gap-1 min-w-0 flex-1">
+                            <Zap className="h-3 w-3 text-amber-500 shrink-0" />
+                            <span className="text-xs text-muted-foreground line-clamp-1">
                               {idea.viralityAngle}
                             </span>
                           </div>
                         )}
                         {idea.targetPlatform && (
-                          <Badge variant="outline" className="text-xs">
+                          <Badge variant="outline" className="text-xs shrink-0">
                             {idea.targetPlatform}
                           </Badge>
                         )}
@@ -825,18 +826,27 @@ function CreateFromReviewsTab() {
                       }`}
                       onClick={() => setSelectedPostIndex(i)}
                     >
-                      {/* Image Placeholder */}
-                      <div className="relative bg-gradient-to-br from-purple-100 to-indigo-100 dark:from-purple-950 dark:to-indigo-950 rounded-lg h-48 flex items-center justify-center mb-4">
+                      {/* Image */}
+                      <div className="relative bg-gradient-to-br from-purple-100 to-indigo-100 dark:from-purple-950 dark:to-indigo-950 rounded-lg aspect-square flex items-center justify-center mb-4 overflow-hidden">
                         {post.imageUrl ? (
                           <img
                             src={post.imageUrl}
                             alt="Generated"
                             className="w-full h-full object-cover rounded-lg"
+                            loading="lazy"
+                            onError={(e) => {
+                              // Retry with a slightly different seed on error
+                              const target = e.target as HTMLImageElement
+                              if (!target.dataset.retried) {
+                                target.dataset.retried = 'true'
+                                target.src = post.imageUrl + '&retry=1'
+                              }
+                            }}
                           />
                         ) : (
                           <div className="text-center">
-                            <ImageIcon className="h-8 w-8 text-purple-300 mx-auto mb-2" />
-                            <p className="text-xs text-purple-400">AI Image</p>
+                            <Loader2 className="h-8 w-8 text-purple-300 mx-auto mb-2 animate-spin" />
+                            <p className="text-xs text-purple-400">Generating image...</p>
                           </div>
                         )}
                         {isSelected && (
@@ -846,12 +856,22 @@ function CreateFromReviewsTab() {
                         )}
                       </div>
 
-                      {/* Image Prompt */}
-                      {post.imagePrompt && (
-                        <div className="mb-3 p-2 bg-muted rounded text-xs text-muted-foreground">
-                          <span className="font-medium">Image prompt:</span> {post.imagePrompt}
-                        </div>
-                      )}
+                      {/* Image Regenerate Button */}
+                      <div className="flex justify-end mb-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="text-xs"
+                          disabled={regenerateElement.isPending}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            if (post.id) handleRegenerate(post.id, 'image')
+                          }}
+                        >
+                          <RefreshCw className="h-3 w-3 mr-1" />
+                          New Image
+                        </Button>
+                      </div>
 
                       {/* Title */}
                       <div className="flex items-start gap-2 mb-3">
@@ -1116,56 +1136,22 @@ function CreateFromReviewsTab() {
                 )}
               </Card>
 
-              {/* Industry Opportunities */}
+              {/* Posting Tips */}
               <Card className="p-5 space-y-3">
                 <div className="flex items-center gap-2">
-                  <Target className="h-4 w-4 text-indigo-500" />
-                  <h3 className="font-semibold text-sm">Industry Opportunities</h3>
+                  <Lightbulb className="h-4 w-4 text-amber-500" />
+                  <h3 className="font-semibold text-sm">Posting Tips</h3>
                 </div>
-                <div className="flex gap-2">
-                  <Input
-                    value={industryInput}
-                    onChange={(e) => setIndustryInput(e.target.value)}
-                    placeholder="Your industry..."
-                  />
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      if (!currentWorkspaceId || !industryInput.trim()) return
-                      getIndustryOpportunities.mutate({
-                        workspaceId: currentWorkspaceId,
-                        industry: industryInput,
-                      })
-                    }}
-                    disabled={getIndustryOpportunities.isPending}
-                  >
-                    {getIndustryOpportunities.isPending ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <Zap className="h-3.5 w-3.5" />
-                    )}
-                  </Button>
+                <div className="space-y-2 text-xs text-muted-foreground">
+                  <p>Best times to post in India:</p>
+                  <div className="space-y-1">
+                    <p><strong>Instagram:</strong> 11 AM - 1 PM, 7 PM - 9 PM</p>
+                    <p><strong>Facebook:</strong> 1 PM - 4 PM</p>
+                    <p><strong>Twitter/X:</strong> 9 AM - 11 AM</p>
+                    <p><strong>LinkedIn:</strong> 8 AM - 10 AM (weekdays)</p>
+                  </div>
+                  <p className="pt-1">Post consistently 3-5 times per week for best engagement.</p>
                 </div>
-                {getIndustryOpportunities.isPending && (
-                  <div className="space-y-2">
-                    <Skeleton className="h-3 w-full" />
-                    <Skeleton className="h-3 w-3/4" />
-                  </div>
-                )}
-                {industryResult && (
-                  <div className="space-y-2">
-                    {(industryResult.insights || industryResult.opportunities || []).map((ins: any, i: number) => (
-                      <div key={i} className="p-2 rounded bg-muted">
-                        <p className="font-medium text-xs">{ins.title || ins.name || ins}</p>
-                        {ins.description && <p className="text-xs text-muted-foreground mt-0.5">{ins.description}</p>}
-                      </div>
-                    ))}
-                    {typeof industryResult === 'string' && (
-                      <p className="text-xs">{industryResult}</p>
-                    )}
-                  </div>
-                )}
               </Card>
             </div>
           </div>

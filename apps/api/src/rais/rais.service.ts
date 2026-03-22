@@ -18,17 +18,23 @@ import {
 } from '@rectangled/db'
 
 // ---------------------------------------------------------------------------
-// OpenRouter AI Client
+// OpenRouter AI Client (lazy-initialized to ensure env vars are loaded)
 // ---------------------------------------------------------------------------
 
-const openrouter = new OpenAI({
-  apiKey: process.env.OPENROUTER_API_KEY || '',
-  baseURL: process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1',
-  defaultHeaders: {
-    'HTTP-Referer': process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000',
-    'X-Title': 'OptimizerV6 - Rectangled.io rAIS',
-  },
-})
+let _openrouter: OpenAI | null = null
+function getOpenRouter(): OpenAI {
+  if (!_openrouter) {
+    _openrouter = new OpenAI({
+      apiKey: process.env.OPENROUTER_API_KEY || '',
+      baseURL: process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1',
+      defaultHeaders: {
+        'HTTP-Referer': process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000',
+        'X-Title': 'OptimizerV6 - Rectangled.io rAIS',
+      },
+    })
+  }
+  return _openrouter
+}
 
 // ---------------------------------------------------------------------------
 // Credit Costs
@@ -47,12 +53,12 @@ const CREDIT_COSTS = {
 // ---------------------------------------------------------------------------
 
 const MODEL_MAP = {
-  review_analytics: { primary: 'google/gemini-2.5-pro-preview', fallback: 'qwen/qwen-max' },
-  image_generation: { primary: 'google/gemini-2.0-flash-exp', fallback: 'openai/dall-e-3' },
-  title_generation: { primary: 'google/gemini-2.0-flash-exp', fallback: 'openai/gpt-4o' },
-  hashtag_generation: { primary: 'google/gemini-2.0-flash-exp', fallback: 'openai/gpt-4o' },
-  description_generation: { primary: 'google/gemini-2.0-flash-exp', fallback: 'openai/gpt-4o' },
-  offer_generation: { primary: 'google/gemini-2.0-flash-exp', fallback: 'google/gemini-2.5-pro-preview' },
+  review_analytics: { primary: 'google/gemini-2.0-flash-001', fallback: 'openai/gpt-4o-mini' },
+  image_generation: { primary: 'google/gemini-2.0-flash-001', fallback: 'openai/gpt-4o-mini' },
+  title_generation: { primary: 'google/gemini-2.0-flash-001', fallback: 'openai/gpt-4o-mini' },
+  hashtag_generation: { primary: 'google/gemini-2.0-flash-001', fallback: 'openai/gpt-4o-mini' },
+  description_generation: { primary: 'google/gemini-2.0-flash-001', fallback: 'openai/gpt-4o-mini' },
+  offer_generation: { primary: 'google/gemini-2.0-flash-001', fallback: 'openai/gpt-4o-mini' },
 } as const
 
 type AIPurpose = keyof typeof MODEL_MAP
@@ -103,35 +109,39 @@ export class RaisService {
 
     // Try primary model first
     try {
-      const response = await openrouter.chat.completions.create({
+      const response = await getOpenRouter().chat.completions.create({
         model: models.primary,
         messages: [
           { role: 'system', content: params.systemPrompt },
           { role: 'user', content: params.userPrompt },
         ],
         temperature: params.temperature ?? 0.7,
-        max_tokens: params.maxTokens,
+        max_tokens: params.maxTokens || 2048,
       })
-      return response.choices[0]?.message?.content?.trim() || ''
+      const content = response.choices[0]?.message?.content?.trim()
+      if (!content) throw new Error('Empty response from primary model')
+      return content
     } catch (primaryErr) {
       this.logger.warn(
         `Primary model ${models.primary} failed for ${params.purpose}, trying fallback ${models.fallback}`,
-        primaryErr,
+        (primaryErr as Error).message,
       )
     }
 
     // Fallback model
     try {
-      const response = await openrouter.chat.completions.create({
+      const response = await getOpenRouter().chat.completions.create({
         model: models.fallback,
         messages: [
           { role: 'system', content: params.systemPrompt },
           { role: 'user', content: params.userPrompt },
         ],
         temperature: params.temperature ?? 0.7,
-        max_tokens: params.maxTokens,
+        max_tokens: params.maxTokens || 2048,
       })
-      return response.choices[0]?.message?.content?.trim() || ''
+      const content = response.choices[0]?.message?.content?.trim()
+      if (!content) throw new Error('Empty response from fallback model')
+      return content
     } catch (fallbackErr) {
       this.logger.error(
         `Fallback model ${models.fallback} also failed for ${params.purpose}`,
@@ -474,10 +484,11 @@ Generate 5 viral-worthy post ideas that leverage these positive customer experie
       // Generate image prompt
       const imagePromptResponse = await this.callAI({
         purpose: 'image_generation',
-        systemPrompt: `You are an AI image prompt engineer. Create a detailed, vivid image generation prompt for a social media marketing image. Style: ${variant}. ${brandCtx}
-Return a JSON with: { "prompt": "detailed image description" }
+        systemPrompt: `Generate a SHORT 8-12 word image description for a social media post. Be VERY specific and concrete about the actual product/food/service shown. ${brandCtx}
+Example good prompts: "vibrant Indian thali butter chicken naan rice professional photography", "cozy restaurant interior warm lighting family dining", "steaming masala chai in clay cup with snacks"
+Return a JSON with: { "prompt": "8-12 word concrete image description" }
 Return ONLY the JSON, no markdown.`,
-        userPrompt: `Create an image for this post idea:\nTitle: ${selectedIdea.title}\nDescription: ${selectedIdea.description}\nPlatform: ${selectedIdea.targetPlatform}`,
+        userPrompt: `Post idea: ${selectedIdea.title} - ${selectedIdea.description}`,
         temperature: 0.8,
       })
       let imagePrompt = ''
@@ -534,6 +545,16 @@ Return ONLY the JSON, no markdown.`,
         hashtags = Array.isArray(h.hashtags) ? h.hashtags : hashtags
       } catch {}
 
+      // Generate image URL — use Pollinations AI with the image prompt
+      const shortPrompt = (imagePrompt || title || 'food restaurant')
+        .replace(/[^a-zA-Z0-9 ]/g, ' ')  // remove special chars
+        .replace(/\s+/g, ' ')            // collapse whitespace
+        .trim()
+        .split(' ')
+        .slice(0, 12)                    // max 12 words for reliable generation
+        .join(' ')
+      const imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(shortPrompt)}?width=1080&height=1080&nologo=true&seed=${Date.now()}`
+
       // Save generated post
       const [post] = await this.db
         .insert(raisGeneratedPosts)
@@ -542,6 +563,7 @@ Return ONLY the JSON, no markdown.`,
           workspaceId,
           ideaId: ideaRecord.id,
           imagePrompt,
+          imageUrl,
           title,
           description,
           hashtags,
@@ -603,8 +625,15 @@ Return ONLY the JSON, no markdown.`,
         } catch {
           updates.imagePrompt = response
         }
-        // Clear old imageUrl since prompt changed
-        updates.imageUrl = null
+        // Generate new image URL from new prompt
+        const newPrompt = (updates.imagePrompt || post.title || 'food restaurant')
+          .replace(/[^a-zA-Z0-9 ]/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim()
+          .split(' ')
+          .slice(0, 12)
+          .join(' ')
+        updates.imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(newPrompt)}?width=1080&height=1080&nologo=true&seed=${Date.now()}`
         break
       }
       case 'title': {
