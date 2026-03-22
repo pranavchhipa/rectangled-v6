@@ -412,7 +412,7 @@ function CreateFromReviewsTab() {
     if (!currentWorkspaceId) return
     analyzeReviews.mutate({
       workspaceId: currentWorkspaceId,
-      locationId: locationId || undefined,
+      locationId: locationId && locationId !== 'all' ? locationId : undefined,
       periodMonths,
     })
   }
@@ -525,7 +525,7 @@ function CreateFromReviewsTab() {
                   <SelectValue placeholder="All locations" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">All Locations</SelectItem>
+                  <SelectItem value="all">All Locations</SelectItem>
                   {(locationsQuery.data as any)?.map?.((loc: any) => (
                     <SelectItem key={loc.id} value={loc.id}>
                       {loc.name || loc.title}

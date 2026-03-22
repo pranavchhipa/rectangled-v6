@@ -462,7 +462,7 @@ export default function EscalationRulesPage() {
                   <SelectValue placeholder="Select team member (optional)" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Unassigned</SelectItem>
+                  <SelectItem value="unassigned">Unassigned</SelectItem>
                   {teamMembers.map((member: any) => (
                     <SelectItem key={member.userId ?? member.id} value={member.userId ?? member.id}>
                       {member.userName ?? member.name ?? member.email ?? 'Unknown'}
