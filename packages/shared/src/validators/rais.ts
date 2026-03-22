@@ -124,3 +124,76 @@ export const getCalendarSchema = z.object({
 export const getContentStatsSchema = z.object({
   workspaceId: z.string().uuid(),
 })
+
+// ---------------------------------------------------------------------------
+// RAIS V2 — Credit System & Multi-step AI Pipeline
+// ---------------------------------------------------------------------------
+
+// --- Credits ---
+
+export const getCreditsSchema = z.object({
+  workspaceId: z.string().uuid(),
+})
+
+export const getCreditLogSchema = z.object({
+  workspaceId: z.string().uuid(),
+  limit: z.number().int().min(1).max(100).default(20),
+})
+
+// --- Step 1: Review Analysis ---
+
+export const analyzeReviewsSchema = z.object({
+  workspaceId: z.string().uuid(),
+  locationId: z.string().uuid().optional(),
+  periodMonths: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(6)]).default(3),
+})
+
+// --- Step 2: Generate Post Ideas ---
+
+export const generatePostIdeasSchema = z.object({
+  workspaceId: z.string().uuid(),
+  analysisId: z.string().uuid(),
+})
+
+// --- Step 3: Generate Post ---
+
+export const generatePostSchema = z.object({
+  workspaceId: z.string().uuid(),
+  ideaIndex: z.number().int().min(0),
+  analysisId: z.string().uuid(),
+})
+
+// --- Step 4: Regenerate Element ---
+
+export const regenerateElementSchema = z.object({
+  workspaceId: z.string().uuid(),
+  postId: z.string().uuid(),
+  element: z.enum(['image', 'title', 'description', 'hashtags', 'offer']),
+})
+
+// --- Step 5: Schedule & Trends ---
+
+export const schedulePostSchema = z.object({
+  workspaceId: z.string().uuid(),
+  postId: z.string().uuid(),
+  scheduledFor: z.string().datetime(),
+  platform: z.string().min(1),
+})
+
+export const getRecentTrendsSchema = z.object({
+  workspaceId: z.string().uuid(),
+  country: z.string().min(1).max(100),
+})
+
+export const getIndustryOpportunitiesSchema = z.object({
+  workspaceId: z.string().uuid(),
+  industry: z.string().min(1).max(200),
+})
+
+// --- Part C: Make Your Own Post ---
+
+export const makeYourOwnPostSchema = z.object({
+  workspaceId: z.string().uuid(),
+  imageUrl: z.string().min(1),
+  websiteUrl: z.string().url().optional(),
+})

@@ -81,3 +81,17 @@ export const generateCouponWithAiSchema = z.object({
   workspaceId: z.string().uuid(),
   prompt: z.string().min(5).max(500),
 })
+
+export const sendCouponViaWhatsAppSchema = z.object({
+  workspaceId: z.string().uuid(),
+  templateId: z.string().uuid(),
+  customerId: z.string().uuid().optional(),
+  reviewId: z.string().uuid().optional(),
+  locationId: z.string().uuid().optional(),
+})
+
+export const preflightCouponWhatsAppSchema = z.object({
+  workspaceId: z.string().uuid(),
+  customerId: z.string().uuid().optional(),
+  locationId: z.string().uuid().optional(),
+})

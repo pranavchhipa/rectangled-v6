@@ -4,7 +4,7 @@ import {
   getJourneyByIdSchema,
   createJourneySchema,
   updateJourneySchema,
-  deleteJourneySchema,
+  archiveJourneySchema,
   updateJourneyScreensSchema,
   getPublicJourneySchema,
   submitJourneyResponseSchema,
@@ -14,7 +14,7 @@ import { JourneyService } from './journey.service'
 export function createJourneyRouter(service: JourneyService) {
   return router({
     list: protectedProcedure.input(listJourneysSchema).query(async ({ input, ctx }) => {
-      return service.list(input.workspaceId, input.locationId, ctx.user.sub)
+      return service.list(input.workspaceId, input.locationId, ctx.user.sub, input.includeArchived)
     }),
 
     getById: protectedProcedure.input(getJourneyByIdSchema).query(async ({ input, ctx }) => {
@@ -29,8 +29,8 @@ export function createJourneyRouter(service: JourneyService) {
       return service.update(input, ctx.user.sub)
     }),
 
-    delete: protectedProcedure.input(deleteJourneySchema).mutation(async ({ input, ctx }) => {
-      return service.delete(input.id, ctx.user.sub)
+    archive: protectedProcedure.input(archiveJourneySchema).mutation(async ({ input, ctx }) => {
+      return service.archive(input.id, ctx.user.sub)
     }),
 
     updateScreens: protectedProcedure

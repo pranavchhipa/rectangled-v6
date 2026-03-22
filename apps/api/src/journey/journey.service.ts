@@ -1,6 +1,6 @@
 import { Injectable, Inject } from '@nestjs/common'
 import { TRPCError } from '@trpc/server'
-import { eq, and, asc, desc } from 'drizzle-orm'
+import { eq, and, asc, desc, isNull } from 'drizzle-orm'
 import { randomUUID } from 'crypto'
 import type { Database } from '@rectangled/db'
 import {
@@ -16,10 +16,11 @@ import {
 export class JourneyService {
   constructor(@Inject('DATABASE') private readonly db: Database) {}
 
-  async list(workspaceId: string, locationId: string | undefined, userId: string) {
+  async list(workspaceId: string, locationId: string | undefined, userId: string, includeArchived = false) {
     await this.requireMembership(workspaceId, userId)
     const conditions = [eq(journeys.workspaceId, workspaceId)]
     if (locationId) conditions.push(eq(journeys.locationId, locationId))
+    if (!includeArchived) conditions.push(isNull(journeys.archivedAt))
 
     return this.db.query.journeys.findMany({
       where: and(...conditions),
@@ -96,11 +97,15 @@ export class JourneyService {
     return updated
   }
 
-  async delete(id: string, userId: string) {
+  async archive(id: string, userId: string) {
     const journey = await this.findOrThrow(id)
     await this.requireMembership(journey.workspaceId, userId)
-    await this.db.delete(journeys).where(eq(journeys.id, id))
-    return { success: true }
+    const [updated] = await this.db
+      .update(journeys)
+      .set({ archivedAt: new Date(), isActive: false, updatedAt: new Date() })
+      .where(eq(journeys.id, id))
+      .returning()
+    return updated
   }
 
   async updateScreens(

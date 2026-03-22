@@ -56,6 +56,7 @@ export const automationTriggerEnum = pgEnum('automation_trigger', [
   'journey_completed_negative',
   'journey_abandoned',
   'review_posted',
+  'review_posted_google',
   'customer_dormant',
   'custom',
 ])
@@ -66,6 +67,7 @@ export const automationActionEnum = pgEnum('automation_action', [
   'create_escalation',
   'tag_customer',
   'trigger_journey',
+  'ai_reply_review',
 ])
 
 export const automationQueueStatusEnum = pgEnum('automation_queue_status', [

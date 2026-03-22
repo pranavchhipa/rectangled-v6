@@ -21,7 +21,6 @@ import {
   AlertTriangle,
   Zap,
   Sparkles,
-  CalendarDays,
 } from 'lucide-react'
 import {
   Sidebar,
@@ -57,7 +56,7 @@ const navItems = [
   { label: 'Post-Review Actions', href: '/dashboard/automations', icon: Zap },
   { label: 'TruForms', href: '/dashboard/truforms', icon: FileText },
   { label: 'Coupons', href: '/dashboard/coupons', icon: Ticket },
-  { label: 'Appointments', href: '/dashboard/appointments', icon: CalendarDays },
+
   { label: 'Customers', href: '/dashboard/customers', icon: Contact },
   { label: 'Connectors', href: '/dashboard/connectors', icon: Plug },
   { label: 'Listings', href: '/dashboard/listings', icon: Building2 },

@@ -24,6 +24,10 @@ import {
   MessageSquare,
   Filter,
   ChevronDown,
+  XCircle,
+  Phone,
+  Loader2,
+  Wifi,
 } from 'lucide-react'
 import { formatDistanceToNow, format } from 'date-fns'
 import { toast } from 'sonner'
@@ -315,17 +319,25 @@ export default function InboxPage() {
     },
   }) ?? null
 
-  // Coupon templates + issue
-  const couponTemplatesQuery = trpc.coupon.listTemplates.useQuery(
-    { workspaceId: currentWorkspaceId! },
-    { enabled: !!currentWorkspaceId && showCouponDialog }
+  // Coupon WhatsApp preflight check
+  const preflightQuery = trpc.coupon.preflightWhatsApp.useQuery(
+    {
+      workspaceId: currentWorkspaceId!,
+      customerId: couponTargetReview?.customerId ?? undefined,
+      locationId: couponTargetReview?.locationId ?? undefined,
+    },
+    { enabled: !!currentWorkspaceId && showCouponDialog && !!couponTargetReview }
   )
 
-  const issueCouponMutation = trpc.coupon.issue.useMutation({
-    onSuccess: () => {
-      toast.success('Coupon sent successfully')
-      setShowCouponDialog(false)
-      setCouponTargetReview(null)
+  const sendCouponMutation = trpc.coupon.sendViaWhatsApp.useMutation({
+    onSuccess: (data) => {
+      if (data.success) {
+        toast.success(data.message || 'Coupon sent via WhatsApp!')
+        setShowCouponDialog(false)
+        setCouponTargetReview(null)
+      } else {
+        toast.error(data.message || 'Failed to send coupon')
+      }
     },
     onError: (error) => {
       toast.error(error.message || 'Failed to send coupon')
@@ -337,15 +349,14 @@ export default function InboxPage() {
     setShowCouponDialog(true)
   }
 
-  const handleIssueCoupon = (templateId: string) => {
+  const handleSendCouponViaWhatsApp = (templateId: string) => {
     if (!couponTargetReview || !currentWorkspaceId) return
-    issueCouponMutation.mutate({
+    sendCouponMutation.mutate({
       workspaceId: currentWorkspaceId,
       templateId,
       customerId: couponTargetReview.customerId ?? undefined,
       locationId: couponTargetReview.locationId ?? undefined,
       reviewId: couponTargetReview.id,
-      deliveryMethod: 'email',
     })
   }
 
@@ -992,101 +1003,261 @@ export default function InboxPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Send Coupon Dialog */}
+      {/* Send Coupon via WhatsApp Dialog */}
       <Dialog
         open={showCouponDialog}
         onOpenChange={(open) => {
           if (!open) {
             setShowCouponDialog(false)
             setCouponTargetReview(null)
+            sendCouponMutation.reset()
           }
         }}
       >
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>Send Coupon</DialogTitle>
+            <DialogTitle className="flex items-center gap-2">
+              <Gift className="size-5 text-purple-500" />
+              Send Coupon via WhatsApp
+            </DialogTitle>
             <DialogDescription>
-              Select a coupon template to send
               {couponTargetReview?.reviewerName
-                ? ` to ${couponTargetReview.reviewerName}`
-                : ''}.
+                ? `Send a coupon to ${couponTargetReview.reviewerName} via WhatsApp.`
+                : 'Send a coupon to this customer via WhatsApp.'}
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-3 py-2 max-h-[400px] overflow-y-auto">
-            {couponTemplatesQuery.isLoading ? (
+
+          <div className="space-y-4 py-2">
+            {/* Preflight checks */}
+            {preflightQuery.isLoading ? (
               <div className="space-y-3">
                 {Array.from({ length: 3 }).map((_, i) => (
-                  <Skeleton key={i} className="h-20 w-full rounded-lg" />
+                  <div key={i} className="flex items-center gap-3 p-3 rounded-lg border">
+                    <Loader2 className="size-5 animate-spin text-muted-foreground" />
+                    <Skeleton className="h-4 w-48" />
+                  </div>
                 ))}
               </div>
-            ) : !couponTemplatesQuery.data?.length ? (
-              <div className="flex flex-col items-center justify-center py-8 text-center">
-                <Gift className="size-8 text-muted-foreground mb-3" />
-                <p className="text-sm font-medium">No coupon templates configured</p>
+            ) : preflightQuery.isError ? (
+              <div className="flex flex-col items-center justify-center py-6 text-center">
+                <XCircle className="size-8 text-red-500 mb-2" />
+                <p className="text-sm font-medium text-red-600">Failed to run pre-flight checks</p>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Go to the Coupons page to create templates.
+                  {preflightQuery.error?.message || 'An unexpected error occurred.'}
                 </p>
                 <Button
                   variant="outline"
                   size="sm"
-                  className="mt-4"
-                  onClick={() => {
-                    setShowCouponDialog(false)
-                    router.push('/dashboard/coupons')
-                  }}
+                  className="mt-3"
+                  onClick={() => preflightQuery.refetch()}
                 >
-                  Go to Coupons
+                  Retry
                 </Button>
               </div>
-            ) : (
-              couponTemplatesQuery.data.map((template: any) => (
-                <Card
-                  key={template.id}
-                  className="p-4 cursor-pointer hover:shadow-md transition-all hover:border-purple-300 dark:hover:border-purple-700"
-                  onClick={() => handleIssueCoupon(template.id)}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold truncate">{template.name}</p>
-                      {template.description && (
-                        <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">
-                          {template.description}
+            ) : preflightQuery.data ? (
+              <>
+                {/* Step 1: Customer Phone */}
+                <div className={`flex items-start gap-3 p-3 rounded-lg border ${
+                  preflightQuery.data.customerPhone.ok
+                    ? 'border-green-200 bg-green-50/50 dark:border-green-800 dark:bg-green-950/20'
+                    : 'border-red-200 bg-red-50/50 dark:border-red-800 dark:bg-red-950/20'
+                }`}>
+                  <div className="mt-0.5">
+                    {preflightQuery.data.customerPhone.ok ? (
+                      <CheckCircle2 className="size-5 text-green-500" />
+                    ) : (
+                      <XCircle className="size-5 text-red-500" />
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium flex items-center gap-1.5">
+                      <Phone className="size-3.5" />
+                      Customer Phone Number
+                    </p>
+                    {preflightQuery.data.customerPhone.ok ? (
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {preflightQuery.data.customerPhone.customerName} &mdash; {preflightQuery.data.customerPhone.phone}
+                      </p>
+                    ) : (
+                      <p className="text-xs text-red-600 dark:text-red-400 mt-0.5">
+                        {preflightQuery.data.customerPhone.message}
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Step 2: WapiSnap connection */}
+                <div className={`flex items-start gap-3 p-3 rounded-lg border ${
+                  preflightQuery.data.wapisnap.ok
+                    ? 'border-green-200 bg-green-50/50 dark:border-green-800 dark:bg-green-950/20'
+                    : 'border-red-200 bg-red-50/50 dark:border-red-800 dark:bg-red-950/20'
+                }`}>
+                  <div className="mt-0.5">
+                    {preflightQuery.data.wapisnap.ok ? (
+                      <CheckCircle2 className="size-5 text-green-500" />
+                    ) : (
+                      <XCircle className="size-5 text-red-500" />
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium flex items-center gap-1.5">
+                      <Wifi className="size-3.5" />
+                      WhatsApp (WapiSnap) Connection
+                    </p>
+                    {preflightQuery.data.wapisnap.ok ? (
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        WhatsApp is connected and ready.
+                      </p>
+                    ) : (
+                      <div>
+                        <p className="text-xs text-red-600 dark:text-red-400 mt-0.5">
+                          {preflightQuery.data.wapisnap.message}
                         </p>
-                      )}
-                      <div className="flex items-center gap-2 mt-2">
-                        <Badge variant="secondary" className="text-xs">
-                          {template.discountType === 'percentage'
-                            ? `${template.discountValue}% off`
-                            : template.discountType === 'flat'
-                              ? `₹${template.discountValue} off`
-                              : 'Freebie'}
-                        </Badge>
-                        <span className="text-xs text-muted-foreground">
-                          Valid {template.validityDays} days
-                        </span>
+                        <Button
+                          variant="link"
+                          size="sm"
+                          className="h-auto p-0 text-xs mt-1"
+                          onClick={() => {
+                            setShowCouponDialog(false)
+                            router.push('/dashboard/connectors')
+                          }}
+                        >
+                          Go to Connectors
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Step 3: Coupon Templates */}
+                <div className={`flex items-start gap-3 p-3 rounded-lg border ${
+                  preflightQuery.data.templates.ok
+                    ? 'border-green-200 bg-green-50/50 dark:border-green-800 dark:bg-green-950/20'
+                    : 'border-red-200 bg-red-50/50 dark:border-red-800 dark:bg-red-950/20'
+                }`}>
+                  <div className="mt-0.5">
+                    {preflightQuery.data.templates.ok ? (
+                      <CheckCircle2 className="size-5 text-green-500" />
+                    ) : (
+                      <XCircle className="size-5 text-red-500" />
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium flex items-center gap-1.5">
+                      <Gift className="size-3.5" />
+                      Coupon Templates
+                    </p>
+                    {preflightQuery.data.templates.ok ? (
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {preflightQuery.data.templates.templates.length} active template{preflightQuery.data.templates.templates.length !== 1 ? 's' : ''} available.
+                      </p>
+                    ) : (
+                      <div>
+                        <p className="text-xs text-red-600 dark:text-red-400 mt-0.5">
+                          {preflightQuery.data.templates.message}
+                        </p>
+                        <Button
+                          variant="link"
+                          size="sm"
+                          className="h-auto p-0 text-xs mt-1"
+                          onClick={() => {
+                            setShowCouponDialog(false)
+                            router.push('/dashboard/coupons')
+                          }}
+                        >
+                          Go to Coupons
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Template selector - only show if all checks pass */}
+                {preflightQuery.data.customerPhone.ok &&
+                  preflightQuery.data.wapisnap.ok &&
+                  preflightQuery.data.templates.ok && (
+                  <>
+                    <Separator />
+                    <div className="space-y-2">
+                      <Label className="text-sm font-medium">Select a coupon template to send</Label>
+                      <div className="space-y-2 max-h-[200px] overflow-y-auto pr-1">
+                        {preflightQuery.data.templates.templates.map((template) => (
+                          <Card
+                            key={template.id}
+                            className={`p-3 cursor-pointer transition-all hover:shadow-md hover:border-purple-300 dark:hover:border-purple-700 ${
+                              sendCouponMutation.isPending ? 'pointer-events-none opacity-60' : ''
+                            }`}
+                            onClick={() => handleSendCouponViaWhatsApp(template.id)}
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-semibold truncate">{template.name}</p>
+                                {template.description && (
+                                  <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">
+                                    {template.description}
+                                  </p>
+                                )}
+                                <div className="flex items-center gap-2 mt-1.5">
+                                  <Badge variant="secondary" className="text-xs">
+                                    {template.discountType === 'percentage'
+                                      ? `${template.discountValue}% off`
+                                      : template.discountType === 'flat'
+                                        ? `₹${template.discountValue} off`
+                                        : 'Freebie'}
+                                  </Badge>
+                                  <span className="text-xs text-muted-foreground">
+                                    Valid {template.validityDays} days
+                                  </span>
+                                </div>
+                              </div>
+                              <Send className="size-4 text-purple-500 shrink-0 mt-1" />
+                            </div>
+                          </Card>
+                        ))}
                       </div>
                     </div>
-                    <Gift className="size-5 text-purple-500 shrink-0 mt-0.5" />
+                  </>
+                )}
+
+                {/* Sending state */}
+                {sendCouponMutation.isPending && (
+                  <div className="flex items-center justify-center gap-2 py-3 text-sm text-muted-foreground">
+                    <Loader2 className="size-4 animate-spin" />
+                    Sending coupon via WhatsApp...
                   </div>
-                </Card>
-              ))
-            )}
+                )}
+
+                {/* Send result error */}
+                {sendCouponMutation.isSuccess && !sendCouponMutation.data?.success && (
+                  <div className="flex items-start gap-2 p-3 rounded-lg border border-red-200 bg-red-50/50 dark:border-red-800 dark:bg-red-950/20">
+                    <XCircle className="size-5 text-red-500 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-sm font-medium text-red-600 dark:text-red-400">Failed to send</p>
+                      <p className="text-xs text-red-600/80 dark:text-red-400/80 mt-0.5">
+                        {sendCouponMutation.data?.message}
+                      </p>
+                      {sendCouponMutation.data?.couponCode && (
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Coupon code <strong>{sendCouponMutation.data.couponCode}</strong> was issued but delivery failed. You can resend manually.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </>
+            ) : null}
           </div>
-          {issueCouponMutation.isPending && (
-            <div className="flex items-center justify-center gap-2 py-2 text-sm text-muted-foreground">
-              <div className="size-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-              Issuing coupon...
-            </div>
-          )}
+
           <DialogFooter>
             <Button
               variant="outline"
               onClick={() => {
                 setShowCouponDialog(false)
                 setCouponTargetReview(null)
+                sendCouponMutation.reset()
               }}
             >
-              Cancel
+              {sendCouponMutation.isSuccess && sendCouponMutation.data?.success ? 'Done' : 'Cancel'}
             </Button>
           </DialogFooter>
         </DialogContent>

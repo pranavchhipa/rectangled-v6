@@ -42,7 +42,7 @@ interface PlatformIconBadgeProps {
   size?: number
 }
 
-export function PlatformIconBadge({ platform, size = 16 }: PlatformIconBadgeProps) {
+export function PlatformIconBadge({ platform, size = 32 }: PlatformIconBadgeProps) {
   const Icon = PLATFORM_ICONS[platform.toLowerCase()]
   if (!Icon) return null
   return <Icon className="shrink-0" style={{ width: size, height: size }} />
@@ -54,9 +54,9 @@ export function PlatformIconRow({ platforms }: { platforms: string[] }) {
     return <span className="text-xs text-muted-foreground">No platforms connected</span>
   }
   return (
-    <div className="flex items-center gap-1.5">
+    <div className="flex items-center gap-2.5">
       {unique.map((p) => (
-        <PlatformIconBadge key={p} platform={p} size={16} />
+        <PlatformIconBadge key={p} platform={p} size={32} />
       ))}
     </div>
   )

@@ -3,6 +3,7 @@ import { z } from 'zod'
 export const listJourneysSchema = z.object({
   workspaceId: z.string().uuid(),
   locationId: z.string().uuid().optional(),
+  includeArchived: z.boolean().optional(),
 })
 
 export const getJourneyByIdSchema = z.object({
@@ -36,6 +37,10 @@ export const updateJourneySchema = z.object({
 })
 
 export const deleteJourneySchema = z.object({
+  id: z.string().uuid(),
+})
+
+export const archiveJourneySchema = z.object({
   id: z.string().uuid(),
 })
 

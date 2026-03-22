@@ -11,6 +11,15 @@ import {
 } from '@rectangled/db'
 import OpenAI from 'openai'
 
+export interface AiAgentResponse {
+  type: 'chat' | 'ticket'
+  message: string
+  subject?: string
+  description?: string
+  priority?: 'low' | 'medium' | 'high'
+  role: 'assistant'
+}
+
 @Injectable()
 export class AiAgentService {
   private readonly logger = new Logger(AiAgentService.name)
@@ -41,7 +50,7 @@ export class AiAgentService {
       history?: Array<{ role: string; content: string }>
     },
     userId: string,
-  ) {
+  ): Promise<AiAgentResponse> {
     // Verify membership
     const membership = await this.db.query.members.findFirst({
       where: and(
@@ -126,15 +135,29 @@ ${recentReviews.map((r) => `  - ${r.reviewerName} (${r.rating}\u2605 on ${r.plat
     const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
       {
         role: 'system',
-        content: `You are the Rectangled AI Assistant \u2014 a helpful chatbot for an Online Reputation Management platform used by Indian SMBs. You have access to the workspace's real-time data. Answer questions about reviews, customers, ratings, trends, coupons, and escalations. Be concise, friendly, and data-driven. Use the workspace context below to provide accurate answers.
+        content: `You are the Rectangled AI Assistant. You chat like a real human \u2014 casual, warm, and to the point. Think of yourself as a friendly colleague who knows everything about the user's business reputation data.
 
 ${contextSummary}
 
-Guidelines:
-- Reference specific data when answering (e.g., "Your average rating is ${avgRating}")
-- Suggest actionable improvements based on the data
-- Keep responses under 200 words
-- Use Indian business context (INR, Indian city names, etc.)`,
+RESPONSE RULES:
+- Keep responses to 2-3 sentences MAX. Be punchy and conversational.
+- NO bullet points, NO markdown formatting, NO headers. Just plain text like a real person texting.
+- Use emojis sparingly but naturally (1-2 per message max).
+- Use casual Indian English where appropriate (e.g., "looking solid yaar", "things are going great boss").
+- Reference specific numbers from the data but weave them into conversation naturally.
+- Example good response: "You're killing it! 4.2 stars avg across 33 reviews, that's solid \ud83d\udd25"
+- Example bad response: "Based on your analytics data, your average rating is 4.2 stars. You have received 33 reviews in total. Here are some suggestions: ..."
+
+TICKET/COMPLAINT DETECTION:
+If the user wants to raise a ticket, report an issue, file a complaint, or needs human support, you MUST respond with ONLY a valid JSON object (no extra text before or after):
+{"type": "ticket", "subject": "short subject line", "description": "detailed description of the issue", "priority": "low|medium|high", "message": "your casual human-like response acknowledging the ticket"}
+
+Choose priority based on urgency: billing/payment issues = high, bugs/broken features = medium, general feedback/questions = low.
+
+For ALL other normal conversations, respond with ONLY a valid JSON object (no extra text before or after):
+{"type": "chat", "message": "your casual human-like response here"}
+
+IMPORTANT: Your entire response must be ONLY the JSON object. No text before or after it.`,
       },
       ...(input.history ?? []).slice(-10).map((m) => ({
         role: m.role as 'user' | 'assistant',
@@ -150,11 +173,35 @@ Guidelines:
       max_tokens: 500,
     })
 
-    return {
-      message:
-        completion.choices[0]?.message?.content ??
-        'Sorry, I could not generate a response.',
-      role: 'assistant' as const,
+    const raw =
+      completion.choices[0]?.message?.content ??
+      '{"type": "chat", "message": "Sorry, I could not generate a response."}'
+
+    // Try to parse JSON response from the AI
+    try {
+      const parsed = JSON.parse(raw)
+      if (parsed.type === 'ticket') {
+        return {
+          type: 'ticket',
+          message: parsed.message || "Got it, I'm raising a ticket for you right away!",
+          subject: parsed.subject || 'Support Request',
+          description: parsed.description || parsed.message,
+          priority: ['low', 'medium', 'high'].includes(parsed.priority) ? parsed.priority : 'medium',
+          role: 'assistant' as const,
+        }
+      }
+      return {
+        type: 'chat',
+        message: parsed.message || raw,
+        role: 'assistant' as const,
+      }
+    } catch {
+      // If AI didn't return valid JSON, treat as plain chat message
+      return {
+        type: 'chat',
+        message: raw,
+        role: 'assistant' as const,
+      }
     }
   }
 }

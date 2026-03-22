@@ -12,12 +12,140 @@ import {
   updateBrandVoiceSchema,
   getCalendarSchema,
   getContentStatsSchema,
+  // RAIS V2
+  analyzeReviewsSchema,
+  generatePostIdeasSchema,
+  generatePostSchema,
+  regenerateElementSchema,
+  schedulePostSchema,
+  getCreditsSchema,
+  getCreditLogSchema,
+  getRecentTrendsSchema,
+  getIndustryOpportunitiesSchema,
+  makeYourOwnPostSchema,
 } from '@rectangled/shared'
 import { RaisService } from './rais.service'
 
 export function createRaisRouter(service: RaisService) {
   return router({
-    // --- AI Generation ---
+    // =========================================================================
+    // RAIS V2 — Credit System & Multi-step AI Pipeline
+    // =========================================================================
+
+    // --- Credits ---
+
+    getCredits: protectedProcedure
+      .input(getCreditsSchema)
+      .query(async ({ input, ctx }) => {
+        return service.getCredits(input.workspaceId)
+      }),
+
+    getCreditLog: protectedProcedure
+      .input(getCreditLogSchema)
+      .query(async ({ input, ctx }) => {
+        return service.getCreditLog(input.workspaceId, input.limit)
+      }),
+
+    // --- Step 1: Analyze Reviews ---
+
+    analyzeReviews: protectedProcedure
+      .input(analyzeReviewsSchema)
+      .mutation(async ({ input, ctx }) => {
+        return service.analyzeReviews(
+          input.workspaceId,
+          ctx.user.sub,
+          input.locationId,
+          input.periodMonths,
+        )
+      }),
+
+    // --- Step 2: Generate Post Ideas ---
+
+    generatePostIdeas: protectedProcedure
+      .input(generatePostIdeasSchema)
+      .mutation(async ({ input, ctx }) => {
+        return service.generatePostIdeas(
+          input.workspaceId,
+          ctx.user.sub,
+          input.analysisId,
+        )
+      }),
+
+    // --- Step 3: Generate Post ---
+
+    generatePost: protectedProcedure
+      .input(generatePostSchema)
+      .mutation(async ({ input, ctx }) => {
+        return service.generatePost(
+          input.workspaceId,
+          ctx.user.sub,
+          input.ideaIndex,
+          input.analysisId,
+        )
+      }),
+
+    // --- Step 4: Regenerate Element ---
+
+    regenerateElement: protectedProcedure
+      .input(regenerateElementSchema)
+      .mutation(async ({ input, ctx }) => {
+        return service.regenerateElement(
+          input.workspaceId,
+          ctx.user.sub,
+          input.postId,
+          input.element,
+        )
+      }),
+
+    // --- Step 5: Schedule & Trends ---
+
+    schedulePost: protectedProcedure
+      .input(schedulePostSchema)
+      .mutation(async ({ input, ctx }) => {
+        return service.schedulePost(
+          input.workspaceId,
+          input.postId,
+          new Date(input.scheduledFor),
+          input.platform,
+        )
+      }),
+
+    getRecentTrends: protectedProcedure
+      .input(getRecentTrendsSchema)
+      .mutation(async ({ input, ctx }) => {
+        return service.getRecentTrends(
+          input.workspaceId,
+          ctx.user.sub,
+          input.country,
+        )
+      }),
+
+    getIndustryOpportunities: protectedProcedure
+      .input(getIndustryOpportunitiesSchema)
+      .mutation(async ({ input, ctx }) => {
+        return service.getIndustryOpportunities(
+          input.workspaceId,
+          ctx.user.sub,
+          input.industry,
+        )
+      }),
+
+    // --- Part C: Make Your Own Post ---
+
+    makeYourOwnPost: protectedProcedure
+      .input(makeYourOwnPostSchema)
+      .mutation(async ({ input, ctx }) => {
+        return service.makeYourOwnPost(
+          input.workspaceId,
+          ctx.user.sub,
+          input.imageUrl,
+          input.websiteUrl,
+        )
+      }),
+
+    // =========================================================================
+    // Legacy — AI Generation
+    // =========================================================================
 
     generateCaption: protectedProcedure
       .input(generateCaptionSchema)
@@ -92,7 +220,7 @@ export function createRaisRouter(service: RaisService) {
           input.workspaceId,
           input.month,
           input.year,
-          ctx.user.sub
+          ctx.user.sub,
         )
       }),
 

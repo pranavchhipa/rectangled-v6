@@ -5,6 +5,7 @@ const automationTriggerEvents = [
   'journey_completed_negative',
   'journey_abandoned',
   'review_posted',
+  'review_posted_google',
   'customer_dormant',
   'custom',
 ] as const
@@ -15,6 +16,7 @@ const automationActionTypes = [
   'create_escalation',
   'tag_customer',
   'trigger_journey',
+  'ai_reply_review',
 ] as const
 
 const automationQueueStatuses = [

@@ -27,7 +27,16 @@ import {
   wapisnapMessages,
   wapisnapSequences,
 } from './wapisnap'
-import { socialPosts, contentCalendar, brandVoice } from './rais'
+import {
+  socialPosts,
+  contentCalendar,
+  brandVoice,
+  raisCredits,
+  raisCreditLog,
+  raisAnalysis,
+  raisPostIdeas,
+  raisGeneratedPosts,
+} from './rais'
 
 export const usersRelations = relations(users, ({ many }) => ({
   members: many(members),
@@ -552,5 +561,55 @@ export const brandVoiceRelations = relations(brandVoice, ({ one }) => ({
   workspace: one(workspaces, {
     fields: [brandVoice.workspaceId],
     references: [workspaces.id],
+  }),
+}))
+
+// RAIS Credits relations
+export const raisCreditsRelations = relations(raisCredits, ({ one }) => ({
+  workspace: one(workspaces, {
+    fields: [raisCredits.workspaceId],
+    references: [workspaces.id],
+  }),
+}))
+
+export const raisCreditLogRelations = relations(raisCreditLog, ({ one }) => ({
+  workspace: one(workspaces, {
+    fields: [raisCreditLog.workspaceId],
+    references: [workspaces.id],
+  }),
+}))
+
+export const raisAnalysisRelations = relations(raisAnalysis, ({ one, many }) => ({
+  workspace: one(workspaces, {
+    fields: [raisAnalysis.workspaceId],
+    references: [workspaces.id],
+  }),
+  location: one(locations, {
+    fields: [raisAnalysis.locationId],
+    references: [locations.id],
+  }),
+  postIdeas: many(raisPostIdeas),
+}))
+
+export const raisPostIdeasRelations = relations(raisPostIdeas, ({ one, many }) => ({
+  analysis: one(raisAnalysis, {
+    fields: [raisPostIdeas.analysisId],
+    references: [raisAnalysis.id],
+  }),
+  workspace: one(workspaces, {
+    fields: [raisPostIdeas.workspaceId],
+    references: [workspaces.id],
+  }),
+  generatedPosts: many(raisGeneratedPosts),
+}))
+
+export const raisGeneratedPostsRelations = relations(raisGeneratedPosts, ({ one }) => ({
+  workspace: one(workspaces, {
+    fields: [raisGeneratedPosts.workspaceId],
+    references: [workspaces.id],
+  }),
+  idea: one(raisPostIdeas, {
+    fields: [raisGeneratedPosts.ideaId],
+    references: [raisPostIdeas.id],
   }),
 }))

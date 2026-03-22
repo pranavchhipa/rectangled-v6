@@ -86,7 +86,7 @@ export const appRouter = router({
   listing: createListingRouter(null as any),
   billing: createBillingRouter(null as any),
   aiResponse: createAiResponseRouter(null as any),
-  coupon: createCouponRouter(null as any),
+  coupon: createCouponRouter(null as any, null as any, null as any, null as any),
   cxRouting: createCxRoutingRouter(null as any),
   notification: createNotificationRouter(null as any),
   qr: createQrRouter(null as any),
@@ -98,7 +98,7 @@ export const appRouter = router({
   wapisnap: createWapisnapRouter(null as any),
   rais: createRaisRouter(null as any),
   appointment: createAppointmentRouter(null as any),
-  aiAgent: createAiAgentRouter(null as any),
+  aiAgent: createAiAgentRouter(null as any, null as any),
 })
 
 export type AppRouter = typeof appRouter
@@ -165,7 +165,7 @@ export class TrpcRouter implements OnModuleInit {
       listing: createListingRouter(this.listingService),
       billing: createBillingRouter(this.billingService),
       aiResponse: createAiResponseRouter(this.aiResponseAutomationService),
-      coupon: createCouponRouter(this.couponService),
+      coupon: createCouponRouter(this.couponService, this.wapisnapService, this.customerService, this.connectorService),
       cxRouting: createCxRoutingRouter(this.cxRoutingService),
       notification: createNotificationRouter(this.notificationService),
       qr: createQrRouter(this.qrService),
@@ -177,7 +177,7 @@ export class TrpcRouter implements OnModuleInit {
       wapisnap: createWapisnapRouter(this.wapisnapService),
       rais: createRaisRouter(this.raisService),
       appointment: createAppointmentRouter(this.appointmentService),
-      aiAgent: createAiAgentRouter(this.aiAgentService),
+      aiAgent: createAiAgentRouter(this.aiAgentService, this.emailService),
     })
 
     const app = this.httpAdapterHost.httpAdapter.getInstance()

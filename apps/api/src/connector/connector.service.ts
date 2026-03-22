@@ -65,6 +65,17 @@ const SEED_CONNECTOR_TYPES = [
     configSchema: { calendarId: 'string' },
     isActive: true,
   },
+  {
+    id: 'instagram',
+    name: 'Instagram Business',
+    description:
+      'Connect your Instagram Business account to share posts and stories directly from your dashboard',
+    iconUrl: null,
+    authType: 'oauth',
+    bindingLevel: 'workspace' as const,
+    configSchema: {},
+    isActive: true,
+  },
 ]
 
 @Injectable()

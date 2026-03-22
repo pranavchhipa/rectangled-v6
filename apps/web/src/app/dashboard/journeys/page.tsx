@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import {
   Route,
   Plus,
-  Trash2,
+  Archive,
   ExternalLink,
   Calendar,
   Layers,
@@ -188,11 +188,12 @@ export default function JourneysPage() {
 
   const [createOpen, setCreateOpen] = useState(false)
   const [newName, setNewName] = useState('')
-  const [deleteId, setDeleteId] = useState<string | null>(null)
+  const [archiveId, setArchiveId] = useState<string | null>(null)
   const [qrJourney, setQrJourney] = useState<{ id: string; slug: string } | null>(null)
+  const [showArchived, setShowArchived] = useState(false)
 
   const journeysQuery = trpc.journey.list.useQuery(
-    { workspaceId: currentWorkspaceId! },
+    { workspaceId: currentWorkspaceId!, includeArchived: showArchived },
     { enabled: !!currentWorkspaceId }
   )
 
@@ -218,14 +219,14 @@ export default function JourneysPage() {
     },
   })
 
-  const deleteMutation = trpc.journey.delete.useMutation({
+  const archiveMutation = trpc.journey.archive.useMutation({
     onSuccess: () => {
-      toast.success('Journey deleted')
-      setDeleteId(null)
+      toast.success('Journey archived')
+      setArchiveId(null)
       utils.journey.list.invalidate()
     },
     onError: (error) => {
-      toast.error(error.message || 'Failed to delete journey')
+      toast.error(error.message || 'Failed to archive journey')
     },
   })
 
@@ -294,6 +295,18 @@ export default function JourneysPage() {
         </Dialog>
       </div>
 
+      {/* Archived filter */}
+      <div className="flex items-center gap-2">
+        <Switch
+          checked={showArchived}
+          onCheckedChange={setShowArchived}
+          id="show-archived"
+        />
+        <Label htmlFor="show-archived" className="text-sm text-muted-foreground cursor-pointer">
+          Show archived journeys
+        </Label>
+      </div>
+
       {/* Content */}
       {journeysQuery.isLoading ? (
         <JourneySkeletons />
@@ -324,8 +337,8 @@ export default function JourneysPage() {
                   <CardTitle className="text-base truncate pr-2">
                     {journey.name}
                   </CardTitle>
-                  <Badge variant={journey.isActive ? 'default' : 'secondary'}>
-                    {journey.isActive ? 'Active' : 'Inactive'}
+                  <Badge variant={journey.archivedAt ? 'outline' : journey.isActive ? 'default' : 'secondary'}>
+                    {journey.archivedAt ? 'Archived' : journey.isActive ? 'Active' : 'Inactive'}
                   </Badge>
                 </div>
                 <CardDescription className="font-mono text-xs">
@@ -418,11 +431,11 @@ export default function JourneysPage() {
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="size-8 text-destructive hover:text-destructive"
-                      title="Delete"
-                      onClick={() => setDeleteId(journey.id)}
+                      className="size-8 text-muted-foreground hover:text-foreground"
+                      title="Archive"
+                      onClick={() => setArchiveId(journey.id)}
                     >
-                      <Trash2 className="size-3.5" />
+                      <Archive className="size-3.5" />
                     </Button>
                   </div>
                 </div>
@@ -432,33 +445,32 @@ export default function JourneysPage() {
         </div>
       )}
 
-      {/* Delete confirmation dialog */}
+      {/* Archive confirmation dialog */}
       <Dialog
-        open={!!deleteId}
+        open={!!archiveId}
         onOpenChange={(open) => {
-          if (!open) setDeleteId(null)
+          if (!open) setArchiveId(null)
         }}
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Delete Journey</DialogTitle>
+            <DialogTitle>Archive Journey</DialogTitle>
             <DialogDescription>
-              Are you sure you want to delete this journey? This action cannot be
-              undone. All screens and responses will be permanently removed.
+              Are you sure you want to archive this journey? It will be deactivated
+              and hidden from the list. You can view archived journeys later.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteId(null)}>
+            <Button variant="outline" onClick={() => setArchiveId(null)}>
               Cancel
             </Button>
             <Button
-              variant="destructive"
               onClick={() => {
-                if (deleteId) deleteMutation.mutate({ id: deleteId })
+                if (archiveId) archiveMutation.mutate({ id: archiveId })
               }}
-              disabled={deleteMutation.isPending}
+              disabled={archiveMutation.isPending}
             >
-              {deleteMutation.isPending ? 'Deleting...' : 'Delete'}
+              {archiveMutation.isPending ? 'Archiving...' : 'Archive'}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useRef, useCallback } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import {
   BarChart3,
@@ -12,7 +12,17 @@ import {
   Heart,
   Users,
   Shield,
+  Download,
+  Loader2,
 } from 'lucide-react'
+// Dynamic imports for PDF generation (avoid SSR/webpack issues)
+const loadPdfLibs = async () => {
+  const [{ default: html2canvas }, { jsPDF }] = await Promise.all([
+    import('html2canvas-pro'),
+    import('jspdf'),
+  ])
+  return { html2canvas, jsPDF }
+}
 import { trpc } from '@/lib/trpc'
 import { useAuthStore } from '@/stores/auth-store'
 import {
@@ -184,6 +194,8 @@ function StarRatingDisplay({ rating }: { rating: number }) {
 // ─── Main Analytics Page ───
 export default function AnalyticsPage() {
   const { currentWorkspaceId } = useAuthStore()
+  const analyticsRef = useRef<HTMLDivElement>(null)
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false)
 
   const [dateRange, setDateRange] = useState<{ from?: Date; to?: Date }>({
     from: new Date(Date.now() - 30 * 86400000),
@@ -303,6 +315,138 @@ export default function AnalyticsPage() {
     return '#EF4444'
   }
 
+  const generatePDF = useCallback(async () => {
+    const element = analyticsRef.current
+    if (!element) return
+
+    setIsGeneratingPdf(true)
+    toast.info('Generating PDF... please wait.')
+
+    try {
+      // Temporarily show all tab contents for a full capture
+      const tabPanels = element.querySelectorAll<HTMLElement>('[role="tabpanel"]')
+      const originalStates = new Map<HTMLElement, { display: string; hidden: boolean }>()
+
+      tabPanels.forEach((panel) => {
+        originalStates.set(panel, {
+          display: panel.style.display,
+          hidden: panel.hidden,
+        })
+        panel.style.display = 'block'
+        panel.hidden = false
+        panel.removeAttribute('data-state')
+        panel.setAttribute('data-state', 'active')
+      })
+
+      // Hide the TabsList (tab buttons) during capture so it looks cleaner
+      const tabsList = element.querySelector<HTMLElement>('[role="tablist"]')
+      let tabsListOriginalDisplay = ''
+      if (tabsList) {
+        tabsListOriginalDisplay = tabsList.style.display
+        tabsList.style.display = 'none'
+      }
+
+      // Small delay to let the DOM update
+      await new Promise((r) => setTimeout(r, 300))
+
+      const { html2canvas, jsPDF } = await loadPdfLibs()
+      const canvas = await html2canvas(element, {
+        scale: 2,
+        useCORS: true,
+        logging: false,
+        backgroundColor: '#ffffff',
+        windowWidth: 1400,
+      })
+
+      // Restore original tab states
+      tabPanels.forEach((panel) => {
+        const original = originalStates.get(panel)
+        if (original) {
+          panel.style.display = original.display
+          panel.hidden = original.hidden
+        }
+      })
+      if (tabsList) {
+        tabsList.style.display = tabsListOriginalDisplay
+      }
+
+      const imgData = canvas.toDataURL('image/jpeg', 0.95)
+      const pdf = new jsPDF('landscape', 'mm', 'a4')
+
+      const pdfWidth = pdf.internal.pageSize.getWidth()
+      const pdfHeight = pdf.internal.pageSize.getHeight()
+
+      // Header
+      pdf.setFontSize(20)
+      pdf.setTextColor(79, 70, 229)
+      pdf.text('Rectangled.io - Analytics Report', 14, 15)
+      pdf.setFontSize(10)
+      pdf.setTextColor(107, 114, 128)
+
+      const fromStr = dateRange.from
+        ? dateRange.from.toLocaleDateString('en-IN', { dateStyle: 'medium' })
+        : ''
+      const toStr = dateRange.to
+        ? dateRange.to.toLocaleDateString('en-IN', { dateStyle: 'medium' })
+        : ''
+      pdf.text(
+        `Period: ${fromStr} - ${toStr}  |  Generated on ${new Date().toLocaleDateString('en-IN', { dateStyle: 'long' })}`,
+        14,
+        22,
+      )
+
+      // Separator line
+      pdf.setDrawColor(229, 231, 235)
+      pdf.setLineWidth(0.5)
+      pdf.line(14, 25, pdfWidth - 14, 25)
+
+      // Calculate image dimensions
+      const imgWidth = pdfWidth - 20
+      const imgHeight = (canvas.height * imgWidth) / canvas.width
+      const headerOffset = 30
+      const usablePageHeight = pdfHeight - headerOffset - 10 // 10mm bottom margin
+
+      let heightLeft = imgHeight
+      let position = headerOffset
+
+      // First page
+      pdf.addImage(imgData, 'JPEG', 10, position, imgWidth, imgHeight)
+      heightLeft -= usablePageHeight
+
+      // Add remaining pages if content overflows
+      while (heightLeft > 0) {
+        pdf.addPage()
+        position = -(imgHeight - heightLeft) + 10
+        pdf.addImage(imgData, 'JPEG', 10, position, imgWidth, imgHeight)
+        heightLeft -= pdfHeight
+      }
+
+      // Footer on all pages
+      const totalPages = pdf.getNumberOfPages()
+      for (let i = 1; i <= totalPages; i++) {
+        pdf.setPage(i)
+        pdf.setFontSize(8)
+        pdf.setTextColor(156, 163, 175)
+        pdf.text(
+          `Page ${i} of ${totalPages}  |  Rectangled.io`,
+          pdfWidth / 2,
+          pdfHeight - 5,
+          { align: 'center' },
+        )
+      }
+
+      pdf.save(
+        `rectangled-analytics-${new Date().toISOString().split('T')[0]}.pdf`,
+      )
+      toast.success('PDF downloaded successfully!')
+    } catch (err) {
+      console.error('PDF generation failed:', err)
+      toast.error('Failed to generate PDF. Please try again.')
+    } finally {
+      setIsGeneratingPdf(false)
+    }
+  }, [dateRange])
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -347,6 +491,22 @@ export default function AnalyticsPage() {
               ))}
             </SelectContent>
           </Select>
+
+          {hasData && (
+            <Button
+              onClick={generatePDF}
+              disabled={isGeneratingPdf}
+              variant="outline"
+              className="gap-1.5"
+            >
+              {isGeneratingPdf ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <Download className="size-4" />
+              )}
+              {isGeneratingPdf ? 'Generating...' : 'Download PDF'}
+            </Button>
+          )}
         </div>
       </div>
 
@@ -369,7 +529,7 @@ export default function AnalyticsPage() {
 
       {/* Analytics content */}
       {!isLoading && hasData && analytics && (
-        <div className="space-y-6">
+        <div ref={analyticsRef} className="space-y-6">
           {/* KPI Cards Row */}
           <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
             <KpiCard

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
-import { Send, X, Loader2 } from 'lucide-react'
+import { Send, X, Loader2, CheckCircle2 } from 'lucide-react'
 import { trpc } from '@/lib/trpc'
 import { useAuthStore } from '@/stores/auth-store'
 import { Button } from '@/components/ui/button'
@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input'
 interface ChatMessage {
   role: 'user' | 'assistant'
   content: string
+  ticketRef?: string
 }
 
 function AiLogo({ className }: { className?: string }) {
@@ -38,18 +39,48 @@ function AiLogo({ className }: { className?: string }) {
 }
 
 export function AiChatWidget() {
-  const { currentWorkspaceId } = useAuthStore()
+  const { currentWorkspaceId, user } = useAuthStore()
   const [isOpen, setIsOpen] = useState(false)
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
   const scrollRef = useRef<HTMLDivElement>(null)
 
+  const raiseTicketMutation = trpc.aiAgent?.raiseTicket?.useMutation?.()
+
   const chatMutation = trpc.aiAgent?.chat?.useMutation?.({
     onSuccess: (data: any) => {
-      setMessages((prev) => [
-        ...prev,
-        { role: 'assistant', content: data.message },
-      ])
+      if (data.type === 'ticket' && data.subject && currentWorkspaceId) {
+        // Raise the ticket via the backend
+        raiseTicketMutation?.mutate?.(
+          {
+            workspaceId: currentWorkspaceId,
+            subject: data.subject,
+            description: data.description || data.message,
+            priority: data.priority || 'medium',
+            userEmail: user?.email || 'unknown@rectangled.io',
+          },
+          {
+            onSuccess: (ticketData: any) => {
+              setMessages((prev) => [
+                ...prev,
+                { role: 'assistant', content: data.message, ticketRef: ticketData.ticketRef },
+              ])
+            },
+            onError: () => {
+              // Still show the AI message even if ticket email fails
+              setMessages((prev) => [
+                ...prev,
+                { role: 'assistant', content: data.message },
+              ])
+            },
+          },
+        )
+      } else {
+        setMessages((prev) => [
+          ...prev,
+          { role: 'assistant', content: data.message },
+        ])
+      }
     },
     onError: () => {
       setMessages((prev) => [
@@ -78,7 +109,7 @@ export function AiChatWidget() {
     chatMutation?.mutate?.({
       workspaceId: currentWorkspaceId,
       message: input.trim(),
-      history: messages,
+      history: messages.map((m) => ({ role: m.role, content: m.content })),
     })
   }
 
@@ -144,7 +175,7 @@ export function AiChatWidget() {
                     'How are my reviews?',
                     'Average rating trend?',
                     'Any escalations?',
-                    'Suggest improvements',
+                    'I want to raise a ticket',
                   ].map((q) => (
                     <button
                       key={q}
@@ -159,28 +190,48 @@ export function AiChatWidget() {
             )}
 
             {messages.map((msg, i) => (
-              <div
-                key={i}
-                className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
-              >
-                {msg.role === 'assistant' && (
-                  <div className="flex size-6 items-center justify-center rounded-md bg-primary/10 mr-2 mt-1 shrink-0">
-                    <AiLogo className="size-4 text-primary" />
+              <div key={i}>
+                <div
+                  className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                >
+                  {msg.role === 'assistant' && (
+                    <div className="flex size-6 items-center justify-center rounded-md bg-primary/10 mr-2 mt-1 shrink-0">
+                      <AiLogo className="size-4 text-primary" />
+                    </div>
+                  )}
+                  <div
+                    className={`max-w-[80%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed ${
+                      msg.role === 'user'
+                        ? 'rounded-br-sm bg-primary text-primary-foreground'
+                        : 'rounded-bl-sm bg-muted'
+                    }`}
+                  >
+                    {msg.content}
+                  </div>
+                </div>
+                {/* Ticket success card */}
+                {msg.ticketRef && (
+                  <div className="ml-8 mt-2">
+                    <div className="rounded-xl border border-emerald-200 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/30 p-3">
+                      <div className="flex items-center gap-2 mb-1.5">
+                        <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400" />
+                        <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-300">
+                          Ticket Raised Successfully
+                        </span>
+                      </div>
+                      <p className="text-xs text-emerald-600 dark:text-emerald-400 font-mono">
+                        Ref: {msg.ticketRef}
+                      </p>
+                      <p className="text-[11px] text-emerald-600/80 dark:text-emerald-400/80 mt-1">
+                        Our team will get back to you soon!
+                      </p>
+                    </div>
                   </div>
                 )}
-                <div
-                  className={`max-w-[80%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed ${
-                    msg.role === 'user'
-                      ? 'rounded-br-sm bg-primary text-primary-foreground'
-                      : 'rounded-bl-sm bg-muted'
-                  }`}
-                >
-                  {msg.content}
-                </div>
               </div>
             ))}
 
-            {chatMutation?.isPending && (
+            {(chatMutation?.isPending || raiseTicketMutation?.isPending) && (
               <div className="flex justify-start">
                 <div className="flex size-6 items-center justify-center rounded-md bg-primary/10 mr-2 mt-1 shrink-0">
                   <AiLogo className="size-4 text-primary" />
@@ -205,15 +256,15 @@ export function AiChatWidget() {
                 onKeyDown={handleKeyDown}
                 placeholder="Ask anything..."
                 className="text-sm"
-                disabled={chatMutation?.isPending}
+                disabled={chatMutation?.isPending || raiseTicketMutation?.isPending}
               />
               <Button
                 size="icon"
                 onClick={handleSend}
-                disabled={!input.trim() || chatMutation?.isPending}
+                disabled={!input.trim() || chatMutation?.isPending || raiseTicketMutation?.isPending}
                 className="shrink-0"
               >
-                {chatMutation?.isPending ? (
+                {(chatMutation?.isPending || raiseTicketMutation?.isPending) ? (
                   <Loader2 className="size-4 animate-spin" />
                 ) : (
                   <Send className="size-4" />

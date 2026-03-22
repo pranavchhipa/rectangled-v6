@@ -1,13 +1,31 @@
-import { Injectable, Inject } from '@nestjs/common'
+import { Injectable, Inject, Logger } from '@nestjs/common'
 import { TRPCError } from '@trpc/server'
 import { eq, and, lte, sql, desc, count } from 'drizzle-orm'
 import { randomUUID } from 'crypto'
+import OpenAI from 'openai'
 import type { Database } from '@rectangled/db'
-import { automationRules, automationQueue, members } from '@rectangled/db'
+import { automationRules, automationQueue, members, reviews, connectorInstances, workspaces } from '@rectangled/db'
+import { GbpAdapter } from '../connector/adapters/gbp.adapter'
+
+const openrouter = new OpenAI({
+  apiKey: process.env.OPENROUTER_API_KEY || '',
+  baseURL: process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1',
+  defaultHeaders: {
+    'HTTP-Referer': process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000',
+    'X-Title': 'OptimizerV6 - Rectangled.io',
+  },
+})
+
+const AI_MODEL = process.env.AI_MODEL || 'openai/gpt-4o-mini'
 
 @Injectable()
 export class AutomationService {
-  constructor(@Inject('DATABASE') private readonly db: Database) {}
+  private readonly logger = new Logger(AutomationService.name)
+
+  constructor(
+    @Inject('DATABASE') private readonly db: Database,
+    private readonly gbpAdapter: GbpAdapter,
+  ) {}
 
   // --- Rule CRUD ---
 
@@ -345,13 +363,208 @@ export class AutomationService {
   // --- Private helpers ---
 
   private async executeAction(queueItem: any) {
-    // Stub implementation — log and mark complete
-    // Future: dispatch to actual action handlers based on rule.actionType
     const rule = queueItem.rule
     if (!rule) return
 
-    console.log(
-      `[Automation] Executing action: ${rule.actionType} for rule "${rule.name}" (queue: ${queueItem.id})`
+    this.logger.log(
+      `Executing action: ${rule.actionType} for rule "${rule.name}" (queue: ${queueItem.id})`
+    )
+
+    switch (rule.actionType) {
+      case 'ai_reply_review':
+        await this.executeAiReplyToReview(queueItem)
+        break
+      default:
+        // Stub for other action types
+        this.logger.log(`Action type "${rule.actionType}" is not yet implemented`)
+        break
+    }
+  }
+
+  /**
+   * Execute the AI Reply to Review action:
+   * 1. Load the review from DB
+   * 2. Check rating filter from actionConfig
+   * 3. Generate an AI reply via the AI response service
+   * 4. Post the reply to Google via the GBP adapter
+   */
+  private async executeAiReplyToReview(queueItem: any) {
+    const rule = queueItem.rule
+    const actionConfig = (rule?.actionConfig ?? {}) as Record<string, unknown>
+    const reviewId = queueItem.reviewId
+
+    if (!reviewId) {
+      throw new Error('No reviewId associated with this queue item')
+    }
+
+    // 1. Load the review
+    const review = await this.db.query.reviews.findFirst({
+      where: eq(reviews.id, reviewId),
+    })
+
+    if (!review) {
+      throw new Error(`Review not found: ${reviewId}`)
+    }
+
+    // 2. Check rating filter
+    const ratingFilter = (actionConfig.ratingFilter as string) ?? 'all'
+    if (ratingFilter === 'positive' && review.rating < 4) {
+      this.logger.log(`Skipping AI reply: review rating ${review.rating} does not match filter "positive"`)
+      return
+    }
+    if (ratingFilter === 'negative' && review.rating > 3) {
+      this.logger.log(`Skipping AI reply: review rating ${review.rating} does not match filter "negative"`)
+      return
+    }
+
+    // 3. Generate AI reply
+    const tone = (actionConfig.tone as string) ?? 'professional'
+    const includeBusinessName = actionConfig.includeBusinessName !== false
+    const maxLength = (actionConfig.maxLength as string) ?? 'medium'
+
+    const maxTokensMap: Record<string, number> = {
+      short: 80,
+      medium: 150,
+      long: 250,
+    }
+
+    // Fetch workspace name for business context
+    let businessName = 'our business'
+    if (includeBusinessName) {
+      const workspace = await this.db.query.workspaces.findFirst({
+        where: eq(workspaces.id, review.workspaceId),
+      })
+      if (workspace?.name) {
+        businessName = workspace.name
+      }
+    }
+
+    let replyText: string
+
+    // Try AI generation, fall back to template
+    if (process.env.OPENROUTER_API_KEY) {
+      try {
+        const toneDesc = tone === 'professional' ? 'professional and polished'
+          : tone === 'friendly' ? 'warm, friendly and approachable'
+          : 'casual and conversational'
+
+        const wordLimit = maxLength === 'short' ? 50 : maxLength === 'long' ? 150 : 100
+
+        const systemPrompt = `You are a review response writer for "${businessName}". Write responses that sound like a real human business owner, NOT like an AI.
+
+Rules:
+- Tone: ${toneDesc}
+- Keep it under ${wordLimit} words.
+- NEVER use phrases like "I'm sorry to hear" or "Thank you for your valuable feedback" - these scream AI.
+- Use natural language with slight imperfections (contractions, occasional informal phrasing).
+- Address specific points from the review when possible.
+- For negative reviews: acknowledge the issue, take responsibility, offer to make it right.
+- For positive reviews: be genuinely grateful, mention something specific they liked.
+- If the reviewer name is available, use their first name naturally (not in every sentence).
+- Do NOT use emojis unless the tone is "friendly" (max 1 emoji).
+- Do NOT include a sign-off like "Best regards" or "Sincerely" - just end naturally.
+- ${includeBusinessName ? `Mention "${businessName}" naturally once.` : 'Do NOT mention any business name.'}`
+
+        const reviewText = review.text || '(no text, just a rating)'
+        const reviewerName = review.reviewerName || 'the customer'
+
+        const userPrompt = `Review from ${reviewerName} (${review.rating}/5 stars):
+"${reviewText}"
+
+Write a response:`
+
+        const completion = await openrouter.chat.completions.create({
+          model: AI_MODEL,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPrompt },
+          ],
+          max_tokens: maxTokensMap[maxLength] ?? 150,
+          temperature: 0.85,
+        })
+
+        replyText = completion.choices[0]?.message?.content?.trim() || ''
+      } catch (aiErr) {
+        this.logger.warn(`AI generation failed, using template fallback: ${aiErr}`)
+        replyText = ''
+      }
+    } else {
+      replyText = ''
+    }
+
+    // Fallback to template if AI generation failed or returned empty
+    if (!replyText) {
+      const isPositive = review.rating >= 4
+      const name = review.reviewerName ? `, ${review.reviewerName.split(' ')[0]}` : ''
+      replyText = isPositive
+        ? `Thank you for your wonderful review${name}! We're thrilled to hear about your positive experience${includeBusinessName ? ` at ${businessName}` : ''}. We look forward to serving you again.`
+        : `Thank you for your feedback${name}. We're sorry your experience${includeBusinessName ? ` at ${businessName}` : ''} didn't meet expectations. We'd love the opportunity to make things right.`
+    }
+
+    // 4. Post the reply to Google via GBP adapter
+    // Find the connector instance for this review's location to get access token
+    const connector = await this.db.query.connectorInstances.findFirst({
+      where: and(
+        eq(connectorInstances.workspaceId, review.workspaceId),
+        eq(connectorInstances.connectorTypeId, 'gbp'),
+        eq(connectorInstances.status, 'active' as any),
+      ),
+    })
+
+    if (!connector) {
+      throw new Error('No active GBP connector found for this workspace')
+    }
+
+    const credentials = connector.credentials as Record<string, unknown>
+    let accessToken = credentials.accessToken as string
+
+    if (!accessToken) {
+      throw new Error('No access token in GBP connector credentials')
+    }
+
+    // Check if token might be expired and refresh if possible
+    const expiresAt = credentials.expiresAt as string
+    if (expiresAt && new Date(expiresAt) < new Date()) {
+      const refreshToken = credentials.refreshToken as string
+      if (refreshToken) {
+        try {
+          const refreshed = await this.gbpAdapter.refreshAccessToken(refreshToken)
+          accessToken = refreshed.accessToken
+
+          // Update stored credentials
+          await this.db
+            .update(connectorInstances)
+            .set({
+              credentials: {
+                ...credentials,
+                accessToken: refreshed.accessToken,
+                expiresAt: refreshed.expiresAt,
+              },
+              updatedAt: new Date(),
+            })
+            .where(eq(connectorInstances.id, connector.id))
+        } catch (refreshErr) {
+          this.logger.error(`Failed to refresh GBP token: ${refreshErr}`)
+          throw new Error('GBP access token expired and refresh failed')
+        }
+      }
+    }
+
+    // The review metadata should contain the GBP review resource name
+    const reviewMetadata = (review.metadata ?? {}) as Record<string, unknown>
+    const reviewResourceName = reviewMetadata.gbpReviewName as string
+      || reviewMetadata.reviewName as string
+      || reviewMetadata.name as string
+
+    if (!reviewResourceName) {
+      throw new Error('No GBP review resource name found in review metadata. Cannot post reply.')
+    }
+
+    // Post the reply
+    await this.gbpAdapter.replyToReview(accessToken, reviewResourceName, replyText)
+
+    this.logger.log(
+      `AI reply posted to Google review ${reviewId} (resource: ${reviewResourceName})`
     )
   }
 

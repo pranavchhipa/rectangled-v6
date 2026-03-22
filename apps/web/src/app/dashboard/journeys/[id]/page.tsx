@@ -75,6 +75,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { PlatformIconBadge } from '@/components/ui/platform-icons'
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -252,32 +253,33 @@ function PhonePreview({ screen, brandColor = '#6366f1' }: { screen: ScreenDraft 
         )}
 
         {screen.screenType === 'review_redirect' && (
-          <div className="space-y-3">
+          <div className="space-y-4">
             <p className="text-sm text-gray-600 dark:text-gray-400">{screen.config.message}</p>
-            {(screen.config.links ?? []).map((link: any, i: number) => {
-              const platformColors: Record<string, string> = {
-                Google: 'border-blue-200 bg-blue-50 hover:bg-blue-100 text-blue-700',
-                Zomato: 'border-red-200 bg-red-50 hover:bg-red-100 text-red-700',
-                Facebook: 'border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-700',
-              }
-              const colorClass = platformColors[link.platform] ?? 'hover:bg-gray-50'
-              return (
-                <a
-                  key={i}
-                  href={link.url || '#'}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className={`flex w-full items-center gap-3 rounded-lg border p-3 text-sm font-medium transition-colors ${colorClass}`}
-                >
-                  <ExternalLink className="size-4" />
-                  Review on {link.platform || 'Platform'}
-                </a>
-              )
-            })}
-            {(screen.config.links ?? []).length === 0 && (
-              <div className="flex w-full items-center gap-3 rounded-lg border p-3 text-sm text-gray-500">
-                <ExternalLink className="size-4" />
-                No review platforms configured
+            {(screen.config.links ?? []).length > 0 ? (
+              <div className="flex flex-wrap justify-center gap-6 pt-2">
+                {(screen.config.links ?? []).map((link: any, i: number) => (
+                  <a
+                    key={i}
+                    href={link.url || '#'}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex flex-col items-center gap-2 rounded-xl border bg-white dark:bg-gray-900 p-4 shadow-sm transition-all hover:shadow-md hover:scale-105 min-w-[90px]"
+                  >
+                    <PlatformIconBadge platform={link.platform} size={48} />
+                    <span className="text-xs font-medium text-gray-700 dark:text-gray-300">
+                      Review us on
+                    </span>
+                    <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                      {link.platform || 'Platform'}
+                    </span>
+                  </a>
+                ))}
+              </div>
+            ) : (
+              <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed p-6 text-center text-gray-500">
+                <ExternalLink className="size-6 text-muted-foreground/40" />
+                <p className="text-sm">No review platforms configured</p>
+                <p className="text-xs text-muted-foreground">Add platforms in the screen settings</p>
               </div>
             )}
           </div>
@@ -1904,7 +1906,10 @@ export default function JourneyBuilderPage() {
                         return (
                           <div key={platform.id} className={`rounded-lg border p-3 ${platform.color}`}>
                             <div className="flex items-center justify-between mb-2">
-                              <span className="text-sm font-medium">{platform.id}</span>
+                              <div className="flex items-center gap-2">
+                                <PlatformIconBadge platform={platform.id} size={20} />
+                                <span className="text-sm font-medium">{platform.id}</span>
+                              </div>
                               <Checkbox
                                 checked={!!existing}
                                 onCheckedChange={(checked) => {

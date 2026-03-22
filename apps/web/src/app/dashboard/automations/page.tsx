@@ -20,10 +20,12 @@ import {
   CheckCircle2,
   ListChecks,
   Loader2,
+  Sparkles,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { trpc } from '@/lib/trpc'
 import { useAuthStore } from '@/stores/auth-store'
+import { GoogleIcon } from '@/components/ui/platform-icons'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -61,6 +63,7 @@ const triggerEvents = [
   { value: 'journey_completed_negative', label: 'Journey completed (negative)', icon: AlertTriangle },
   { value: 'journey_abandoned', label: 'Journey abandoned', icon: Pause },
   { value: 'review_posted', label: 'New review posted', icon: Star },
+  { value: 'review_posted_google', label: 'Review posted on Google', icon: GoogleIcon },
   { value: 'customer_dormant', label: 'Customer dormant', icon: Clock },
   { value: 'custom', label: 'Custom event', icon: Zap },
 ] as const
@@ -71,6 +74,7 @@ const actionTypes = [
   { value: 'create_escalation', label: 'Create escalation', icon: AlertTriangle },
   { value: 'tag_customer', label: 'Tag customer', icon: Tag },
   { value: 'trigger_journey', label: 'Trigger journey', icon: Route },
+  { value: 'ai_reply_review', label: 'AI Reply to Review', icon: Sparkles },
 ] as const
 
 const triggerMap = Object.fromEntries(triggerEvents.map((t) => [t.value, t]))
@@ -111,6 +115,11 @@ export default function AutomationsPage() {
   const [templateName, setTemplateName] = useState('')
   const [messageContent, setMessageContent] = useState('')
   const [tagName, setTagName] = useState('')
+  // AI Reply to Review config
+  const [aiReplyRatingFilter, setAiReplyRatingFilter] = useState<string>('all')
+  const [aiReplyTone, setAiReplyTone] = useState<string>('professional')
+  const [aiReplyIncludeBusinessName, setAiReplyIncludeBusinessName] = useState(true)
+  const [aiReplyMaxLength, setAiReplyMaxLength] = useState<string>('medium')
 
   const rulesQuery = trpc.automation.listRules.useQuery(
     {
@@ -183,6 +192,10 @@ export default function AutomationsPage() {
     setTemplateName('')
     setMessageContent('')
     setTagName('')
+    setAiReplyRatingFilter('all')
+    setAiReplyTone('professional')
+    setAiReplyIncludeBusinessName(true)
+    setAiReplyMaxLength('medium')
   }
 
   function openEdit(rule: any) {
@@ -206,6 +219,10 @@ export default function AutomationsPage() {
     setTemplateName(rule.actionConfig?.templateName ?? '')
     setMessageContent(rule.actionConfig?.message ?? '')
     setTagName(rule.actionConfig?.tagName ?? '')
+    setAiReplyRatingFilter(rule.actionConfig?.ratingFilter ?? 'all')
+    setAiReplyTone(rule.actionConfig?.tone ?? 'professional')
+    setAiReplyIncludeBusinessName(rule.actionConfig?.includeBusinessName ?? true)
+    setAiReplyMaxLength(rule.actionConfig?.maxLength ?? 'medium')
     setCreateOpen(true)
   }
 
@@ -224,6 +241,13 @@ export default function AutomationsPage() {
         return messageContent ? { message: messageContent } : {}
       case 'tag_customer':
         return tagName ? { tagName } : {}
+      case 'ai_reply_review':
+        return {
+          ratingFilter: aiReplyRatingFilter,
+          tone: aiReplyTone,
+          includeBusinessName: aiReplyIncludeBusinessName,
+          maxLength: aiReplyMaxLength,
+        }
       default:
         return {}
     }
@@ -388,6 +412,60 @@ export default function AutomationsPage() {
                     value={tagName}
                     onChange={(e) => setTagName(e.target.value)}
                   />
+                </div>
+              )}
+              {actionType === 'ai_reply_review' && (
+                <div className="space-y-3 rounded-lg border p-3">
+                  <p className="text-sm font-medium">AI Reply Configuration</p>
+                  <div className="space-y-2">
+                    <Label>Rating Filter</Label>
+                    <Select value={aiReplyRatingFilter} onValueChange={setAiReplyRatingFilter}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All ratings</SelectItem>
+                        <SelectItem value="positive">Positive only (4-5 stars)</SelectItem>
+                        <SelectItem value="negative">Negative only (1-3 stars)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Tone</Label>
+                    <Select value={aiReplyTone} onValueChange={setAiReplyTone}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="professional">Professional</SelectItem>
+                        <SelectItem value="friendly">Friendly</SelectItem>
+                        <SelectItem value="casual">Casual</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="include-biz-name" className="text-sm">
+                      Include business name
+                    </Label>
+                    <Switch
+                      id="include-biz-name"
+                      checked={aiReplyIncludeBusinessName}
+                      onCheckedChange={setAiReplyIncludeBusinessName}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Max Response Length</Label>
+                    <Select value={aiReplyMaxLength} onValueChange={setAiReplyMaxLength}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="short">Short (~50 words)</SelectItem>
+                        <SelectItem value="medium">Medium (~100 words)</SelectItem>
+                        <SelectItem value="long">Long (~150 words)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
               )}
 

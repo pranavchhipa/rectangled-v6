@@ -247,6 +247,12 @@ export class EmailService {
     return this.send(to, subject, html)
   }
 
+  // ─── Ticket Email ───────────────────────────────────────
+
+  async sendTicketEmail(to: string, subject: string, html: string) {
+    return this.send(to, subject, html)
+  }
+
   // ─── Helpers ──────────────────────────────────────────────
 
   private async send(to: string, subject: string, html: string, workspaceId?: string) {

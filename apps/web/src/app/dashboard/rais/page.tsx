@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { toast } from 'sonner'
 import {
   Sparkles,
@@ -23,6 +23,24 @@ import {
   Clock,
   Hash,
   Image as ImageIcon,
+  Upload,
+  Download,
+  Link,
+  CheckCircle2,
+  ArrowRight,
+  ArrowLeft,
+  Pencil,
+  Globe,
+  TrendingUp,
+  Coins,
+  BarChart3,
+  Zap,
+  Target,
+  Eye,
+  ExternalLink,
+  CalendarDays,
+  FileText,
+  Mic2,
 } from 'lucide-react'
 import { trpc } from '@/lib/trpc'
 import { useAuthStore } from '@/stores/auth-store'
@@ -47,6 +65,13 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Separator } from '@/components/ui/separator'
+import { Progress } from '@/components/ui/progress'
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover'
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -82,48 +107,151 @@ const STATUS_COLORS: Record<string, string> = {
   failed: 'bg-red-100 text-red-700',
 }
 
+const PERIOD_OPTIONS = [
+  { value: 1, label: '1 Month' },
+  { value: 2, label: '2 Months' },
+  { value: 3, label: '3 Months' },
+  { value: 6, label: '6 Months' },
+] as const
+
+const DOWNLOAD_SIZES = [
+  { label: 'Instagram Post', size: '1080 x 1080', width: 1080, height: 1080 },
+  { label: 'Instagram Story', size: '1080 x 1920', width: 1080, height: 1920 },
+  { label: 'Facebook Post', size: '1200 x 630', width: 1200, height: 630 },
+  { label: 'Twitter Post', size: '1200 x 675', width: 1200, height: 675 },
+  { label: 'LinkedIn Post', size: '1200 x 627', width: 1200, height: 627 },
+] as const
+
+const STEPPER_STEPS = [
+  { number: 1, label: 'Analysis' },
+  { number: 2, label: 'Ideas' },
+  { number: 3, label: 'Create' },
+  { number: 4, label: 'Schedule' },
+  { number: 5, label: 'Publish' },
+]
+
 // ---------------------------------------------------------------------------
 // Main Page
 // ---------------------------------------------------------------------------
 
 export default function RaisPage() {
-  const [activeTab, setActiveTab] = useState('generate')
+  const { currentWorkspaceId } = useAuthStore()
+  const [activeTab, setActiveTab] = useState('create-from-reviews')
+
+  const creditsQuery = trpc.rais.getCredits.useQuery(
+    { workspaceId: currentWorkspaceId || '' },
+    { enabled: !!currentWorkspaceId }
+  )
+
+  const creditLogQuery = trpc.rais.getCreditLog.useQuery(
+    { workspaceId: currentWorkspaceId || '', limit: 20 },
+    { enabled: !!currentWorkspaceId }
+  )
+
+  const credits = creditsQuery.data as any
 
   return (
     <div className="flex-1 space-y-6 p-6">
       {/* Header */}
-      <div>
-        <div className="flex items-center gap-2">
-          <Sparkles className="h-6 w-6 text-purple-500" />
-          <h1 className="text-2xl font-bold tracking-tight">AI Studio</h1>
-          <Badge variant="outline" className="ml-2 text-purple-600 border-purple-200">
-            rAIS
-          </Badge>
+      <div className="flex items-start justify-between">
+        <div>
+          <div className="flex items-center gap-2">
+            <Sparkles className="h-6 w-6 text-purple-500" />
+            <h1 className="text-2xl font-bold tracking-tight">AI Studio</h1>
+            <Badge variant="outline" className="ml-2 text-purple-600 border-purple-200">
+              rAIS
+            </Badge>
+          </div>
+          <p className="text-muted-foreground mt-1">
+            Create engaging social content powered by AI
+          </p>
         </div>
-        <p className="text-muted-foreground mt-1">
-          Create engaging social content with AI
-        </p>
+
+        {/* Credit Display */}
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button
+              variant="outline"
+              className={`gap-2 ${
+                credits && credits.remaining < 10
+                  ? 'border-amber-300 text-amber-700 hover:bg-amber-50'
+                  : ''
+              }`}
+            >
+              <Coins className="h-4 w-4" />
+              {creditsQuery.isLoading ? (
+                <Skeleton className="h-4 w-16" />
+              ) : credits ? (
+                <span>
+                  {credits.remaining} / {credits.total} credits
+                </span>
+              ) : (
+                <span>-- credits</span>
+              )}
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-80" align="end">
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h4 className="font-semibold text-sm">Credit Balance</h4>
+                {credits && credits.remaining < 10 && (
+                  <Badge variant="destructive" className="text-xs">Low</Badge>
+                )}
+              </div>
+              {credits && (
+                <div>
+                  <div className="flex justify-between text-sm mb-1">
+                    <span>{credits.remaining} remaining</span>
+                    <span className="text-muted-foreground">{credits.total} total</span>
+                  </div>
+                  <Progress value={(credits.remaining / credits.total) * 100} className="h-2" />
+                </div>
+              )}
+              <Separator />
+              <div>
+                <h5 className="text-xs font-medium text-muted-foreground mb-2">Recent Transactions</h5>
+                <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                  {(creditLogQuery.data as any)?.log?.map((entry: any, i: number) => (
+                    <div key={i} className="flex items-center justify-between text-xs">
+                      <span className="truncate flex-1 mr-2">{entry.description}</span>
+                      <span className={entry.amount < 0 ? 'text-red-500' : 'text-green-500'}>
+                        {entry.amount > 0 ? '+' : ''}{entry.amount}
+                      </span>
+                    </div>
+                  )) || (
+                    <span className="text-xs text-muted-foreground">No transactions yet</span>
+                  )}
+                </div>
+              </div>
+            </div>
+          </PopoverContent>
+        </Popover>
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
-          <TabsTrigger value="generate">Generate</TabsTrigger>
-          <TabsTrigger value="posts">My Posts</TabsTrigger>
-          <TabsTrigger value="calendar">Calendar</TabsTrigger>
-          <TabsTrigger value="brand-voice">Brand Voice</TabsTrigger>
+          <TabsTrigger value="create-from-reviews" className="gap-1.5">
+            <BarChart3 className="h-3.5 w-3.5" />
+            Create from Reviews
+          </TabsTrigger>
+          <TabsTrigger value="make-your-own" className="gap-1.5">
+            <ImageIcon className="h-3.5 w-3.5" />
+            Make Your Own Post
+          </TabsTrigger>
+          <TabsTrigger value="my-posts" className="gap-1.5">
+            <FileText className="h-3.5 w-3.5" />
+            My Posts
+          </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="generate" className="mt-6">
-          <GenerateTab />
+        <TabsContent value="create-from-reviews" className="mt-6">
+          <CreateFromReviewsTab />
         </TabsContent>
-        <TabsContent value="posts" className="mt-6">
-          <PostsTab />
+        <TabsContent value="make-your-own" className="mt-6">
+          <MakeYourOwnTab />
         </TabsContent>
-        <TabsContent value="calendar" className="mt-6">
-          <CalendarTab />
-        </TabsContent>
-        <TabsContent value="brand-voice" className="mt-6">
-          <BrandVoiceTab />
+        <TabsContent value="my-posts" className="mt-6">
+          <MyPostsTab />
         </TabsContent>
       </Tabs>
     </div>
@@ -131,33 +259,130 @@ export default function RaisPage() {
 }
 
 // ---------------------------------------------------------------------------
-// Generate Tab
+// Stepper Component
 // ---------------------------------------------------------------------------
 
-function GenerateTab() {
-  const { currentWorkspaceId } = useAuthStore()
-  const [platform, setPlatform] = useState('instagram')
-  const [contentType, setContentType] = useState('post')
-  const [topic, setTopic] = useState('')
-  const [generatedCaption, setGeneratedCaption] = useState('')
-  const [generatedHashtags, setGeneratedHashtags] = useState<string[]>([])
-  const [ideas, setIdeas] = useState<any[]>([])
-  const [industry, setIndustry] = useState('')
+function StepperProgress({ currentStep }: { currentStep: number }) {
+  return (
+    <div className="mb-8">
+      <div className="flex items-center justify-between">
+        {STEPPER_STEPS.map((step, i) => {
+          const isActive = currentStep === step.number
+          const isCompleted = currentStep > step.number
+          return (
+            <div key={step.number} className="flex items-center flex-1 last:flex-initial">
+              <div className="flex flex-col items-center">
+                <div
+                  className={`flex h-10 w-10 items-center justify-center rounded-full border-2 text-sm font-semibold transition-all ${
+                    isCompleted
+                      ? 'border-purple-500 bg-purple-500 text-white'
+                      : isActive
+                        ? 'border-purple-500 bg-purple-50 text-purple-700 dark:bg-purple-950 dark:text-purple-300'
+                        : 'border-muted-foreground/25 text-muted-foreground'
+                  }`}
+                >
+                  {isCompleted ? (
+                    <CheckCircle2 className="h-5 w-5" />
+                  ) : (
+                    step.number
+                  )}
+                </div>
+                <span
+                  className={`mt-1.5 text-xs font-medium ${
+                    isActive || isCompleted
+                      ? 'text-purple-600 dark:text-purple-400'
+                      : 'text-muted-foreground'
+                  }`}
+                >
+                  {step.label}
+                </span>
+              </div>
+              {i < STEPPER_STEPS.length - 1 && (
+                <div
+                  className={`mx-2 h-0.5 flex-1 rounded transition-all ${
+                    isCompleted ? 'bg-purple-500' : 'bg-muted-foreground/20'
+                  }`}
+                />
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
 
-  const generateCaption = trpc.rais.generateCaption.useMutation({
-    onSuccess: (data) => {
-      setGeneratedCaption(data.caption)
-      setGeneratedHashtags(data.hashtags)
-      toast.success('Caption generated!')
+// ---------------------------------------------------------------------------
+// Tab 1: Create from Reviews (5-step stepper)
+// ---------------------------------------------------------------------------
+
+function CreateFromReviewsTab() {
+  const { currentWorkspaceId } = useAuthStore()
+  const [step, setStep] = useState(1)
+
+  // Step 1 state
+  const [locationId, setLocationId] = useState<string>('')
+  const [periodMonths, setPeriodMonths] = useState<1 | 2 | 3 | 6>(3)
+  const [analysisResult, setAnalysisResult] = useState<any>(null)
+  const [analysisId, setAnalysisId] = useState<string>('')
+
+  // Step 2 state
+  const [ideas, setIdeas] = useState<any[]>([])
+  const [selectedIdeaIndex, setSelectedIdeaIndex] = useState<number | null>(null)
+
+  // Step 3 state
+  const [generatedPosts, setGeneratedPosts] = useState<any[]>([])
+  const [selectedPostIndex, setSelectedPostIndex] = useState<number | null>(null)
+  const [editedPosts, setEditedPosts] = useState<any[]>([])
+
+  // Step 4 state
+  const [scheduledDate, setScheduledDate] = useState('')
+  const [selectedPlatform, setSelectedPlatform] = useState('instagram')
+  const [trendsCountry, setTrendsCountry] = useState('United States')
+  const [trendsResult, setTrendsResult] = useState<any>(null)
+  const [industryInput, setIndustryInput] = useState('')
+  const [industryResult, setIndustryResult] = useState<any>(null)
+
+  // Locations query
+  const locationsQuery = trpc.location.list.useQuery(
+    { workspaceId: currentWorkspaceId! },
+    { enabled: !!currentWorkspaceId }
+  )
+
+  // Mutations
+  const analyzeReviews = trpc.rais.analyzeReviews.useMutation({
+    onSuccess: (data: any) => {
+      setAnalysisResult(data)
+      setAnalysisId(data.analysisId || data.id)
+      toast.success('Reviews analyzed successfully!')
     },
     onError: (err) => toast.error(err.message),
   })
 
-  const generateIdeas = trpc.rais.generateContentIdeas.useMutation({
-    onSuccess: (data) => {
-      setIdeas(data.ideas)
-      toast.success(`${data.ideas.length} ideas generated!`)
+  const generatePostIdeas = trpc.rais.generatePostIdeas.useMutation({
+    onSuccess: (data: any) => {
+      setIdeas(data.ideas || data)
+      toast.success('Post ideas generated!')
     },
+    onError: (err) => toast.error(err.message),
+  })
+
+  const generatePost = trpc.rais.generatePost.useMutation({
+    onSuccess: (data: any) => {
+      const posts = data.options || data.posts || [data]
+      setGeneratedPosts(posts)
+      setEditedPosts(posts.map((p: any) => ({ ...p })))
+      toast.success('Posts created!')
+    },
+    onError: (err) => toast.error(err.message),
+  })
+
+  const regenerateElement = trpc.rais.regenerateElement.useMutation({
+    onError: (err) => toast.error(err.message),
+  })
+
+  const schedulePost = trpc.rais.schedulePost.useMutation({
+    onSuccess: () => toast.success('Post scheduled!'),
     onError: (err) => toast.error(err.message),
   })
 
@@ -166,257 +391,1359 @@ function GenerateTab() {
     onError: (err) => toast.error(err.message),
   })
 
-  const handleGenerate = () => {
-    if (!currentWorkspaceId || !topic.trim()) {
-      toast.error('Please enter a topic')
-      return
-    }
-    generateCaption.mutate({
+  const getRecentTrends = trpc.rais.getRecentTrends.useMutation({
+    onSuccess: (data: any) => {
+      setTrendsResult(data)
+      toast.success('Trends loaded!')
+    },
+    onError: (err) => toast.error(err.message),
+  })
+
+  const getIndustryOpportunities = trpc.rais.getIndustryOpportunities.useMutation({
+    onSuccess: (data: any) => {
+      setIndustryResult(data)
+      toast.success('Industry insights loaded!')
+    },
+    onError: (err) => toast.error(err.message),
+  })
+
+  // Handlers
+  const handleAnalyze = () => {
+    if (!currentWorkspaceId) return
+    analyzeReviews.mutate({
       workspaceId: currentWorkspaceId,
-      platform: platform as any,
-      contentType: contentType as any,
-      topic,
+      locationId: locationId || undefined,
+      periodMonths,
     })
   }
 
-  const handleGetIdeas = () => {
-    if (!currentWorkspaceId || !industry.trim()) {
-      toast.error('Please enter your industry')
-      return
-    }
-    generateIdeas.mutate({
+  const handleGenerateIdeas = () => {
+    if (!currentWorkspaceId || !analysisId) return
+    generatePostIdeas.mutate({
       workspaceId: currentWorkspaceId,
-      industry,
-      platform: platform as any,
+      analysisId,
     })
   }
 
-  const handleCopy = () => {
-    const text = generatedCaption + '\n\n' + generatedHashtags.map((h) => `#${h}`).join(' ')
-    navigator.clipboard.writeText(text)
-    toast.success('Copied to clipboard!')
+  const handleGeneratePost = () => {
+    if (!currentWorkspaceId || selectedIdeaIndex === null || !analysisId) return
+    generatePost.mutate({
+      workspaceId: currentWorkspaceId,
+      ideaIndex: selectedIdeaIndex,
+      analysisId,
+    })
+  }
+
+  const handleRegenerate = async (postId: string, element: 'title' | 'description' | 'hashtags' | 'image') => {
+    if (!currentWorkspaceId) return
+    const result = await regenerateElement.mutateAsync({
+      workspaceId: currentWorkspaceId,
+      postId,
+      element,
+    })
+    // Update the edited post with new data
+    if (selectedPostIndex !== null && result) {
+      setEditedPosts((prev) => {
+        const updated = [...prev]
+        const r = result as any
+        if (element === 'title' && r.title) updated[selectedPostIndex] = { ...updated[selectedPostIndex], title: r.title }
+        if (element === 'description' && r.description) updated[selectedPostIndex] = { ...updated[selectedPostIndex], description: r.description }
+        if (element === 'hashtags' && r.hashtags) updated[selectedPostIndex] = { ...updated[selectedPostIndex], hashtags: r.hashtags }
+        if (element === 'image' && r.imagePrompt) updated[selectedPostIndex] = { ...updated[selectedPostIndex], imagePrompt: r.imagePrompt }
+        return updated
+      })
+      toast.success(`${element} regenerated!`)
+    }
+  }
+
+  const handleSchedule = () => {
+    if (!currentWorkspaceId || selectedPostIndex === null) return
+    const post = editedPosts[selectedPostIndex]
+    if (!post?.id) {
+      toast.error('No post selected')
+      return
+    }
+    schedulePost.mutate({
+      workspaceId: currentWorkspaceId,
+      postId: post.id,
+      scheduledFor: new Date(scheduledDate).toISOString(),
+      platform: selectedPlatform,
+    })
   }
 
   const handleSaveDraft = () => {
-    if (!currentWorkspaceId) return
+    if (!currentWorkspaceId || selectedPostIndex === null) return
+    const post = editedPosts[selectedPostIndex]
     createPost.mutate({
       workspaceId: currentWorkspaceId,
-      platform: platform as any,
-      contentType: contentType as any,
-      caption: generatedCaption,
-      hashtags: generatedHashtags,
+      platform: selectedPlatform as any,
+      contentType: 'post',
+      caption: `${post.title || ''}\n\n${post.description || ''}`,
+      hashtags: post.hashtags || [],
+      imageUrl: post.imageUrl || undefined,
     })
   }
 
-  const removeHashtag = (index: number) => {
-    setGeneratedHashtags((prev) => prev.filter((_, i) => i !== index))
+  const handleDownload = (imageUrl: string, label: string) => {
+    if (!imageUrl) {
+      toast.error('No image available to download')
+      return
+    }
+    const a = document.createElement('a')
+    a.href = imageUrl
+    a.download = `${label.replace(/\s+/g, '-').toLowerCase()}.png`
+    a.target = '_blank'
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
   }
 
+  const selectedPost = selectedPostIndex !== null ? editedPosts[selectedPostIndex] : null
+
   return (
-    <div className="grid gap-6 lg:grid-cols-2">
-      {/* Left: Input */}
-      <div className="space-y-6">
-        {/* Platform selector */}
-        <Card className="p-4">
-          <Label className="mb-3 block text-sm font-medium">Platform</Label>
-          <div className="flex flex-wrap gap-2">
-            {PLATFORMS.map((p) => {
-              const Icon = p.icon
-              const isActive = platform === p.value
-              return (
-                <button
-                  key={p.value}
-                  onClick={() => setPlatform(p.value)}
-                  className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm transition-all ${
-                    isActive
-                      ? 'border-purple-300 bg-purple-50 text-purple-700 dark:bg-purple-950 dark:border-purple-700 dark:text-purple-300'
-                      : 'border-border hover:bg-muted'
-                  }`}
-                >
-                  <Icon className="h-4 w-4" style={{ color: isActive ? p.color : undefined }} />
-                  {p.label}
-                </button>
-              )
-            })}
-          </div>
-        </Card>
+    <div>
+      <StepperProgress currentStep={step} />
 
-        {/* Content type */}
-        <Card className="p-4">
-          <Label className="mb-3 block text-sm font-medium">Content Type</Label>
-          <div className="flex flex-wrap gap-2">
-            {CONTENT_TYPES.map((ct) => (
-              <button
-                key={ct.value}
-                onClick={() => setContentType(ct.value)}
-                className={`rounded-lg border px-3 py-2 text-sm transition-all ${
-                  contentType === ct.value
-                    ? 'border-purple-300 bg-purple-50 text-purple-700 dark:bg-purple-950 dark:border-purple-700 dark:text-purple-300'
-                    : 'border-border hover:bg-muted'
-                }`}
-              >
-                {ct.label}
-              </button>
-            ))}
+      {/* ================================================================= */}
+      {/* Step 1: Analysis */}
+      {/* ================================================================= */}
+      {step === 1 && (
+        <div className="max-w-2xl mx-auto space-y-6">
+          <div className="text-center mb-6">
+            <h2 className="text-xl font-semibold">Analyze Your Reviews</h2>
+            <p className="text-sm text-muted-foreground mt-1">
+              We'll analyze your recent reviews to find the best content angles
+            </p>
           </div>
-        </Card>
 
-        {/* Topic */}
-        <Card className="p-4">
-          <Label className="mb-3 block text-sm font-medium">Topic / Description</Label>
-          <textarea
-            value={topic}
-            onChange={(e) => setTopic(e.target.value)}
-            placeholder="Describe what your post should be about..."
-            rows={4}
-            className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 outline-none resize-none"
-          />
-          <Button
-            className="mt-3 w-full bg-purple-600 hover:bg-purple-700"
-            onClick={handleGenerate}
-            disabled={generateCaption.isPending}
-          >
-            {generateCaption.isPending ? (
-              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-            ) : (
-              <Sparkles className="h-4 w-4 mr-2" />
-            )}
-            Generate
-          </Button>
-        </Card>
-
-        {/* Content Ideas */}
-        <Card className="p-4">
-          <div className="flex items-center gap-2 mb-3">
-            <Lightbulb className="h-4 w-4 text-amber-500" />
-            <Label className="text-sm font-medium">Content Ideas</Label>
-          </div>
-          <Input
-            value={industry}
-            onChange={(e) => setIndustry(e.target.value)}
-            placeholder="Your industry (e.g., Restaurant, Spa, Dental)"
-          />
-          <Button
-            variant="outline"
-            className="mt-3 w-full"
-            onClick={handleGetIdeas}
-            disabled={generateIdeas.isPending}
-          >
-            {generateIdeas.isPending ? (
-              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-            ) : (
-              <Lightbulb className="h-4 w-4 mr-2" />
-            )}
-            Get Ideas
-          </Button>
-          {ideas.length > 0 && (
-            <div className="mt-4 space-y-2">
-              {ideas.map((idea, i) => (
-                <div
-                  key={i}
-                  className="rounded-lg border p-3 hover:bg-muted cursor-pointer transition-colors"
-                  onClick={() => {
-                    setTopic(idea.description || idea.title)
-                    if (idea.contentType) setContentType(idea.contentType)
-                    toast.success('Idea loaded into generator')
-                  }}
-                >
-                  <div className="flex items-center justify-between">
-                    <p className="font-medium text-sm">{idea.title}</p>
-                    <Badge variant="outline" className="text-xs">
-                      {idea.contentType}
-                    </Badge>
-                  </div>
-                  <p className="text-xs text-muted-foreground mt-1">{idea.description}</p>
-                  {idea.bestTime && (
-                    <div className="flex items-center gap-1 mt-1">
-                      <Clock className="h-3 w-3 text-muted-foreground" />
-                      <span className="text-xs text-muted-foreground">{idea.bestTime}</span>
-                    </div>
-                  )}
-                </div>
-              ))}
+          <Card className="p-6 space-y-5">
+            {/* Location Selector */}
+            <div>
+              <Label className="mb-2 block text-sm font-medium">Location (optional)</Label>
+              <Select value={locationId} onValueChange={setLocationId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="All locations" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">All Locations</SelectItem>
+                  {(locationsQuery.data as any)?.map?.((loc: any) => (
+                    <SelectItem key={loc.id} value={loc.id}>
+                      {loc.name || loc.title}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
-          )}
-        </Card>
-      </div>
 
-      {/* Right: Generated content */}
-      <div className="space-y-6">
-        {generatedCaption ? (
-          <Card className="p-4">
-            <div className="flex items-center justify-between mb-3">
-              <Label className="text-sm font-medium">Generated Caption</Label>
+            {/* Period Selector */}
+            <div>
+              <Label className="mb-2 block text-sm font-medium">Time Period</Label>
               <div className="flex gap-2">
-                <Button size="sm" variant="ghost" onClick={handleGenerate} disabled={generateCaption.isPending}>
-                  <RefreshCw className={`h-3.5 w-3.5 ${generateCaption.isPending ? 'animate-spin' : ''}`} />
-                </Button>
-                <Button size="sm" variant="ghost" onClick={handleCopy}>
-                  <Copy className="h-3.5 w-3.5" />
-                </Button>
-              </div>
-            </div>
-            <textarea
-              value={generatedCaption}
-              onChange={(e) => setGeneratedCaption(e.target.value)}
-              rows={8}
-              className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 outline-none resize-none"
-            />
-
-            {/* Hashtags */}
-            <div className="mt-4">
-              <div className="flex items-center gap-2 mb-2">
-                <Hash className="h-3.5 w-3.5 text-muted-foreground" />
-                <Label className="text-sm font-medium">Hashtags</Label>
-              </div>
-              <div className="flex flex-wrap gap-1.5">
-                {generatedHashtags.map((tag, i) => (
-                  <Badge
-                    key={i}
-                    variant="secondary"
-                    className="cursor-pointer hover:bg-destructive/10 group"
-                    onClick={() => removeHashtag(i)}
+                {PERIOD_OPTIONS.map((opt) => (
+                  <Button
+                    key={opt.value}
+                    variant={periodMonths === opt.value ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setPeriodMonths(opt.value as any)}
+                    className={periodMonths === opt.value ? 'bg-purple-600 hover:bg-purple-700' : ''}
                   >
-                    #{tag}
-                    <X className="h-3 w-3 ml-1 opacity-50 group-hover:opacity-100" />
-                  </Badge>
+                    {opt.label}
+                  </Button>
                 ))}
               </div>
             </div>
 
-            {/* Actions */}
-            <div className="flex gap-2 mt-4">
+            <Separator />
+
+            <div className="flex items-center justify-between">
+              <p className="text-xs text-muted-foreground">
+                Estimated credit cost: ~{Math.ceil(periodMonths * 5 * 0.05)} credits
+              </p>
               <Button
-                className="flex-1 bg-purple-600 hover:bg-purple-700"
-                onClick={handleSaveDraft}
-                disabled={createPost.isPending}
+                className="bg-purple-600 hover:bg-purple-700"
+                onClick={handleAnalyze}
+                disabled={analyzeReviews.isPending}
               >
-                <Save className="h-4 w-4 mr-2" />
-                Save as Draft
+                {analyzeReviews.isPending ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <BarChart3 className="h-4 w-4 mr-2" />
+                )}
+                Analyze Reviews
               </Button>
             </div>
           </Card>
-        ) : (
-          <Card className="p-12 flex flex-col items-center justify-center text-center">
-            <Sparkles className="h-12 w-12 text-purple-200 mb-4" />
-            <h3 className="text-lg font-semibold text-muted-foreground">
-              Ready to create
-            </h3>
-            <p className="text-sm text-muted-foreground mt-1 max-w-sm">
-              Choose a platform, content type, and describe your topic. Then hit Generate to create AI-powered content.
+
+          {/* Loading State */}
+          {analyzeReviews.isPending && (
+            <Card className="p-6 space-y-4">
+              <Skeleton className="h-4 w-3/4" />
+              <Skeleton className="h-4 w-1/2" />
+              <Skeleton className="h-20 w-full" />
+              <Skeleton className="h-4 w-2/3" />
+            </Card>
+          )}
+
+          {/* Analysis Result */}
+          {analysisResult && !analyzeReviews.isPending && (
+            <Card className="p-6 space-y-4">
+              <div className="flex items-center gap-2 mb-2">
+                <CheckCircle2 className="h-5 w-5 text-green-500" />
+                <h3 className="font-semibold">Analysis Complete</h3>
+              </div>
+
+              {analysisResult.summary && (
+                <div>
+                  <Label className="text-xs text-muted-foreground">AI Summary</Label>
+                  <p className="text-sm mt-1">{analysisResult.summary}</p>
+                </div>
+              )}
+
+              {analysisResult.sentiment && (
+                <div>
+                  <Label className="text-xs text-muted-foreground">Overall Sentiment</Label>
+                  <div className="flex items-center gap-2 mt-1">
+                    <Badge
+                      variant="secondary"
+                      className={
+                        analysisResult.sentiment === 'positive'
+                          ? 'bg-green-100 text-green-700'
+                          : analysisResult.sentiment === 'negative'
+                            ? 'bg-red-100 text-red-700'
+                            : 'bg-yellow-100 text-yellow-700'
+                      }
+                    >
+                      {analysisResult.sentiment}
+                    </Badge>
+                    {analysisResult.sentimentScore != null && (
+                      <span className="text-sm text-muted-foreground">
+                        ({(analysisResult.sentimentScore * 100).toFixed(0)}%)
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {analysisResult.positiveAspects?.length > 0 && (
+                <div>
+                  <Label className="text-xs text-muted-foreground">Positive Aspects</Label>
+                  <div className="flex flex-wrap gap-1.5 mt-1">
+                    {analysisResult.positiveAspects.map((aspect: string, i: number) => (
+                      <Badge key={i} variant="secondary" className="bg-green-50 text-green-700 border-green-200">
+                        {aspect}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {analysisResult.topThemes?.length > 0 && (
+                <div>
+                  <Label className="text-xs text-muted-foreground">Top Themes</Label>
+                  <div className="flex flex-wrap gap-1.5 mt-1">
+                    {analysisResult.topThemes.map((theme: string, i: number) => (
+                      <Badge key={i} variant="outline">
+                        {theme}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="pt-2 flex justify-end">
+                <Button
+                  className="bg-purple-600 hover:bg-purple-700"
+                  onClick={() => {
+                    handleGenerateIdeas()
+                    setStep(2)
+                  }}
+                >
+                  Next: Generate Ideas
+                  <ArrowRight className="h-4 w-4 ml-2" />
+                </Button>
+              </div>
+            </Card>
+          )}
+        </div>
+      )}
+
+      {/* ================================================================= */}
+      {/* Step 2: Generate Post Ideas */}
+      {/* ================================================================= */}
+      {step === 2 && (
+        <div className="max-w-4xl mx-auto space-y-6">
+          <div className="text-center mb-6">
+            <h2 className="text-xl font-semibold">Choose a Post Idea</h2>
+            <p className="text-sm text-muted-foreground mt-1">
+              Select the idea that resonates best with your brand
             </p>
-          </Card>
-        )}
-      </div>
+          </div>
+
+          {generatePostIdeas.isPending ? (
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <Card key={i} className="p-5">
+                  <Skeleton className="h-5 w-3/4 mb-2" />
+                  <Skeleton className="h-3 w-1/2 mb-3" />
+                  <Skeleton className="h-16 w-full mb-3" />
+                  <div className="flex gap-1">
+                    <Skeleton className="h-5 w-16" />
+                    <Skeleton className="h-5 w-14" />
+                    <Skeleton className="h-5 w-18" />
+                  </div>
+                </Card>
+              ))}
+            </div>
+          ) : ideas.length > 0 ? (
+            <>
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                {ideas.map((idea: any, i: number) => {
+                  const isSelected = selectedIdeaIndex === i
+                  return (
+                    <Card
+                      key={i}
+                      className={`p-5 cursor-pointer transition-all hover:shadow-md ${
+                        isSelected
+                          ? 'ring-2 ring-purple-500 border-purple-300 shadow-md'
+                          : 'hover:border-purple-200'
+                      }`}
+                      onClick={() => setSelectedIdeaIndex(i)}
+                    >
+                      <div className="flex items-start justify-between mb-2">
+                        <h3 className="font-semibold text-sm line-clamp-2">{idea.title}</h3>
+                        {isSelected && (
+                          <CheckCircle2 className="h-5 w-5 text-purple-500 shrink-0 ml-2" />
+                        )}
+                      </div>
+                      {idea.subtitle && (
+                        <p className="text-xs text-muted-foreground mb-2">{idea.subtitle}</p>
+                      )}
+                      {idea.description && (
+                        <p className="text-sm text-muted-foreground line-clamp-3 mb-3">
+                          {idea.description}
+                        </p>
+                      )}
+                      <div className="flex flex-wrap gap-1 mb-2">
+                        {idea.hashtags?.slice(0, 4).map((tag: string, j: number) => (
+                          <span key={j} className="text-xs text-purple-500">#{tag}</span>
+                        ))}
+                      </div>
+                      <div className="flex items-center justify-between mt-2">
+                        {idea.viralityAngle && (
+                          <div className="flex items-center gap-1">
+                            <Zap className="h-3 w-3 text-amber-500" />
+                            <span className="text-xs text-muted-foreground truncate">
+                              {idea.viralityAngle}
+                            </span>
+                          </div>
+                        )}
+                        {idea.targetPlatform && (
+                          <Badge variant="outline" className="text-xs">
+                            {idea.targetPlatform}
+                          </Badge>
+                        )}
+                      </div>
+                    </Card>
+                  )
+                })}
+              </div>
+
+              <div className="flex justify-between pt-4">
+                <Button variant="outline" onClick={() => setStep(1)}>
+                  <ArrowLeft className="h-4 w-4 mr-2" />
+                  Back
+                </Button>
+                <Button
+                  className="bg-purple-600 hover:bg-purple-700"
+                  disabled={selectedIdeaIndex === null}
+                  onClick={() => {
+                    handleGeneratePost()
+                    setStep(3)
+                  }}
+                >
+                  Generate Posts
+                  <ArrowRight className="h-4 w-4 ml-2" />
+                </Button>
+              </div>
+            </>
+          ) : (
+            <Card className="p-12 text-center">
+              <Lightbulb className="h-12 w-12 text-amber-200 mx-auto mb-4" />
+              <p className="text-muted-foreground">Generating ideas from your review analysis...</p>
+              <Button
+                variant="outline"
+                className="mt-4"
+                onClick={handleGenerateIdeas}
+                disabled={generatePostIdeas.isPending}
+              >
+                <RefreshCw className="h-4 w-4 mr-2" />
+                Retry
+              </Button>
+            </Card>
+          )}
+        </div>
+      )}
+
+      {/* ================================================================= */}
+      {/* Step 3: Create Posts */}
+      {/* ================================================================= */}
+      {step === 3 && (
+        <div className="max-w-5xl mx-auto space-y-6">
+          <div className="text-center mb-6">
+            <h2 className="text-xl font-semibold">Your Generated Posts</h2>
+            <p className="text-sm text-muted-foreground mt-1">
+              Select your preferred option and customize it
+            </p>
+          </div>
+
+          {generatePost.isPending ? (
+            <div className="grid gap-6 md:grid-cols-2">
+              {Array.from({ length: 2 }).map((_, i) => (
+                <Card key={i} className="p-5 space-y-4">
+                  <Skeleton className="h-48 w-full rounded-lg" />
+                  <Skeleton className="h-5 w-3/4" />
+                  <Skeleton className="h-20 w-full" />
+                  <div className="flex gap-1">
+                    <Skeleton className="h-5 w-16" />
+                    <Skeleton className="h-5 w-14" />
+                  </div>
+                </Card>
+              ))}
+            </div>
+          ) : editedPosts.length > 0 ? (
+            <>
+              <div className="grid gap-6 md:grid-cols-2">
+                {editedPosts.map((post: any, i: number) => {
+                  const isSelected = selectedPostIndex === i
+                  return (
+                    <Card
+                      key={i}
+                      className={`p-5 transition-all cursor-pointer ${
+                        isSelected
+                          ? 'ring-2 ring-purple-500 border-purple-300 shadow-lg'
+                          : 'hover:shadow-md hover:border-purple-200'
+                      }`}
+                      onClick={() => setSelectedPostIndex(i)}
+                    >
+                      {/* Image Placeholder */}
+                      <div className="relative bg-gradient-to-br from-purple-100 to-indigo-100 dark:from-purple-950 dark:to-indigo-950 rounded-lg h-48 flex items-center justify-center mb-4">
+                        {post.imageUrl ? (
+                          <img
+                            src={post.imageUrl}
+                            alt="Generated"
+                            className="w-full h-full object-cover rounded-lg"
+                          />
+                        ) : (
+                          <div className="text-center">
+                            <ImageIcon className="h-8 w-8 text-purple-300 mx-auto mb-2" />
+                            <p className="text-xs text-purple-400">AI Image</p>
+                          </div>
+                        )}
+                        {isSelected && (
+                          <div className="absolute top-2 right-2">
+                            <CheckCircle2 className="h-6 w-6 text-purple-500 bg-white rounded-full" />
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Image Prompt */}
+                      {post.imagePrompt && (
+                        <div className="mb-3 p-2 bg-muted rounded text-xs text-muted-foreground">
+                          <span className="font-medium">Image prompt:</span> {post.imagePrompt}
+                        </div>
+                      )}
+
+                      {/* Title */}
+                      <div className="flex items-start gap-2 mb-3">
+                        <Input
+                          value={post.title || ''}
+                          onChange={(e) => {
+                            setEditedPosts((prev) => {
+                              const updated = [...prev]
+                              updated[i] = { ...updated[i], title: e.target.value }
+                              return updated
+                            })
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                          className="font-semibold"
+                          placeholder="Post title..."
+                        />
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="shrink-0"
+                          disabled={regenerateElement.isPending}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            if (post.id) handleRegenerate(post.id, 'title')
+                          }}
+                        >
+                          {regenerateElement.isPending ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <Pencil className="h-3.5 w-3.5" />
+                          )}
+                        </Button>
+                      </div>
+
+                      {/* Description */}
+                      <div className="flex items-start gap-2 mb-3">
+                        <textarea
+                          value={post.description || ''}
+                          onChange={(e) => {
+                            setEditedPosts((prev) => {
+                              const updated = [...prev]
+                              updated[i] = { ...updated[i], description: e.target.value }
+                              return updated
+                            })
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                          rows={4}
+                          className="flex-1 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 outline-none resize-none"
+                          placeholder="Post description..."
+                        />
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="shrink-0"
+                          disabled={regenerateElement.isPending}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            if (post.id) handleRegenerate(post.id, 'description')
+                          }}
+                        >
+                          <RefreshCw className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+
+                      {/* Hashtags */}
+                      <div className="flex items-start gap-2">
+                        <div className="flex flex-wrap gap-1 flex-1">
+                          {(post.hashtags || []).map((tag: string, j: number) => (
+                            <Badge key={j} variant="secondary" className="text-xs">
+                              #{tag}
+                            </Badge>
+                          ))}
+                          {(!post.hashtags || post.hashtags.length === 0) && (
+                            <span className="text-xs text-muted-foreground">No hashtags</span>
+                          )}
+                        </div>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="shrink-0"
+                          disabled={regenerateElement.isPending}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            if (post.id) handleRegenerate(post.id, 'hashtags')
+                          }}
+                        >
+                          <RefreshCw className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    </Card>
+                  )
+                })}
+              </div>
+
+              <div className="flex justify-between pt-4">
+                <Button variant="outline" onClick={() => setStep(2)}>
+                  <ArrowLeft className="h-4 w-4 mr-2" />
+                  Back
+                </Button>
+                <Button
+                  className="bg-purple-600 hover:bg-purple-700"
+                  disabled={selectedPostIndex === null}
+                  onClick={() => setStep(4)}
+                >
+                  Schedule
+                  <ArrowRight className="h-4 w-4 ml-2" />
+                </Button>
+              </div>
+            </>
+          ) : (
+            <Card className="p-12 text-center">
+              <Sparkles className="h-12 w-12 text-purple-200 mx-auto mb-4" />
+              <p className="text-muted-foreground">Creating your posts...</p>
+            </Card>
+          )}
+        </div>
+      )}
+
+      {/* ================================================================= */}
+      {/* Step 4: Schedule */}
+      {/* ================================================================= */}
+      {step === 4 && (
+        <div className="max-w-4xl mx-auto space-y-6">
+          <div className="text-center mb-6">
+            <h2 className="text-xl font-semibold">Schedule Your Post</h2>
+            <p className="text-sm text-muted-foreground mt-1">
+              Choose when and where to publish
+            </p>
+          </div>
+
+          <div className="grid gap-6 md:grid-cols-2">
+            {/* Left: Scheduling Controls */}
+            <div className="space-y-4">
+              <Card className="p-5 space-y-4">
+                <div>
+                  <Label className="mb-2 block text-sm font-medium">Schedule Date & Time</Label>
+                  <Input
+                    type="datetime-local"
+                    value={scheduledDate}
+                    onChange={(e) => setScheduledDate(e.target.value)}
+                  />
+                  {selectedPost?.bestPostingTime && (
+                    <p className="text-xs text-purple-600 mt-1.5 flex items-center gap-1">
+                      <Lightbulb className="h-3 w-3" />
+                      AI recommends: {selectedPost.bestPostingTime}
+                    </p>
+                  )}
+                </div>
+
+                <div>
+                  <Label className="mb-2 block text-sm font-medium">Platform</Label>
+                  <div className="flex flex-wrap gap-2">
+                    {PLATFORMS.map((p) => {
+                      const Icon = p.icon
+                      const isActive = selectedPlatform === p.value
+                      return (
+                        <button
+                          key={p.value}
+                          onClick={() => setSelectedPlatform(p.value)}
+                          className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm transition-all ${
+                            isActive
+                              ? 'border-purple-300 bg-purple-50 text-purple-700 dark:bg-purple-950 dark:border-purple-700 dark:text-purple-300'
+                              : 'border-border hover:bg-muted'
+                          }`}
+                        >
+                          <Icon className="h-4 w-4" style={{ color: isActive ? p.color : undefined }} />
+                          {p.label}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                <div className="flex gap-2 pt-2">
+                  <Button
+                    variant="outline"
+                    className="flex-1"
+                    onClick={handleSaveDraft}
+                    disabled={createPost.isPending}
+                  >
+                    {createPost.isPending ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <Save className="h-4 w-4 mr-2" />
+                    )}
+                    Save as Draft
+                  </Button>
+                  <Button
+                    className="flex-1 bg-purple-600 hover:bg-purple-700"
+                    onClick={handleSchedule}
+                    disabled={!scheduledDate || schedulePost.isPending}
+                  >
+                    {schedulePost.isPending ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <CalendarDays className="h-4 w-4 mr-2" />
+                    )}
+                    Schedule Post
+                  </Button>
+                </div>
+              </Card>
+            </div>
+
+            {/* Right: AI-Driven Insights */}
+            <div className="space-y-4">
+              {/* Recent Trends */}
+              <Card className="p-5 space-y-3">
+                <div className="flex items-center gap-2">
+                  <TrendingUp className="h-4 w-4 text-purple-500" />
+                  <h3 className="font-semibold text-sm">Recent Trends</h3>
+                </div>
+                <div className="flex gap-2">
+                  <Input
+                    value={trendsCountry}
+                    onChange={(e) => setTrendsCountry(e.target.value)}
+                    placeholder="Country..."
+                  />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      if (!currentWorkspaceId) return
+                      getRecentTrends.mutate({
+                        workspaceId: currentWorkspaceId,
+                        country: trendsCountry,
+                      })
+                    }}
+                    disabled={getRecentTrends.isPending}
+                  >
+                    {getRecentTrends.isPending ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Globe className="h-3.5 w-3.5" />
+                    )}
+                  </Button>
+                </div>
+                {getRecentTrends.isPending && (
+                  <div className="space-y-2">
+                    <Skeleton className="h-3 w-full" />
+                    <Skeleton className="h-3 w-4/5" />
+                  </div>
+                )}
+                {trendsResult && (
+                  <div className="space-y-2 text-sm">
+                    {trendsResult.campaigns?.map((c: any, i: number) => (
+                      <div key={i} className="p-2 rounded bg-muted">
+                        <p className="font-medium text-xs">{c.title || c.name}</p>
+                        {c.description && <p className="text-xs text-muted-foreground">{c.description}</p>}
+                      </div>
+                    ))}
+                    {trendsResult.holidays?.map((h: any, i: number) => (
+                      <div key={i} className="flex items-center gap-2 text-xs">
+                        <CalendarDays className="h-3 w-3 text-muted-foreground" />
+                        <span>{h.name || h}</span>
+                        {h.date && <span className="text-muted-foreground">({h.date})</span>}
+                      </div>
+                    ))}
+                    {typeof trendsResult === 'string' && (
+                      <p className="text-xs">{trendsResult}</p>
+                    )}
+                  </div>
+                )}
+              </Card>
+
+              {/* Industry Opportunities */}
+              <Card className="p-5 space-y-3">
+                <div className="flex items-center gap-2">
+                  <Target className="h-4 w-4 text-indigo-500" />
+                  <h3 className="font-semibold text-sm">Industry Opportunities</h3>
+                </div>
+                <div className="flex gap-2">
+                  <Input
+                    value={industryInput}
+                    onChange={(e) => setIndustryInput(e.target.value)}
+                    placeholder="Your industry..."
+                  />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      if (!currentWorkspaceId || !industryInput.trim()) return
+                      getIndustryOpportunities.mutate({
+                        workspaceId: currentWorkspaceId,
+                        industry: industryInput,
+                      })
+                    }}
+                    disabled={getIndustryOpportunities.isPending}
+                  >
+                    {getIndustryOpportunities.isPending ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Zap className="h-3.5 w-3.5" />
+                    )}
+                  </Button>
+                </div>
+                {getIndustryOpportunities.isPending && (
+                  <div className="space-y-2">
+                    <Skeleton className="h-3 w-full" />
+                    <Skeleton className="h-3 w-3/4" />
+                  </div>
+                )}
+                {industryResult && (
+                  <div className="space-y-2">
+                    {(industryResult.insights || industryResult.opportunities || []).map((ins: any, i: number) => (
+                      <div key={i} className="p-2 rounded bg-muted">
+                        <p className="font-medium text-xs">{ins.title || ins.name || ins}</p>
+                        {ins.description && <p className="text-xs text-muted-foreground mt-0.5">{ins.description}</p>}
+                      </div>
+                    ))}
+                    {typeof industryResult === 'string' && (
+                      <p className="text-xs">{industryResult}</p>
+                    )}
+                  </div>
+                )}
+              </Card>
+            </div>
+          </div>
+
+          <div className="flex justify-between pt-4">
+            <Button variant="outline" onClick={() => setStep(3)}>
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              Back
+            </Button>
+            <Button
+              className="bg-purple-600 hover:bg-purple-700"
+              onClick={() => setStep(5)}
+            >
+              Next: Publish
+              <ArrowRight className="h-4 w-4 ml-2" />
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* ================================================================= */}
+      {/* Step 5: Publish */}
+      {/* ================================================================= */}
+      {step === 5 && (
+        <div className="max-w-4xl mx-auto space-y-6">
+          <div className="text-center mb-6">
+            <h2 className="text-xl font-semibold">Publish Your Post</h2>
+            <p className="text-sm text-muted-foreground mt-1">
+              Choose how you want to share your content
+            </p>
+          </div>
+
+          {/* Post Preview */}
+          {selectedPost && (
+            <Card className="p-6">
+              <div className="flex items-center gap-2 mb-4">
+                <Eye className="h-4 w-4 text-muted-foreground" />
+                <h3 className="font-semibold text-sm">Post Preview</h3>
+              </div>
+              <div className="grid gap-4 md:grid-cols-[300px_1fr]">
+                <div className="bg-gradient-to-br from-purple-100 to-indigo-100 dark:from-purple-950 dark:to-indigo-950 rounded-lg aspect-square flex items-center justify-center">
+                  {selectedPost.imageUrl ? (
+                    <img
+                      src={selectedPost.imageUrl}
+                      alt="Preview"
+                      className="w-full h-full object-cover rounded-lg"
+                    />
+                  ) : (
+                    <ImageIcon className="h-12 w-12 text-purple-300" />
+                  )}
+                </div>
+                <div className="space-y-3">
+                  <h4 className="font-semibold">{selectedPost.title}</h4>
+                  <p className="text-sm text-muted-foreground whitespace-pre-wrap">
+                    {selectedPost.description}
+                  </p>
+                  <div className="flex flex-wrap gap-1">
+                    {(selectedPost.hashtags || []).map((tag: string, i: number) => (
+                      <span key={i} className="text-xs text-purple-500">#{tag}</span>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </Card>
+          )}
+
+          {/* Publishing Options */}
+          <div className="grid gap-6 md:grid-cols-2">
+            {/* Path A: Direct Publishing */}
+            <Card className="p-6">
+              <div className="flex items-center gap-2 mb-4">
+                <ExternalLink className="h-4 w-4 text-purple-500" />
+                <h3 className="font-semibold text-sm">Direct Publishing</h3>
+              </div>
+              <p className="text-xs text-muted-foreground mb-4">
+                Connect your social accounts to publish directly
+              </p>
+              <div className="space-y-3">
+                <Button
+                  variant="outline"
+                  className="w-full justify-start gap-2"
+                  onClick={() => window.open('/dashboard/connectors', '_blank')}
+                >
+                  <Instagram className="h-4 w-4" style={{ color: '#E4405F' }} />
+                  Connect Instagram
+                </Button>
+                <Button
+                  variant="outline"
+                  className="w-full justify-start gap-2"
+                  onClick={() => window.open('/dashboard/connectors', '_blank')}
+                >
+                  <Facebook className="h-4 w-4" style={{ color: '#1877F2' }} />
+                  Connect Facebook
+                </Button>
+                <Separator className="my-2" />
+                <Button
+                  className="w-full bg-purple-600 hover:bg-purple-700"
+                  disabled
+                >
+                  <ExternalLink className="h-4 w-4 mr-2" />
+                  Publish Now
+                </Button>
+                <p className="text-xs text-muted-foreground text-center">
+                  Connect a social account first
+                </p>
+              </div>
+            </Card>
+
+            {/* Path B: Download */}
+            <Card className="p-6">
+              <div className="flex items-center gap-2 mb-4">
+                <Download className="h-4 w-4 text-indigo-500" />
+                <h3 className="font-semibold text-sm">Download</h3>
+              </div>
+              <p className="text-xs text-muted-foreground mb-4">
+                Download optimized images for each platform
+              </p>
+              <div className="space-y-2">
+                {DOWNLOAD_SIZES.map((ds) => (
+                  <Button
+                    key={ds.label}
+                    variant="outline"
+                    className="w-full justify-between"
+                    onClick={() => handleDownload(selectedPost?.imageUrl || '', ds.label)}
+                  >
+                    <span className="text-sm">{ds.label}</span>
+                    <span className="text-xs text-muted-foreground">{ds.size}</span>
+                  </Button>
+                ))}
+              </div>
+            </Card>
+          </div>
+
+          <div className="flex justify-between pt-4">
+            <Button variant="outline" onClick={() => setStep(4)}>
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              Back
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setStep(1)
+                setAnalysisResult(null)
+                setAnalysisId('')
+                setIdeas([])
+                setSelectedIdeaIndex(null)
+                setGeneratedPosts([])
+                setEditedPosts([])
+                setSelectedPostIndex(null)
+                setScheduledDate('')
+                setTrendsResult(null)
+                setIndustryResult(null)
+              }}
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              Start New Post
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
 
 // ---------------------------------------------------------------------------
-// Posts Tab
+// Tab 2: Make Your Own Post
 // ---------------------------------------------------------------------------
 
-function PostsTab() {
+function MakeYourOwnTab() {
+  const { currentWorkspaceId } = useAuthStore()
+  const [imageUrl, setImageUrl] = useState('')
+  const [websiteUrl, setWebsiteUrl] = useState('')
+  const [dragOver, setDragOver] = useState(false)
+  const [previewImage, setPreviewImage] = useState<string | null>(null)
+  const [result, setResult] = useState<any>(null)
+  const [editedResult, setEditedResult] = useState<any>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const makeYourOwnPost = trpc.rais.makeYourOwnPost.useMutation({
+    onSuccess: (data: any) => {
+      setResult(data)
+      setEditedResult({ ...data })
+      toast.success('Post generated!')
+    },
+    onError: (err) => toast.error(err.message),
+  })
+
+  const regenerateElement = trpc.rais.regenerateElement.useMutation({
+    onError: (err) => toast.error(err.message),
+  })
+
+  const createPost = trpc.rais.createPost.useMutation({
+    onSuccess: () => toast.success('Post saved as draft!'),
+    onError: (err) => toast.error(err.message),
+  })
+
+  const handleFileSelect = (file: File) => {
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      const dataUrl = e.target?.result as string
+      setPreviewImage(dataUrl)
+      setImageUrl(dataUrl)
+    }
+    reader.readAsDataURL(file)
+  }
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    setDragOver(false)
+    const file = e.dataTransfer.files[0]
+    if (file && file.type.startsWith('image/')) {
+      handleFileSelect(file)
+    }
+  }
+
+  const handleGenerate = () => {
+    if (!currentWorkspaceId || !imageUrl.trim()) {
+      toast.error('Please provide an image')
+      return
+    }
+    makeYourOwnPost.mutate({
+      workspaceId: currentWorkspaceId,
+      imageUrl,
+      websiteUrl: websiteUrl.trim() || undefined,
+    })
+  }
+
+  const handleRegenerate = async (element: 'title' | 'description' | 'hashtags') => {
+    if (!currentWorkspaceId || !result?.id) return
+    const res = await regenerateElement.mutateAsync({
+      workspaceId: currentWorkspaceId,
+      postId: result.id,
+      element,
+    })
+    if (res) {
+      const r = res as any
+      setEditedResult((prev: any) => ({
+        ...prev,
+        ...(element === 'title' && r.title ? { title: r.title } : {}),
+        ...(element === 'description' && r.description ? { description: r.description } : {}),
+        ...(element === 'hashtags' && r.hashtags ? { hashtags: r.hashtags } : {}),
+      }))
+      toast.success(`${element} regenerated!`)
+    }
+  }
+
+  const handleSaveDraft = () => {
+    if (!currentWorkspaceId || !editedResult) return
+    createPost.mutate({
+      workspaceId: currentWorkspaceId,
+      platform: 'instagram',
+      contentType: 'post',
+      caption: `${editedResult.title || ''}\n\n${editedResult.description || ''}`,
+      hashtags: editedResult.hashtags || [],
+      imageUrl: editedResult.imageUrl || previewImage || undefined,
+    })
+  }
+
+  const handleDownload = (label: string) => {
+    const url = editedResult?.imageUrl || previewImage
+    if (!url) {
+      toast.error('No image available')
+      return
+    }
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${label.replace(/\s+/g, '-').toLowerCase()}.png`
+    a.target = '_blank'
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+  }
+
+  return (
+    <div className="max-w-4xl mx-auto space-y-6">
+      {!result ? (
+        <>
+          {/* Upload Section */}
+          <Card className="p-6 space-y-5">
+            <div className="text-center mb-2">
+              <h2 className="text-xl font-semibold">Make Your Own Post</h2>
+              <p className="text-sm text-muted-foreground mt-1">
+                Upload an image or paste a URL and we'll create engaging content
+              </p>
+            </div>
+
+            {/* Drag & Drop Zone */}
+            <div
+              onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
+              onDragLeave={() => setDragOver(false)}
+              onDrop={handleDrop}
+              onClick={() => fileInputRef.current?.click()}
+              className={`relative border-2 border-dashed rounded-xl p-12 text-center cursor-pointer transition-all ${
+                dragOver
+                  ? 'border-purple-400 bg-purple-50 dark:bg-purple-950/20'
+                  : 'border-muted-foreground/25 hover:border-purple-300 hover:bg-muted/50'
+              }`}
+            >
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0]
+                  if (file) handleFileSelect(file)
+                }}
+              />
+              {previewImage ? (
+                <div className="space-y-3">
+                  <img
+                    src={previewImage}
+                    alt="Preview"
+                    className="max-h-48 mx-auto rounded-lg object-contain"
+                  />
+                  <p className="text-xs text-muted-foreground">Click or drag to replace</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <Upload className="h-12 w-12 text-muted-foreground/40 mx-auto" />
+                  <div>
+                    <p className="font-medium text-sm">Drop your image here or click to upload</p>
+                    <p className="text-xs text-muted-foreground mt-1">PNG, JPG, WEBP up to 10MB</p>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center gap-3">
+              <Separator className="flex-1" />
+              <span className="text-xs text-muted-foreground">OR</span>
+              <Separator className="flex-1" />
+            </div>
+
+            {/* Image URL */}
+            <div>
+              <Label className="mb-2 block text-sm font-medium">Paste Image URL</Label>
+              <Input
+                value={imageUrl.startsWith('data:') ? '' : imageUrl}
+                onChange={(e) => {
+                  setImageUrl(e.target.value)
+                  setPreviewImage(null)
+                }}
+                placeholder="https://example.com/image.jpg"
+              />
+            </div>
+
+            {/* Website URL */}
+            <div>
+              <Label className="mb-2 block text-sm font-medium">Website URL (optional)</Label>
+              <div className="flex items-center gap-2">
+                <Link className="h-4 w-4 text-muted-foreground" />
+                <Input
+                  value={websiteUrl}
+                  onChange={(e) => setWebsiteUrl(e.target.value)}
+                  placeholder="https://your-business.com"
+                  className="flex-1"
+                />
+              </div>
+            </div>
+
+            <Button
+              className="w-full bg-purple-600 hover:bg-purple-700"
+              size="lg"
+              onClick={handleGenerate}
+              disabled={makeYourOwnPost.isPending || !imageUrl.trim()}
+            >
+              {makeYourOwnPost.isPending ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Sparkles className="h-4 w-4 mr-2" />
+              )}
+              Generate Post
+            </Button>
+          </Card>
+        </>
+      ) : editedResult ? (
+        <>
+          {/* Result Section */}
+          <Card className="p-6 space-y-5">
+            <div className="flex items-center justify-between mb-2">
+              <h2 className="text-lg font-semibold">Your Generated Post</h2>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setResult(null)
+                  setEditedResult(null)
+                  setPreviewImage(null)
+                  setImageUrl('')
+                  setWebsiteUrl('')
+                }}
+              >
+                <Plus className="h-4 w-4 mr-1" />
+                New Post
+              </Button>
+            </div>
+
+            {/* Hero Preview */}
+            <div className="bg-gradient-to-br from-purple-100 to-indigo-100 dark:from-purple-950 dark:to-indigo-950 rounded-xl overflow-hidden">
+              {(editedResult.imageUrl || previewImage) ? (
+                <img
+                  src={editedResult.imageUrl || previewImage}
+                  alt="Generated"
+                  className="w-full max-h-96 object-contain"
+                />
+              ) : (
+                <div className="h-64 flex items-center justify-center">
+                  <ImageIcon className="h-16 w-16 text-purple-300" />
+                </div>
+              )}
+            </div>
+
+            {/* Title */}
+            <div className="flex items-start gap-2">
+              <div className="flex-1">
+                <Label className="text-xs text-muted-foreground mb-1 block">Title</Label>
+                <Input
+                  value={editedResult.title || ''}
+                  onChange={(e) => setEditedResult((prev: any) => ({ ...prev, title: e.target.value }))}
+                  className="font-semibold text-lg"
+                />
+              </div>
+              <Button
+                size="icon"
+                variant="ghost"
+                className="mt-5"
+                disabled={regenerateElement.isPending}
+                onClick={() => handleRegenerate('title')}
+              >
+                {regenerateElement.isPending ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-3.5 w-3.5" />
+                )}
+              </Button>
+            </div>
+
+            {/* Description */}
+            <div className="flex items-start gap-2">
+              <div className="flex-1">
+                <Label className="text-xs text-muted-foreground mb-1 block">Description</Label>
+                <textarea
+                  value={editedResult.description || ''}
+                  onChange={(e) => setEditedResult((prev: any) => ({ ...prev, description: e.target.value }))}
+                  rows={5}
+                  className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 outline-none resize-none"
+                />
+              </div>
+              <Button
+                size="icon"
+                variant="ghost"
+                className="mt-5"
+                disabled={regenerateElement.isPending}
+                onClick={() => handleRegenerate('description')}
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+
+            {/* Hashtags */}
+            <div className="flex items-start gap-2">
+              <div className="flex-1">
+                <Label className="text-xs text-muted-foreground mb-1 block">Hashtags</Label>
+                <div className="flex flex-wrap gap-1.5">
+                  {(editedResult.hashtags || []).map((tag: string, i: number) => (
+                    <Badge
+                      key={i}
+                      variant="secondary"
+                      className="cursor-pointer hover:bg-destructive/10 group"
+                      onClick={() =>
+                        setEditedResult((prev: any) => ({
+                          ...prev,
+                          hashtags: prev.hashtags.filter((_: string, idx: number) => idx !== i),
+                        }))
+                      }
+                    >
+                      #{tag}
+                      <X className="h-3 w-3 ml-1 opacity-50 group-hover:opacity-100" />
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+              <Button
+                size="icon"
+                variant="ghost"
+                className="mt-5"
+                disabled={regenerateElement.isPending}
+                onClick={() => handleRegenerate('hashtags')}
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+
+            <Separator />
+
+            {/* Download Buttons */}
+            <div>
+              <Label className="text-xs text-muted-foreground mb-2 block">Download for Platform</Label>
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {DOWNLOAD_SIZES.map((ds) => (
+                  <Button
+                    key={ds.label}
+                    variant="outline"
+                    className="justify-between"
+                    onClick={() => handleDownload(ds.label)}
+                  >
+                    <span className="text-sm">{ds.label}</span>
+                    <span className="text-xs text-muted-foreground">{ds.size}</span>
+                  </Button>
+                ))}
+              </div>
+            </div>
+
+            <Button
+              variant="outline"
+              className="w-full"
+              onClick={handleSaveDraft}
+              disabled={createPost.isPending}
+            >
+              {createPost.isPending ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Save className="h-4 w-4 mr-2" />
+              )}
+              Save as Draft
+            </Button>
+          </Card>
+        </>
+      ) : null}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Tab 3: My Posts (with sub-tabs for Posts, Calendar, Brand Voice)
+// ---------------------------------------------------------------------------
+
+function MyPostsTab() {
+  const [subTab, setSubTab] = useState('posts')
+
+  return (
+    <div>
+      <Tabs value={subTab} onValueChange={setSubTab}>
+        <TabsList className="mb-4">
+          <TabsTrigger value="posts" className="gap-1.5">
+            <FileText className="h-3.5 w-3.5" />
+            Posts
+          </TabsTrigger>
+          <TabsTrigger value="calendar" className="gap-1.5">
+            <CalendarDays className="h-3.5 w-3.5" />
+            Calendar
+          </TabsTrigger>
+          <TabsTrigger value="brand-voice" className="gap-1.5">
+            <Mic2 className="h-3.5 w-3.5" />
+            Brand Voice
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="posts">
+          <PostsList />
+        </TabsContent>
+        <TabsContent value="calendar">
+          <CalendarView />
+        </TabsContent>
+        <TabsContent value="brand-voice">
+          <BrandVoiceSettings />
+        </TabsContent>
+      </Tabs>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Posts List Sub-tab
+// ---------------------------------------------------------------------------
+
+function PostsList() {
   const { currentWorkspaceId } = useAuthStore()
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [platformFilter, setPlatformFilter] = useState<string>('all')
@@ -505,12 +1832,12 @@ function PostsTab() {
           <Save className="h-12 w-12 text-muted-foreground/30 mb-4" />
           <h3 className="text-lg font-semibold text-muted-foreground">No posts yet</h3>
           <p className="text-sm text-muted-foreground mt-1">
-            Generate your first post in the Generate tab.
+            Generate your first post in the "Create from Reviews" tab
           </p>
         </Card>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {postsQuery.data?.posts.map((post) => {
+          {postsQuery.data?.posts.map((post: any) => {
             const PlatformIcon = getPlatformIcon(post.platform)
             return (
               <Card
@@ -534,9 +1861,9 @@ function PostsTab() {
                   </Badge>
                 </div>
                 <p className="text-sm line-clamp-3">{post.caption}</p>
-                {post.hashtags.length > 0 && (
+                {post.hashtags?.length > 0 && (
                   <div className="flex flex-wrap gap-1 mt-2">
-                    {post.hashtags.slice(0, 4).map((tag, i) => (
+                    {post.hashtags.slice(0, 4).map((tag: string, i: number) => (
                       <span key={i} className="text-xs text-purple-500">
                         #{tag}
                       </span>
@@ -615,10 +1942,10 @@ function PostsTab() {
 }
 
 // ---------------------------------------------------------------------------
-// Calendar Tab
+// Calendar View Sub-tab
 // ---------------------------------------------------------------------------
 
-function CalendarTab() {
+function CalendarView() {
   const { currentWorkspaceId } = useAuthStore()
   const now = new Date()
   const [month, setMonth] = useState(now.getMonth() + 1)
@@ -633,21 +1960,13 @@ function CalendarTab() {
   const firstDayOfWeek = new Date(year, month - 1, 1).getDay()
 
   const prevMonth = () => {
-    if (month === 1) {
-      setMonth(12)
-      setYear(year - 1)
-    } else {
-      setMonth(month - 1)
-    }
+    if (month === 1) { setMonth(12); setYear(year - 1) }
+    else setMonth(month - 1)
   }
 
   const nextMonth = () => {
-    if (month === 12) {
-      setMonth(1)
-      setYear(year + 1)
-    } else {
-      setMonth(month + 1)
-    }
+    if (month === 12) { setMonth(1); setYear(year + 1) }
+    else setMonth(month + 1)
   }
 
   const monthName = new Date(year, month - 1).toLocaleString('default', { month: 'long' })
@@ -665,7 +1984,6 @@ function CalendarTab() {
 
   return (
     <div className="space-y-4">
-      {/* Month navigation */}
       <div className="flex items-center justify-between">
         <Button variant="outline" size="sm" onClick={prevMonth}>
           <ChevronLeft className="h-4 w-4" />
@@ -678,7 +1996,6 @@ function CalendarTab() {
         </Button>
       </div>
 
-      {/* Calendar grid */}
       <div className="grid grid-cols-7 gap-1">
         {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => (
           <div key={day} className="text-center text-xs font-medium text-muted-foreground py-2">
@@ -686,16 +2003,14 @@ function CalendarTab() {
           </div>
         ))}
 
-        {/* Empty cells for days before first of month */}
         {Array.from({ length: firstDayOfWeek }).map((_, i) => (
           <div key={`empty-${i}`} className="min-h-[80px] rounded-lg" />
         ))}
 
-        {/* Day cells */}
         {Array.from({ length: daysInMonth }).map((_, i) => {
           const day = i + 1
           const dateKey = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
-          const dayPosts = calendarQuery.data?.days?.[dateKey] || []
+          const dayPosts = (calendarQuery.data as any)?.days?.[dateKey] || []
           const isToday =
             day === now.getDate() && month === now.getMonth() + 1 && year === now.getFullYear()
 
@@ -744,10 +2059,10 @@ function CalendarTab() {
 }
 
 // ---------------------------------------------------------------------------
-// Brand Voice Tab
+// Brand Voice Settings Sub-tab
 // ---------------------------------------------------------------------------
 
-function BrandVoiceTab() {
+function BrandVoiceSettings() {
   const { currentWorkspaceId } = useAuthStore()
   const [tone, setTone] = useState('professional')
   const [keywords, setKeywords] = useState<string[]>([])
@@ -764,7 +2079,7 @@ function BrandVoiceTab() {
 
   useEffect(() => {
     if (!loaded && brandVoiceQuery.data) {
-      const data = brandVoiceQuery.data
+      const data = brandVoiceQuery.data as any
       setTone(data.tone || 'professional')
       setKeywords(data.keywords || [])
       setAvoidWords(data.avoidWords || [])

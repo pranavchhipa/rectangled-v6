@@ -11,8 +11,7 @@ import type { JwtPayload, AuthResponse, MeResponse } from '@rectangled/shared'
 export class AuthService {
   private readonly jwtSecret: string
   private readonly logger = new Logger(AuthService.name)
-  private readonly accessTokenExpiry =
-    process.env.NODE_ENV === 'production' ? 15 * 60 : 7 * 24 * 60 * 60 // 15min prod, 7d dev
+  private readonly accessTokenExpiry = 7 * 24 * 60 * 60 // 7 days
   private readonly refreshTokenExpiry = 30 * 24 * 60 * 60 // 30 days in seconds
 
   constructor(@Inject('DATABASE') private readonly db: Database) {

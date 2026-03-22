@@ -16,13 +16,16 @@
     "clean": "turbo clean && rm -rf node_modules"
   },
   "devDependencies": {
-    "turbo": "^2",
-    "typescript": "^5.7",
+    "eslint": "^9",
     "prettier": "^3.4",
-    "eslint": "^9"
+    "turbo": "^2",
+    "typescript": "^5.7"
   },
   "packageManager": "npm@10.8.0",
   "engines": {
     "node": ">=20"
+  },
+  "dependencies": {
+    "core-js": "^3.49.0"
   }
 }
