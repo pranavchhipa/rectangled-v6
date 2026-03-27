@@ -6,8 +6,10 @@ import {
   updateConnectorConfigSchema,
   gbpAuthUrlSchema,
   gbpCallbackSchema,
+  resolveMapsLinkSchema,
 } from '@rectangled/shared'
 import { z } from 'zod'
+import { TRPCError } from '@trpc/server'
 import { ConnectorService } from './connector.service'
 import { GbpAdapter } from './adapters/gbp.adapter'
 import { CalendarAdapter } from './adapters/calendar.adapter'
@@ -64,12 +66,31 @@ export function createConnectorRouter(
         const state = JSON.stringify({
           workspaceId: input.workspaceId,
           locationId: input.locationId,
+          placeId: input.placeId,
+          businessName: input.businessName,
+          businessAddress: input.businessAddress,
         })
         return { url: gbpAdapter.getAuthUrl(input.redirectUrl, state) }
       }),
 
+    resolveMapsLink: protectedProcedure
+      .input(resolveMapsLinkSchema)
+      .mutation(async ({ input }) => {
+        if (!gbpAdapter) {
+          throw new Error('GBP adapter not configured')
+        }
+
+        return gbpAdapter.resolveMapsLink(input.url)
+      }),
+
     handleGbpCallback: protectedProcedure
-      .input(gbpCallbackSchema)
+      .input(
+        gbpCallbackSchema.extend({
+          placeId: z.string().optional(),
+          businessName: z.string().optional(),
+          businessAddress: z.string().optional(),
+        })
+      )
       .mutation(async ({ input, ctx }) => {
         if (!gbpAdapter) {
           throw new Error('GBP adapter not configured')
@@ -80,6 +101,41 @@ export function createConnectorRouter(
           input.code,
           input.redirectUrl
         )
+
+        // Build config from place data if provided, or auto-discover
+        const config: Record<string, unknown> = {}
+        if (input.placeId) {
+          // Verify the authorized Google account actually owns/manages this business
+          const locationMatch = await gbpAdapter.findLocationByPlaceId(
+            tokens.accessToken,
+            input.placeId
+          )
+
+          if (!locationMatch) {
+            throw new TRPCError({
+              code: 'FORBIDDEN',
+              message:
+                'This Google account is not an owner or manager of the selected business. ' +
+                'Please authorize with the Google account that manages this business on Google Business Profile, ' +
+                'or claim the business at https://business.google.com first.',
+            })
+          }
+
+          config.placeId = input.placeId
+          config.businessName = input.businessName ?? ''
+          config.businessAddress = input.businessAddress ?? ''
+          config.accountName = locationMatch.accountName
+          config.locationName = locationMatch.locationName
+        } else {
+          // No placeId — auto-discover first location from authorized account
+          const discovered = await gbpAdapter.getFirstLocation(tokens.accessToken)
+          if (discovered) {
+            config.accountName = discovered.accountName
+            config.locationName = discovered.locationName
+            if (discovered.placeId) config.placeId = discovered.placeId
+            if (discovered.businessName) config.businessName = discovered.businessName
+          }
+        }
 
         // Create or update connector instance
         const instance = await connectorService.connect(
@@ -92,6 +148,7 @@ export function createConnectorRouter(
               refreshToken: tokens.refreshToken,
               expiresAt: tokens.expiresAt,
             },
+            config,
           },
           ctx.user.sub
         )

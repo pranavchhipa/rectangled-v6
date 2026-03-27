@@ -1,8 +1,8 @@
 import { z } from 'zod'
 
 export const generateJourneyQrSchema = z.object({
-  workspaceId: z.string().uuid(),
-  membershipId: z.string().uuid(),
+  workspaceId: z.string().uuid().optional(),
+  membershipId: z.string().uuid().optional(),
   journeyId: z.string().uuid(),
   locationId: z.string().uuid().optional(),
   size: z.number().int().min(100).max(2000).optional(),

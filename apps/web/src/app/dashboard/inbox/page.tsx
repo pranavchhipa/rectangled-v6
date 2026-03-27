@@ -28,6 +28,7 @@ import {
   Phone,
   Loader2,
   Wifi,
+  RefreshCw,
 } from 'lucide-react'
 import { formatDistanceToNow, format } from 'date-fns'
 import { toast } from 'sonner'
@@ -64,7 +65,7 @@ import {
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { DateRangePicker } from '@/components/ui/date-range-picker'
 
-type SourceTab = 'all' | 'gbp' | 'zomato' | 'offline'
+type SourceTab = 'all' | 'gbp' | 'zomato' | 'negative'
 type StatusFilter = 'all' | 'responded' | 'pending' | 'escalated'
 type RatingFilter = 0 | 1 | 2 | 3 | 4 | 5
 
@@ -150,9 +151,9 @@ function StarRating({ rating }: { rating: number }) {
 function SourceBadge({ source, platform }: { source: string; platform?: string }) {
   if (source === 'offline') {
     return (
-      <Badge variant="secondary" className="gap-1 text-xs">
-        <Smartphone className="size-3" />
-        Offline
+      <Badge variant="secondary" className="gap-1 text-xs bg-red-100 text-red-700 dark:bg-red-900/60 dark:text-red-300">
+        <AlertTriangle className="size-3" />
+        Negative Feedback
       </Badge>
     )
   }
@@ -229,8 +230,15 @@ export default function InboxPage() {
   const [expandedReviewId, setExpandedReviewId] = useState<string | null>(null)
   const [showCouponDialog, setShowCouponDialog] = useState(false)
   const [couponTargetReview, setCouponTargetReview] = useState<any | null>(null)
+  const [selectedLocationId, setSelectedLocationId] = useState<string>('all')
 
   const utils = trpc.useUtils()
+
+  const locationsQuery = trpc.location.list.useQuery(
+    { workspaceId: currentWorkspaceId! },
+    { enabled: !!currentWorkspaceId }
+  )
+  const locations = locationsQuery.data ?? []
 
   // Debounce search
   useEffect(() => {
@@ -247,8 +255,8 @@ export default function InboxPage() {
   )
 
   // Map sourceTab to API filter
-  const sourceFilter = sourceTab === 'all' ? undefined
-    : sourceTab === 'offline' ? 'offline' as const
+  const isNegativeTab = sourceTab === 'negative'
+  const sourceFilter = sourceTab === 'all' || isNegativeTab ? undefined
     : 'online' as const
 
   const platformFilter = sourceTab === 'gbp' ? 'google'
@@ -258,7 +266,8 @@ export default function InboxPage() {
   const reviewsQuery = trpc.review.list.useQuery(
     {
       workspaceId: currentWorkspaceId!,
-      source: sourceFilter,
+      locationId: selectedLocationId !== 'all' ? selectedLocationId : undefined,
+      source: isNegativeTab ? 'offline' as const : sourceFilter,
       search: debouncedSearch || undefined,
       dateFrom: dateRange.from,
       dateTo: dateRange.to,
@@ -282,13 +291,25 @@ export default function InboxPage() {
   })
 
   // AI Generate response
-  const generateMutation = trpc.aiResponse.generate.useMutation({
+  const generateMutation = trpc.aiResponse.generateResponse.useMutation({
     onSuccess: (data) => {
       setResponseText(data.generatedText)
       toast.success('AI response generated')
     },
     onError: (error) => {
       toast.error(error.message || 'Failed to generate AI response')
+    },
+  })
+
+  // Sync all reviews
+  const syncAllMutation = trpc.review.syncAll.useMutation({
+    onSuccess: (data) => {
+      toast.success(`Synced ${data?.synced ?? 0} new reviews`)
+      utils.review.list.invalidate()
+      utils.review.stats.invalidate()
+    },
+    onError: (error) => {
+      toast.error(error.message || 'Failed to sync reviews')
     },
   })
 
@@ -389,7 +410,7 @@ export default function InboxPage() {
     { label: 'All', value: 'all' },
     { label: 'GBP', value: 'gbp' },
     { label: 'Zomato', value: 'zomato' },
-    { label: 'Offline', value: 'offline' },
+    { label: 'Negative Feedbacks', value: 'negative' },
   ]
 
   const ratingButtons: { label: string; value: RatingFilter }[] = [
@@ -432,11 +453,37 @@ export default function InboxPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold">Inbox</h1>
-        <p className="text-sm text-muted-foreground">
-          Monitor and respond to customer reviews from all channels.
-        </p>
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">Inbox</h1>
+          <p className="text-sm text-muted-foreground">
+            Monitor and respond to customer reviews from all channels.
+          </p>
+        </div>
+        <div className="flex items-center gap-3">
+          <Select value={selectedLocationId} onValueChange={(val) => { setSelectedLocationId(val); setPage(1) }}>
+            <SelectTrigger className="w-[200px] h-9 text-sm">
+              <SelectValue placeholder="All Locations" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Locations</SelectItem>
+              {locations.map((loc) => (
+                <SelectItem key={loc.id} value={loc.id}>
+                  {loc.name}{loc.city ? ` — ${loc.city}` : ''}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => currentWorkspaceId && syncAllMutation.mutate({ workspaceId: currentWorkspaceId })}
+            disabled={syncAllMutation.isPending}
+          >
+            <RefreshCw className={`size-4 mr-2 ${syncAllMutation.isPending ? 'animate-spin' : ''}`} />
+            {syncAllMutation.isPending ? 'Syncing...' : 'Sync Reviews'}
+          </Button>
+        </div>
       </div>
 
       {/* Stats cards */}
@@ -472,94 +519,57 @@ export default function InboxPage() {
       </div>
 
       {/* Filter Bar */}
-      <Card className="p-4 space-y-4">
-        <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
-          <Filter className="size-4" />
-          Filters
-        </div>
-
-        {/* Row 1: Source + Status + Date */}
-        <div className="flex flex-wrap gap-4">
-          {/* Source filter */}
-          <div className="space-y-1.5">
-            <span className="text-xs font-medium text-muted-foreground">Source</span>
-            <div className="flex items-center gap-1">
+      <Card className="px-4 py-3">
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Source dropdown */}
+          <Select value={sourceTab} onValueChange={(val) => { setSourceTab(val as SourceTab); setPage(1) }}>
+            <SelectTrigger className="w-[130px] h-9 text-sm">
+              <Globe className="size-3.5 text-muted-foreground shrink-0" />
+              <SelectValue placeholder="Source" />
+            </SelectTrigger>
+            <SelectContent>
               {sourceTabs.map((tab) => (
-                <Badge
-                  key={tab.value}
-                  variant={sourceTab === tab.value ? 'default' : 'outline'}
-                  className="cursor-pointer transition-colors hover:bg-primary/10"
-                  onClick={() => {
-                    setSourceTab(tab.value)
-                    setPage(1)
-                  }}
-                >
-                  {tab.label}
-                </Badge>
+                <SelectItem key={tab.value} value={tab.value}>{tab.label}</SelectItem>
               ))}
-            </div>
-          </div>
+            </SelectContent>
+          </Select>
 
-          {/* Status filter */}
-          <div className="space-y-1.5">
-            <span className="text-xs font-medium text-muted-foreground">Status</span>
-            <div className="flex items-center gap-1">
-              {(['all', 'responded', 'pending', 'escalated'] as StatusFilter[]).map((s) => (
-                <Badge
-                  key={s}
-                  variant={statusFilter === s ? 'default' : 'outline'}
-                  className={`cursor-pointer transition-colors hover:bg-primary/10 ${
-                    s === 'escalated' && statusFilter === s ? 'bg-red-600 hover:bg-red-700' : ''
-                  }`}
-                  onClick={() => {
-                    setStatusFilter(s)
-                    setPage(1)
-                  }}
-                >
-                  {s.charAt(0).toUpperCase() + s.slice(1)}
-                </Badge>
+          {/* Status dropdown */}
+          <Select value={statusFilter} onValueChange={(val) => { setStatusFilter(val as StatusFilter); setPage(1) }}>
+            <SelectTrigger className="w-[150px] h-9 text-sm">
+              <CheckCircle2 className="size-3.5 text-muted-foreground shrink-0" />
+              <SelectValue placeholder="Status" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Status</SelectItem>
+              <SelectItem value="responded">Responded</SelectItem>
+              <SelectItem value="pending">Pending</SelectItem>
+              <SelectItem value="escalated">Escalated</SelectItem>
+            </SelectContent>
+          </Select>
+
+          {/* Rating dropdown */}
+          <Select value={String(ratingFilter)} onValueChange={(val) => { setRatingFilter(Number(val) as RatingFilter); setPage(1) }}>
+            <SelectTrigger className="w-[140px] h-9 text-sm">
+              <Star className="size-3.5 text-muted-foreground shrink-0" />
+              <SelectValue placeholder="Rating" />
+            </SelectTrigger>
+            <SelectContent>
+              {ratingButtons.map((rb) => (
+                <SelectItem key={rb.value} value={String(rb.value)}>{rb.label === 'All' ? 'All Ratings' : rb.label}</SelectItem>
               ))}
-            </div>
-          </div>
+            </SelectContent>
+          </Select>
 
           {/* Date range */}
-          <div className="space-y-1.5">
-            <span className="text-xs font-medium text-muted-foreground">Date Range</span>
-            <DateRangePicker
-              dateRange={dateRange}
-              onDateRangeChange={(range) => {
-                setDateRange(range)
-                setPage(1)
-              }}
-              presets={['today', '7d', '14d', '30d', '90d', 'all']}
-            />
-          </div>
-        </div>
-
-        {/* Row 2: Rating + Search */}
-        <div className="flex flex-wrap items-end gap-4">
-          {/* Rating filter */}
-          <div className="space-y-1.5">
-            <span className="text-xs font-medium text-muted-foreground">Rating</span>
-            <div className="flex items-center gap-1">
-              {ratingButtons.map((rb) => (
-                <button
-                  key={rb.value}
-                  onClick={() => {
-                    setRatingFilter(rb.value)
-                    setPage(1)
-                  }}
-                  className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors border ${
-                    ratingFilter === rb.value
-                      ? 'bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-900/60 dark:text-amber-200 dark:border-amber-700'
-                      : 'bg-background text-muted-foreground border-border hover:bg-muted'
-                  }`}
-                >
-                  {rb.label}
-                </button>
-              ))}
-            </div>
-          </div>
+          <DateRangePicker
+            dateRange={dateRange}
+            onDateRangeChange={(range) => {
+              setDateRange(range)
+              setPage(1)
+            }}
+            presets={['today', '7d', '14d', '30d', '90d', 'all']}
+          />
 
           {/* Search */}
           <div className="relative flex-1 min-w-[200px]">
@@ -568,7 +578,7 @@ export default function InboxPage() {
               placeholder="Search reviews by name, text, or tag..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="pl-9"
+              className="pl-9 h-9"
             />
           </div>
         </div>
@@ -678,8 +688,8 @@ export default function InboxPage() {
                       {/* Right: Date + Status */}
                       <div className="flex flex-col items-end gap-1.5 shrink-0">
                         <span className="text-xs text-muted-foreground">
-                          {review.createdAt
-                            ? new Date(review.createdAt).toLocaleDateString()
+                          {review.reviewedAt
+                            ? format(new Date(review.reviewedAt), 'dd MMM yyyy')
                             : ''}
                         </span>
                         <ResponseStatusIcon review={review} />
@@ -804,12 +814,8 @@ export default function InboxPage() {
                   />
                   <StarRating rating={selectedReview.rating ?? 0} />
                   <span className="text-xs text-muted-foreground">
-                    {selectedReview.createdAt
-                      ? new Date(selectedReview.createdAt).toLocaleDateString('en-US', {
-                          year: 'numeric',
-                          month: 'long',
-                          day: 'numeric',
-                        })
+                    {selectedReview.reviewedAt
+                      ? format(new Date(selectedReview.reviewedAt), 'dd MMM yyyy')
                       : ''}
                   </span>
                 </div>

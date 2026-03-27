@@ -295,6 +295,30 @@ export class ConnectorService implements OnModuleInit {
   }
 
   /**
+   * Update connector config (internal, no permission check — used by sync logic).
+   */
+  async updateConfigInternal(
+    instanceId: string,
+    config: Record<string, unknown>
+  ) {
+    const instance = await this.db.query.connectorInstances.findFirst({
+      where: eq(connectorInstances.id, instanceId),
+    })
+    if (!instance) return null
+
+    const [updated] = await this.db
+      .update(connectorInstances)
+      .set({
+        config: { ...(instance.config as Record<string, unknown>), ...config },
+        updatedAt: new Date(),
+      })
+      .where(eq(connectorInstances.id, instanceId))
+      .returning()
+
+    return updated
+  }
+
+  /**
    * Update connector credentials (internal, used by adapters).
    */
   async updateCredentials(

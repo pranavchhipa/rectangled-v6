@@ -80,7 +80,6 @@ export const journeyResponses = pgTable('journey_responses', {
     onDelete: 'set null',
   }),
   locationId: uuid('location_id')
-    .notNull()
     .references(() => locations.id, { onDelete: 'cascade' }),
   sessionId: varchar('session_id', { length: 100 }).notNull(),
   responseData: jsonb('response_data')

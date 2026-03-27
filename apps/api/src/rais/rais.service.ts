@@ -183,9 +183,9 @@ export class RaisService {
     }
 
     return {
-      total: credit.totalCredits,
-      used: credit.usedCredits,
-      remaining: credit.totalCredits - credit.usedCredits,
+      total: Math.round(credit.totalCredits * 100) / 100,
+      used: Math.round(credit.usedCredits * 100) / 100,
+      remaining: Math.round((credit.totalCredits - credit.usedCredits) * 100) / 100,
     }
   }
 
@@ -545,15 +545,17 @@ Return ONLY the JSON, no markdown.`,
         hashtags = Array.isArray(h.hashtags) ? h.hashtags : hashtags
       } catch {}
 
-      // Generate image URL — use Pollinations AI with the image prompt
-      const shortPrompt = (imagePrompt || title || 'food restaurant')
-        .replace(/[^a-zA-Z0-9 ]/g, ' ')  // remove special chars
-        .replace(/\s+/g, ' ')            // collapse whitespace
+      // Generate image URL — use loremflickr for reliable food/restaurant images
+      const keywords = (imagePrompt || title || 'food restaurant')
+        .replace(/[^a-zA-Z0-9 ]/g, ' ')
+        .replace(/\s+/g, ' ')
         .trim()
         .split(' ')
-        .slice(0, 12)                    // max 12 words for reliable generation
-        .join(' ')
-      const imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(shortPrompt)}?width=1080&height=1080&nologo=true&seed=${Date.now()}`
+        .filter((w: string) => w.length > 2)
+        .slice(0, 3)
+        .join(',')
+      const seed = Date.now()
+      const imageUrl = `https://loremflickr.com/1080/1080/${encodeURIComponent(keywords || 'food,restaurant')}?lock=${seed}`
 
       // Save generated post
       const [post] = await this.db
@@ -626,14 +628,15 @@ Return ONLY the JSON, no markdown.`,
           updates.imagePrompt = response
         }
         // Generate new image URL from new prompt
-        const newPrompt = (updates.imagePrompt || post.title || 'food restaurant')
+        const kw = (updates.imagePrompt || post.title || 'food restaurant')
           .replace(/[^a-zA-Z0-9 ]/g, ' ')
           .replace(/\s+/g, ' ')
           .trim()
           .split(' ')
-          .slice(0, 12)
-          .join(' ')
-        updates.imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(newPrompt)}?width=1080&height=1080&nologo=true&seed=${Date.now()}`
+          .filter((w: string) => w.length > 2)
+          .slice(0, 3)
+          .join(',')
+        updates.imageUrl = `https://loremflickr.com/1080/1080/${encodeURIComponent(kw || 'food,restaurant')}?lock=${Date.now()}`
         break
       }
       case 'title': {

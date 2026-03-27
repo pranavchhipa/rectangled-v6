@@ -25,7 +25,6 @@ export const reviews = pgTable(
       .notNull()
       .references(() => workspaces.id, { onDelete: 'cascade' }),
     locationId: uuid('location_id')
-      .notNull()
       .references(() => locations.id, { onDelete: 'cascade' }),
     connectorInstanceId: uuid('connector_instance_id').references(
       () => connectorInstances.id,

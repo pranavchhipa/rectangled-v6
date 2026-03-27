@@ -85,7 +85,7 @@ export const getPublicJourneySchema = z.object({
 export const submitJourneyResponseSchema = z.object({
   journeyId: z.string().uuid(),
   journeyScreenId: z.string().uuid().optional(),
-  locationId: z.string().uuid(),
+  locationId: z.string().uuid().optional(),
   sessionId: z.string(),
   responseData: z.record(z.unknown()),
   customerName: z.string().optional(),

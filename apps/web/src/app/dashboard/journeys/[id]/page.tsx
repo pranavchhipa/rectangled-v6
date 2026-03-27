@@ -80,9 +80,9 @@ import { PlatformIconBadge } from '@/components/ui/platform-icons'
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const SCREEN_TYPES = [
-  { value: 'rating', label: 'Rating', icon: Star },
+  { value: 'rating', label: 'Review', icon: Star },
   { value: 'aspects', label: 'Aspects', icon: BarChart3 },
-  { value: 'review_redirect', label: 'Review Redirect', icon: ExternalLink },
+  { value: 'review_redirect', label: 'Direct Review', icon: ExternalLink },
   { value: 'feedback', label: 'Feedback', icon: MessageSquare },
   { value: 'contact_collection', label: 'Contact Collection', icon: Phone },
   { value: 'thank_you', label: 'Thank You', icon: Heart },
@@ -122,7 +122,7 @@ function getDefaultConfig(screenType: ScreenType): Record<string, any> {
     case 'aspects':
       return { aspects: ['Food', 'Service', 'Ambience', 'Value'] }
     case 'review_redirect':
-      return { message: "We're glad you had a great experience!", links: [] }
+      return { message: "We're glad you had a great experience!", links: [{ platform: 'Google', url: '' }] }
     case 'feedback':
       return { placeholder: 'Tell us more about your experience...' }
     case 'contact_collection':
@@ -1196,6 +1196,16 @@ export default function JourneyBuilderPage() {
   const router = useRouter()
   const journeyId = params.id as string
   const utils = trpc.useUtils()
+  const { currentWorkspaceId } = useAuthStore()
+
+  // Fetch GBP connector to auto-populate Google review URL
+  const connectorsQuery = trpc.connector.listInstances.useQuery(
+    { workspaceId: currentWorkspaceId! },
+    { enabled: !!currentWorkspaceId }
+  )
+  const gbpPlaceId = (connectorsQuery.data ?? []).find(
+    (c: any) => c.connectorTypeId === 'gbp' && c.config?.placeId
+  )?.config?.placeId as string | undefined
 
   const [screens, setScreens] = useState<ScreenDraft[]>([])
   const [editingIndex, setEditingIndex] = useState<number | null>(null)
@@ -1245,19 +1255,32 @@ export default function JourneyBuilderPage() {
         (a: any, b: any) => a.order - b.order
       )
       setScreens(
-        sorted.map((s: any) => ({
-          id: s.id,
-          order: s.order,
-          screenType: s.screenType as ScreenType,
-          title: s.title ?? '',
-          subtitle: s.subtitle ?? '',
-          config: s.config ?? {},
-          branchConditions: s.branchConditions ?? null,
-        }))
+        sorted.map((s: any) => {
+          const config = s.config ?? {}
+          // Auto-fill Google review URL for existing review_redirect screens with empty links
+          if (s.screenType === 'review_redirect' && gbpPlaceId) {
+            const links = config.links ?? []
+            const googleLink = links.find((l: any) => l.platform === 'Google')
+            if (!googleLink) {
+              config.links = [{ platform: 'Google', url: `https://search.google.com/local/writereview?placeid=${gbpPlaceId}` }, ...links]
+            } else if (!googleLink.url) {
+              googleLink.url = `https://search.google.com/local/writereview?placeid=${gbpPlaceId}`
+            }
+          }
+          return {
+            id: s.id,
+            order: s.order,
+            screenType: s.screenType as ScreenType,
+            title: s.title ?? '',
+            subtitle: s.subtitle ?? '',
+            config,
+            branchConditions: s.branchConditions ?? null,
+          }
+        })
       )
       setHasChanges(false)
     }
-  }, [journeyQuery.data])
+  }, [journeyQuery.data, gbpPlaceId])
 
   useEffect(() => {
     if (journeyQuery.data) {
@@ -1269,12 +1292,17 @@ export default function JourneyBuilderPage() {
 
   function addScreen(screenType: ScreenType, insertIndex?: number) {
     setScreens((prev) => {
+      const config = getDefaultConfig(screenType)
+      // Auto-populate Google review URL if GBP is connected
+      if (screenType === 'review_redirect' && gbpPlaceId) {
+        config.links = [{ platform: 'Google', url: `https://search.google.com/local/writereview?placeid=${gbpPlaceId}` }]
+      }
       const newScreen: ScreenDraft = {
         order: insertIndex ?? prev.length,
         screenType,
         title: getDefaultTitle(screenType),
         subtitle: '',
-        config: getDefaultConfig(screenType),
+        config,
         branchConditions: null,
       }
       if (insertIndex !== undefined) {
@@ -1459,7 +1487,27 @@ export default function JourneyBuilderPage() {
           </div>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
-          <Button variant="outline" size="sm" onClick={() => window.open(`/j/${journey.slug}`, '_blank')}>
+          <Button variant="outline" size="sm" onClick={async () => {
+            if (hasChanges && screens.length > 0) {
+              updateScreensMutation.mutate({
+                journeyId,
+                screens: screens.map((s) => ({
+                  order: s.order,
+                  screenType: s.screenType,
+                  title: s.title || undefined,
+                  subtitle: s.subtitle || undefined,
+                  config: s.config,
+                  branchConditions: s.branchConditions || undefined,
+                })),
+              }, {
+                onSuccess: () => {
+                  window.open(`/j/${journey.slug}`, '_blank')
+                },
+              })
+            } else {
+              window.open(`/j/${journey.slug}`, '_blank')
+            }
+          }}>
             <Eye className="size-4" />
             Preview
           </Button>
@@ -1946,17 +1994,36 @@ export default function JourneyBuilderPage() {
 
                 {/* ─── Feedback Config ─── */}
                 {editingScreen.screenType === 'feedback' && (
-                  <div className="space-y-2">
-                    <Label>Placeholder Text</Label>
-                    <Input
-                      value={editingScreen.config.placeholder ?? ''}
-                      onChange={(e) =>
-                        updateScreen(editingIndex, {
-                          config: { ...editingScreen.config, placeholder: e.target.value },
-                        })
-                      }
-                      placeholder="Tell us more about your experience..."
-                    />
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <Label>Placeholder Text</Label>
+                      <Input
+                        value={editingScreen.config.placeholder ?? ''}
+                        onChange={(e) =>
+                          updateScreen(editingIndex, {
+                            config: { ...editingScreen.config, placeholder: e.target.value },
+                          })
+                        }
+                        placeholder="Tell us more about your experience..."
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Feedback Tags</Label>
+                      <p className="text-xs text-muted-foreground">Customers can tap these to quickly select what went wrong. One tag per line.</p>
+                      <textarea
+                        className="flex min-h-[120px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 resize-none"
+                        value={(editingScreen.config.tags ?? ['Food Quality', 'Service', 'Cleanliness', 'Wait Time', 'Staff Behavior', 'Ambience']).join('\n')}
+                        onChange={(e) =>
+                          updateScreen(editingIndex, {
+                            config: {
+                              ...editingScreen.config,
+                              tags: e.target.value.split('\n').filter((t: string) => t.trim()),
+                            },
+                          })
+                        }
+                        placeholder={'Food Quality\nService\nCleanliness\nWait Time'}
+                      />
+                    </div>
                   </div>
                 )}
 

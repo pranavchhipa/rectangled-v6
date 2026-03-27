@@ -183,7 +183,7 @@ export default function RaisPage() {
                 <Skeleton className="h-4 w-16" />
               ) : credits ? (
                 <span>
-                  {credits.remaining} / {credits.total} credits
+                  {Number(credits.remaining).toFixed(2)} / {Number(credits.total).toFixed(0)} credits
                 </span>
               ) : (
                 <span>-- credits</span>
@@ -831,22 +831,33 @@ function CreateFromReviewsTab() {
                         {post.imageUrl ? (
                           <img
                             src={post.imageUrl}
-                            alt="Generated"
+                            alt={post.title || 'Generated post'}
                             className="w-full h-full object-cover rounded-lg"
                             loading="lazy"
                             onError={(e) => {
-                              // Retry with a slightly different seed on error
                               const target = e.target as HTMLImageElement
                               if (!target.dataset.retried) {
                                 target.dataset.retried = 'true'
-                                target.src = post.imageUrl + '&retry=1'
+                                // Try Pollinations with a new seed
+                                const kw = (post.imagePrompt || post.title || 'food restaurant').replace(/[^a-zA-Z0-9 ]/g, '').split(/\s+/).filter((w: string) => w.length > 2).slice(0, 3).join(',')
+                                target.src = `https://loremflickr.com/1080/1080/${encodeURIComponent(kw || 'food,restaurant')}?lock=${Date.now()}`
+                              } else {
+                                // Final fallback: hide img, show gradient placeholder
+                                target.style.display = 'none'
+                                const parent = target.parentElement
+                                if (parent && !parent.querySelector('.img-fallback')) {
+                                  const fallback = document.createElement('div')
+                                  fallback.className = 'img-fallback absolute inset-0 flex flex-col items-center justify-center p-4 bg-gradient-to-br from-purple-200 via-indigo-200 to-pink-200'
+                                  fallback.innerHTML = `<svg class="h-12 w-12 text-purple-400 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0022.5 18.75V5.25A2.25 2.25 0 0020.25 3H3.75A2.25 2.25 0 001.5 5.25v13.5A2.25 2.25 0 003.75 21z" /></svg><p class="text-xs text-purple-500 text-center font-medium">Click "New Image" to generate</p>`
+                                  parent.appendChild(fallback)
+                                }
                               }
                             }}
                           />
                         ) : (
-                          <div className="text-center">
-                            <Loader2 className="h-8 w-8 text-purple-300 mx-auto mb-2 animate-spin" />
-                            <p className="text-xs text-purple-400">Generating image...</p>
+                          <div className="absolute inset-0 flex flex-col items-center justify-center p-4 bg-gradient-to-br from-purple-200 via-indigo-200 to-pink-200">
+                            <ImageIcon className="h-12 w-12 text-purple-400 mb-2" />
+                            <p className="text-xs text-purple-500 text-center font-medium">Click &quot;New Image&quot; to generate</p>
                           </div>
                         )}
                         {isSelected && (
@@ -1196,8 +1207,16 @@ function CreateFromReviewsTab() {
                   {selectedPost.imageUrl ? (
                     <img
                       src={selectedPost.imageUrl}
-                      alt="Preview"
+                      alt={selectedPost.title || 'Preview'}
                       className="w-full h-full object-cover rounded-lg"
+                      onError={(e) => {
+                        const target = e.target as HTMLImageElement
+                        if (!target.dataset.retried) {
+                          target.dataset.retried = 'true'
+                          const kw = (selectedPost.imagePrompt || selectedPost.title || 'food restaurant').replace(/[^a-zA-Z0-9 ]/g, '').split(/\s+/).filter((w: string) => w.length > 2).slice(0, 3).join(',')
+                          target.src = `https://loremflickr.com/1080/1080/${encodeURIComponent(kw || 'food,restaurant')}?lock=${Date.now()}`
+                        }
+                      }}
                     />
                   ) : (
                     <ImageIcon className="h-12 w-12 text-purple-300" />

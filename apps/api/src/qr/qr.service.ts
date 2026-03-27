@@ -67,11 +67,14 @@ export class QrService {
 
   // --- Lookup helpers used by router ---
 
-  async lookupJourneySlug(journeyId: string, workspaceId: string, userId: string) {
-    await this.requireMembership(workspaceId, userId)
-    const journey = await this.db.query.journeys.findFirst({
-      where: and(eq(journeys.id, journeyId), eq(journeys.workspaceId, workspaceId)),
-    })
+  async lookupJourneySlug(journeyId: string, workspaceId: string | undefined, userId: string) {
+    if (workspaceId) {
+      await this.requireMembership(workspaceId, userId)
+    }
+    const conditions = workspaceId
+      ? and(eq(journeys.id, journeyId), eq(journeys.workspaceId, workspaceId))
+      : eq(journeys.id, journeyId)
+    const journey = await this.db.query.journeys.findFirst({ where: conditions })
     if (!journey) {
       throw new TRPCError({ code: 'NOT_FOUND', message: 'Journey not found' })
     }

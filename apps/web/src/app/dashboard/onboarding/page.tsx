@@ -110,8 +110,9 @@ export default function OnboardingPage() {
   })
 
   const completeOnboarding = trpc.onboarding.complete.useMutation({
-    onSuccess: () => {
+    onSuccess: async () => {
       toast.success('Onboarding complete! Welcome aboard.')
+      await utils.onboarding.getState.invalidate()
       router.replace('/dashboard')
     },
     onError: (error) => {

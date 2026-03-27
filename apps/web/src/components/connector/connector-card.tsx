@@ -9,8 +9,10 @@ import {
   AlertCircle,
   Clock,
   Settings,
+  RefreshCw,
 } from 'lucide-react'
 import { trpc } from '@/lib/trpc'
+import { useAuthStore } from '@/stores/auth-store'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -229,6 +231,7 @@ export function ConnectorCard({
   onConnect,
 }: ConnectorCardProps) {
   const queryClient = useQueryClient()
+  const { currentWorkspaceId } = useAuthStore()
   const brand = CONNECTOR_BRAND[connectorType.id] ?? DEFAULT_BRAND
   const BrandIcon = brand.icon
   const isConnected = instances.length > 0
@@ -243,6 +246,16 @@ export function ConnectorCard({
     },
     onError: (error) => {
       toast.error(error.message || 'Failed to disconnect')
+    },
+  })
+
+  const syncMutation = trpc.review.sync.useMutation({
+    onSuccess: (data) => {
+      toast.success(`Synced ${data?.synced ?? 0} reviews`)
+      queryClient.invalidateQueries({ queryKey: [['connector', 'listInstances']] })
+    },
+    onError: (error) => {
+      toast.error(error.message || 'Failed to sync reviews')
     },
   })
 
@@ -328,11 +341,9 @@ export function ConnectorCard({
                     >
                       {status.label}
                     </Badge>
-                    {instance.locationId && (
-                      <span className="truncate text-xs text-muted-foreground">
-                        Location linked
-                      </span>
-                    )}
+                    <span className="truncate text-xs text-muted-foreground">
+                      {(instance.config as any)?.businessName || (instance.locationId ? 'Location linked' : '')}
+                    </span>
                   </div>
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
@@ -341,6 +352,19 @@ export function ConnectorCard({
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
+                      {(connectorType.id === 'gbp' || connectorType.id === 'zomato') && (
+                        <DropdownMenuItem
+                          onClick={() =>
+                            syncMutation.mutate({
+                              connectorInstanceId: instance.id,
+                            })
+                          }
+                          disabled={syncMutation.isPending}
+                        >
+                          <RefreshCw className={`size-4 mr-2 ${syncMutation.isPending ? 'animate-spin' : ''}`} />
+                          {syncMutation.isPending ? 'Syncing...' : 'Sync Reviews'}
+                        </DropdownMenuItem>
+                      )}
                       <DropdownMenuItem>
                         <Settings className="size-4 mr-2" />
                         Manage
@@ -350,6 +374,7 @@ export function ConnectorCard({
                         onClick={() =>
                           disconnectMutation.mutate({
                             instanceId: instance.id,
+                            workspaceId: currentWorkspaceId!,
                           })
                         }
                         disabled={disconnectMutation.isPending}

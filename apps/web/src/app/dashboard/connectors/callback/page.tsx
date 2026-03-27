@@ -42,7 +42,13 @@ export default function GbpCallbackPage() {
       return
     }
 
-    let state: { workspaceId?: string; locationId?: string }
+    let state: {
+      workspaceId?: string
+      locationId?: string
+      placeId?: string
+      businessName?: string
+      businessAddress?: string
+    }
     try {
       state = JSON.parse(stateRaw)
     } catch {
@@ -62,6 +68,9 @@ export default function GbpCallbackPage() {
       workspaceId: state.workspaceId,
       locationId: state.locationId,
       redirectUrl: `${window.location.origin}/dashboard/connectors/callback`,
+      placeId: state.placeId,
+      businessName: state.businessName,
+      businessAddress: state.businessAddress,
     })
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 

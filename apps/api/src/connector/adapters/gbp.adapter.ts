@@ -199,6 +199,87 @@ export class GbpAdapter {
   }
 
   /**
+   * List GBP locations for an account, optionally filtering by Place ID.
+   * Returns the matching location resource name.
+   */
+  async findLocationByPlaceId(
+    accessToken: string,
+    placeId: string
+  ): Promise<{ accountName: string; locationName: string } | null> {
+    const oauth2Client = this.createAuthClient(accessToken)
+
+    try {
+      // List accounts first
+      const accounts = await this.listAccounts(accessToken)
+
+      for (const account of accounts) {
+        const accountName = account.name as string
+        // List locations for each account
+        const locationsRes = await oauth2Client.request({
+          url: `https://mybusinessbusinessinformation.googleapis.com/v1/${accountName}/locations`,
+          params: {
+            readMask: 'name,metadata',
+          },
+        })
+
+        const locationsData = locationsRes.data as any
+        const gbpLocations = locationsData.locations ?? []
+
+        for (const loc of gbpLocations) {
+          // The metadata.placeId field contains the Google Place ID
+          if (loc.metadata?.placeId === placeId) {
+            return {
+              accountName,
+              locationName: loc.name as string,
+            }
+          }
+        }
+      }
+
+      return null
+    } catch (err: any) {
+      throw new TRPCError({
+        code: 'INTERNAL_SERVER_ERROR',
+        message: `Failed to find location by Place ID: ${err.message}`,
+      })
+    }
+  }
+
+  /**
+   * Auto-discover the first GBP location from the authorized account.
+   * Used when no placeId is available (fallback).
+   */
+  async getFirstLocation(
+    accessToken: string
+  ): Promise<{ accountName: string; locationName: string; placeId?: string; businessName?: string } | null> {
+    const oauth2Client = this.createAuthClient(accessToken)
+    try {
+      const accounts = await this.listAccounts(accessToken)
+      for (const account of accounts) {
+        const accountName = account.name as string
+        const locationsRes = await oauth2Client.request({
+          url: `https://mybusinessbusinessinformation.googleapis.com/v1/${accountName}/locations`,
+          params: { readMask: 'name,title,metadata' },
+        })
+        const locationsData = locationsRes.data as any
+        const gbpLocations = locationsData.locations ?? []
+        if (gbpLocations.length > 0) {
+          const loc = gbpLocations[0]
+          return {
+            accountName,
+            locationName: loc.name as string,
+            placeId: loc.metadata?.placeId,
+            businessName: loc.title,
+          }
+        }
+      }
+      return null
+    } catch {
+      return null
+    }
+  }
+
+  /**
    * Fetch reviews for a GBP location.
    */
   async fetchReviews(
@@ -211,7 +292,8 @@ export class GbpAdapter {
 
     try {
       // Use the My Business API v4 for reviews
-      const url = `https://mybusiness.googleapis.com/v4/${locationName}/reviews`
+      // URL format: accounts/{accountId}/locations/{locationId}/reviews
+      const url = `https://mybusiness.googleapis.com/v4/${accountName}/${locationName}/reviews`
       const params: Record<string, string> = { pageSize: '50' }
       if (pageToken) params.pageToken = pageToken
 
@@ -446,6 +528,240 @@ export class GbpAdapter {
         message: `Failed to delete local post: ${err.message}`,
       })
     }
+  }
+
+  /**
+   * Resolve a Google Maps URL to a Place ID.
+   *
+   * Supports:
+   *  - https://www.google.com/maps/place/Business+Name/...
+   *  - https://maps.app.goo.gl/... (short links — followed via redirect)
+   *  - URLs with `place_id:` or `ftid` query params
+   *
+   * Uses the Google Places API (findplacefromtext) with the OAuth access token.
+   * If no access token is provided, falls back to GOOGLE_API_KEY env var.
+   */
+  async resolveMapsLink(
+    url: string,
+    accessToken?: string
+  ): Promise<{ placeId: string; businessName: string; address: string }> {
+    this.ensureConfigured()
+
+    // 1. Follow redirects to get the canonical URL
+    const finalUrl = await this.followRedirects(url)
+
+    // 2. Try to extract a place_id directly from the URL
+    const directPlaceId = this.extractPlaceIdFromUrl(finalUrl)
+    if (directPlaceId) {
+      // Look up details for the place ID to get name + address
+      const details = await this.getPlaceDetails(directPlaceId, accessToken)
+      return details
+    }
+
+    // 3. Extract business name from the URL path
+    const businessName = this.extractBusinessNameFromUrl(finalUrl)
+    if (!businessName) {
+      throw new TRPCError({
+        code: 'BAD_REQUEST',
+        message:
+          'Could not extract a business name from this Google Maps link. Please check the URL and try again.',
+      })
+    }
+
+    // 4. Search for the place using Places API findPlaceFromText
+    const placeId = await this.findPlaceFromText(businessName, accessToken)
+
+    // 5. Get full details
+    const details = await this.getPlaceDetails(placeId, accessToken)
+    return details
+  }
+
+  /**
+   * Follow HTTP redirects to resolve short URLs (e.g. maps.app.goo.gl).
+   */
+  private async followRedirects(url: string): Promise<string> {
+    try {
+      const response = await fetch(url, {
+        method: 'GET',
+        redirect: 'follow',
+        headers: {
+          'User-Agent':
+            'Mozilla/5.0 (compatible; Rectangled/1.0; +https://rectangled.io)',
+        },
+      })
+      // The final URL after all redirects
+      return response.url || url
+    } catch {
+      // If fetch fails, return the original URL and let downstream parsing try
+      return url
+    }
+  }
+
+  /**
+   * Try to extract a Place ID directly from URL parameters.
+   * Handles URLs like: ...?ftid=0x...&place_id=ChIJ...
+   */
+  private extractPlaceIdFromUrl(url: string): string | null {
+    try {
+      const parsed = new URL(url)
+
+      // Check for place_id query param
+      const placeIdParam = parsed.searchParams.get('place_id')
+      if (placeIdParam) return placeIdParam
+
+      // Check for ftid param (Google's internal place reference)
+      // ftid values aren't Place IDs but we can try
+      // Actually ftid is not a Place ID — skip it
+
+      // Check for ChIJ... pattern in the URL (Place ID format)
+      const placeIdMatch = url.match(/ChIJ[A-Za-z0-9_-]{20,}/)
+      if (placeIdMatch) return placeIdMatch[0]
+
+      return null
+    } catch {
+      return null
+    }
+  }
+
+  /**
+   * Extract the business name from a Google Maps place URL.
+   * URL format: /maps/place/Business+Name+Here/@lat,lng,...
+   */
+  private extractBusinessNameFromUrl(url: string): string | null {
+    try {
+      const parsed = new URL(url)
+      const pathname = parsed.pathname
+
+      // Match /maps/place/BUSINESS_NAME/ or /maps/place/BUSINESS_NAME/@...
+      const placeMatch = pathname.match(/\/maps\/place\/([^/@]+)/)
+      if (placeMatch?.[1]) {
+        // Decode URL encoding: Business+Name+Here → Business Name Here
+        const raw = decodeURIComponent(placeMatch[1].replace(/\+/g, ' '))
+        return raw
+      }
+
+      // Try to extract from search query parameter (q=...)
+      const q = parsed.searchParams.get('q')
+      if (q) return q
+
+      return null
+    } catch {
+      return null
+    }
+  }
+
+  /**
+   * Call Google Places API findPlaceFromText to get a Place ID from text.
+   */
+  private async findPlaceFromText(
+    query: string,
+    accessToken?: string
+  ): Promise<string> {
+    const apiKey = this.config.get<string>('GOOGLE_API_KEY')
+
+    let url: string
+    let headers: Record<string, string> = {}
+
+    if (apiKey) {
+      url =
+        `https://maps.googleapis.com/maps/api/place/findplacefromtext/json` +
+        `?input=${encodeURIComponent(query)}` +
+        `&inputtype=textquery` +
+        `&fields=place_id,name,formatted_address` +
+        `&key=${apiKey}`
+    } else if (accessToken) {
+      // Use OAuth token — the Places API accepts OAuth if the project has it enabled
+      url =
+        `https://maps.googleapis.com/maps/api/place/findplacefromtext/json` +
+        `?input=${encodeURIComponent(query)}` +
+        `&inputtype=textquery` +
+        `&fields=place_id,name,formatted_address`
+      headers['Authorization'] = `Bearer ${accessToken}`
+    } else {
+      throw new TRPCError({
+        code: 'PRECONDITION_FAILED',
+        message:
+          'No Google API key or OAuth access token available. Set GOOGLE_API_KEY in environment or connect GBP first.',
+      })
+    }
+
+    const res = await fetch(url, { headers })
+    const data = (await res.json()) as {
+      candidates?: Array<{
+        place_id: string
+        name: string
+        formatted_address: string
+      }>
+      status: string
+      error_message?: string
+    }
+
+    if (
+      data.status !== 'OK' ||
+      !data.candidates ||
+      data.candidates.length === 0
+    ) {
+      throw new TRPCError({
+        code: 'NOT_FOUND',
+        message: `Could not find a Google place matching "${query}". ${data.error_message ?? ''}`.trim(),
+      })
+    }
+
+    return data.candidates[0].place_id
+  }
+
+  /**
+   * Get place details (name, address) for a Place ID.
+   */
+  private async getPlaceDetails(
+    placeId: string,
+    accessToken?: string
+  ): Promise<{ placeId: string; businessName: string; address: string }> {
+    const apiKey = this.config.get<string>('GOOGLE_API_KEY')
+
+    let url: string
+    let headers: Record<string, string> = {}
+
+    if (apiKey) {
+      url =
+        `https://maps.googleapis.com/maps/api/place/details/json` +
+        `?place_id=${encodeURIComponent(placeId)}` +
+        `&fields=place_id,name,formatted_address` +
+        `&key=${apiKey}`
+    } else if (accessToken) {
+      url =
+        `https://maps.googleapis.com/maps/api/place/details/json` +
+        `?place_id=${encodeURIComponent(placeId)}` +
+        `&fields=place_id,name,formatted_address`
+      headers['Authorization'] = `Bearer ${accessToken}`
+    } else {
+      // Return just the placeId without details
+      return { placeId, businessName: '', address: '' }
+    }
+
+    try {
+      const res = await fetch(url, { headers })
+      const data = (await res.json()) as {
+        result?: {
+          place_id: string
+          name: string
+          formatted_address: string
+        }
+        status: string
+      }
+
+      if (data.status === 'OK' && data.result) {
+        return {
+          placeId: data.result.place_id,
+          businessName: data.result.name,
+          address: data.result.formatted_address,
+        }
+      }
+    } catch {
+      // Fall through to default
+    }
+
+    return { placeId, businessName: '', address: '' }
   }
 
   private createAuthClient(accessToken: string) {

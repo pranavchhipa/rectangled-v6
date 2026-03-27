@@ -10,16 +10,17 @@ export function createQrRouter(service: QrService) {
   return router({
     generateJourneyQr: protectedProcedure
       .input(generateJourneyQrSchema)
-      .mutation(async ({ input, ctx }) => {
+      .query(async ({ input, ctx }) => {
         const slug = await service.lookupJourneySlug(
           input.journeyId,
           input.workspaceId,
           ctx.user.sub
         )
-        return service.generateJourneyQr(slug, input.locationId, {
+        const qrDataUrl = await service.generateJourneyQr(slug, input.locationId, {
           size: input.size,
           format: input.format,
         })
+        return { qrDataUrl }
       }),
 
     generateFormQr: protectedProcedure

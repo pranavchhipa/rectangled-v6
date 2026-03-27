@@ -188,6 +188,7 @@ export default function JourneysPage() {
 
   const [createOpen, setCreateOpen] = useState(false)
   const [newName, setNewName] = useState('')
+  const [journeyType, setJourneyType] = useState<'review' | 'direct'>('review')
   const [archiveId, setArchiveId] = useState<string | null>(null)
   const [qrJourney, setQrJourney] = useState<{ id: string; slug: string } | null>(null)
   const [showArchived, setShowArchived] = useState(false)
@@ -197,11 +198,32 @@ export default function JourneysPage() {
     { enabled: !!currentWorkspaceId }
   )
 
+  const updateScreensMutation = trpc.journey.updateScreens.useMutation()
+
   const createMutation = trpc.journey.create.useMutation({
-    onSuccess: (data) => {
-      toast.success('Journey created')
+    onSuccess: async (data) => {
+      // Auto-create screens based on journey type
+      const screens = journeyType === 'review'
+        ? [
+            { order: 0, screenType: 'rating', title: 'How was your experience?', subtitle: 'Tap a star to rate', config: { maxRating: 5, positiveThreshold: 4, iconStyle: 'stars' } },
+            { order: 1, screenType: 'feedback', title: 'What went wrong?', subtitle: 'Help us improve your experience', config: { placeholder: 'Tell us more (optional)...', tags: ['Food Quality', 'Service', 'Cleanliness', 'Wait Time', 'Staff Behavior', 'Ambience'] } },
+            { order: 2, screenType: 'review_redirect', title: 'Share your experience', config: { message: 'Please share your experience on Google!', links: [{ platform: 'Google', url: '' }] } },
+            { order: 3, screenType: 'thank_you', title: 'Thank you!', config: { message: 'We appreciate your feedback!' } },
+          ]
+        : [
+            { order: 0, screenType: 'rating', title: 'Rate your experience', subtitle: 'Tap a star to rate', config: { maxRating: 5, positiveThreshold: 0, iconStyle: 'stars' } },
+            { order: 1, screenType: 'review_redirect', title: 'Share your experience', config: { message: 'Please share your experience on Google!', links: [{ platform: 'Google', url: '' }] } },
+            { order: 2, screenType: 'thank_you', title: 'Thank you!', config: { message: 'We appreciate your feedback!' } },
+          ]
+
+      try {
+        await updateScreensMutation.mutateAsync({ journeyId: data.id, screens })
+      } catch {}
+
+      toast.success('Journey created with screens')
       setCreateOpen(false)
       setNewName('')
+      setJourneyType('review')
       utils.journey.list.invalidate()
       router.push(`/dashboard/journeys/${data.id}`)
     },
@@ -258,24 +280,62 @@ export default function JourneysPage() {
               Create Journey
             </Button>
           </DialogTrigger>
-          <DialogContent>
+          <DialogContent className="sm:max-w-lg">
             <DialogHeader>
               <DialogTitle>Create Journey</DialogTitle>
               <DialogDescription>
-                Give your journey a name. You can configure screens after creation.
+                Choose a journey type and give it a name.
               </DialogDescription>
             </DialogHeader>
-            <div className="space-y-2 py-4">
-              <Label htmlFor="journey-name">Journey Name</Label>
-              <Input
-                id="journey-name"
-                placeholder="e.g. Post-visit feedback"
-                value={newName}
-                onChange={(e) => setNewName(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleCreate()
-                }}
-              />
+            <div className="space-y-4 py-4">
+              {/* Journey Type Selection */}
+              <div className="space-y-2">
+                <Label>Journey Type</Label>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setJourneyType('review')}
+                    className={`rounded-lg border-2 p-4 text-left transition-all ${
+                      journeyType === 'review'
+                        ? 'border-primary bg-primary/5 shadow-sm'
+                        : 'border-border hover:border-muted-foreground/30'
+                    }`}
+                  >
+                    <div className="font-semibold text-sm">Review Option</div>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Filters ratings — low ratings (1-3) go to feedback, high ratings (4-5) redirect to Google
+                    </p>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setJourneyType('direct')}
+                    className={`rounded-lg border-2 p-4 text-left transition-all ${
+                      journeyType === 'direct'
+                        ? 'border-primary bg-primary/5 shadow-sm'
+                        : 'border-border hover:border-muted-foreground/30'
+                    }`}
+                  >
+                    <div className="font-semibold text-sm">Direct Review</div>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      No filtering — any rating directly redirects to Google review page
+                    </p>
+                  </button>
+                </div>
+              </div>
+
+              {/* Name */}
+              <div className="space-y-2">
+                <Label htmlFor="journey-name">Journey Name</Label>
+                <Input
+                  id="journey-name"
+                  placeholder={journeyType === 'review' ? 'e.g. Post-visit feedback' : 'e.g. Quick Google Review'}
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleCreate()
+                  }}
+                />
+              </div>
             </div>
             <DialogFooter>
               <Button

@@ -162,6 +162,8 @@ export class JourneyService {
     return {
       id: journey.id,
       name: journey.name,
+      isActive: journey.isActive,
+      locationId: journey.locationId,
       settings: journey.settings,
       screens: screens.map((s) => ({
         id: s.id,
@@ -179,7 +181,7 @@ export class JourneyService {
   async submitResponse(input: {
     journeyId: string
     journeyScreenId?: string
-    locationId: string
+    locationId?: string
     sessionId: string
     responseData: Record<string, unknown>
     customerName?: string
@@ -236,7 +238,7 @@ export class JourneyService {
           reviewedAt: new Date(),
           source: 'offline',
           journeyResponseId: response.id,
-          aspectTags: (input.responseData.aspectTags as string[]) || null,
+          aspectTags: (input.responseData.tags as string[]) || (input.responseData.aspectTags as string[]) || null,
           customerId,
         })
       }

@@ -138,14 +138,49 @@ export class ReviewService {
 
     // Fetch reviews from GBP (paginated)
     const config = instance.config as Record<string, string>
-    const accountName = config?.accountName ?? ''
-    const locationName = config?.locationName ?? ''
+    let accountName = config?.accountName ?? ''
+    let locationName = config?.locationName ?? ''
+
+    // If we have a placeId but no accountName/locationName, resolve them
+    if ((!accountName || !locationName) && config?.placeId) {
+      const resolved = await this.gbpAdapter.findLocationByPlaceId(
+        accessToken,
+        config.placeId
+      )
+      if (resolved) {
+        accountName = resolved.accountName
+        locationName = resolved.locationName
+        await this.connectorService.updateConfigInternal(
+          instance.id,
+          { accountName: resolved.accountName, locationName: resolved.locationName }
+        ).catch(() => {})
+      }
+    }
+
+    // Fallback: auto-discover first location from the authorized account
+    if (!accountName || !locationName) {
+      const discovered = await this.gbpAdapter.getFirstLocation(accessToken)
+      if (discovered) {
+        accountName = discovered.accountName
+        locationName = discovered.locationName
+        // Cache everything for future syncs
+        await this.connectorService.updateConfigInternal(
+          instance.id,
+          {
+            accountName: discovered.accountName,
+            locationName: discovered.locationName,
+            ...(discovered.placeId && { placeId: discovered.placeId }),
+            ...(discovered.businessName && { businessName: discovered.businessName }),
+          }
+        ).catch(() => {})
+      }
+    }
 
     if (!accountName || !locationName) {
       throw new TRPCError({
         code: 'PRECONDITION_FAILED',
         message:
-          'Connector is missing accountName or locationName in config. Please reconfigure.',
+          'Could not find any GBP locations for this account. Please ensure your Google account manages at least one business.',
       })
     }
 
@@ -163,36 +198,42 @@ export class ReviewService {
       for (const gbpReview of result.reviews) {
         const rating = gbpStarRatingToNumber(gbpReview.starRating)
 
-        await this.db
-          .insert(reviews)
-          .values({
-            workspaceId: instance.workspaceId,
-            locationId: instance.locationId!,
-            connectorInstanceId: instance.id,
-            platform: 'google',
-            platformReviewId: gbpReview.reviewId,
-            reviewerName: gbpReview.reviewer.displayName,
-            reviewerAvatarUrl: gbpReview.reviewer.profilePhotoUrl ?? null,
-            rating,
-            text: gbpReview.comment ?? null,
-            reviewedAt: new Date(gbpReview.createTime),
-            metadata: { gbpResourceName: gbpReview.name },
-          })
-          .onConflictDoUpdate({
-            target: [],
-            set: {
+        // Check if review already exists
+        const existing = await this.db
+          .select({ id: reviews.id })
+          .from(reviews)
+          .where(
+            and(
+              eq(reviews.workspaceId, instance.workspaceId),
+              eq(reviews.platform, 'google'),
+              eq(reviews.platformReviewId, gbpReview.reviewId)
+            )
+          )
+          .limit(1)
+
+        if (existing.length === 0) {
+          await this.db
+            .insert(reviews)
+            .values({
+              workspaceId: instance.workspaceId,
+              locationId: instance.locationId!,
+              connectorInstanceId: instance.id,
+              platform: 'google',
+              platformReviewId: gbpReview.reviewId,
               reviewerName: gbpReview.reviewer.displayName,
+              reviewerAvatarUrl: gbpReview.reviewer.profilePhotoUrl ?? null,
               rating,
               text: gbpReview.comment ?? null,
-              updatedAt: new Date(),
-            },
-            setWhere: sql`1=0`,
-          })
-          .catch(() => {
-            // Unique constraint violation — already exists, skip
-          })
+              reviewedAt: new Date(gbpReview.createTime),
+              metadata: { gbpResourceName: gbpReview.name },
+            })
+            .onConflictDoNothing({
+              target: [reviews.workspaceId, reviews.platform, reviews.platformReviewId],
+            })
+            .catch(() => {})
 
-        synced++
+          synced++
+        }
       }
 
       pageToken = result.nextPageToken
@@ -605,9 +646,11 @@ export class ReviewService {
     const workspace = await this.db.query.workspaces.findFirst({
       where: eq(workspaces.id, review.workspaceId),
     })
-    const location = await this.db.query.locations.findFirst({
-      where: eq(locations.id, review.locationId),
-    })
+    const location = review.locationId
+      ? await this.db.query.locations.findFirst({
+          where: eq(locations.id, review.locationId),
+        })
+      : null
 
     if (!workspace || !location) {
       throw new TRPCError({

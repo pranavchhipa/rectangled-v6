@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Loader2, ExternalLink } from 'lucide-react'
+import { Loader2, ExternalLink, MapPin, CheckCircle2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { trpc } from '@/lib/trpc'
 import { useAuthStore } from '@/stores/auth-store'
@@ -31,6 +31,12 @@ interface ConnectorType {
   bindingLevel: string
 }
 
+interface ResolvedPlace {
+  placeId: string
+  businessName: string
+  address: string
+}
+
 interface ConnectorConnectSheetProps {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -45,6 +51,10 @@ export function ConnectorConnectSheet({
   const { currentWorkspaceId } = useAuthStore()
   const queryClient = useQueryClient()
   const [selectedLocationId, setSelectedLocationId] = useState<string>('')
+
+  // GBP Maps link state
+  const [mapsLink, setMapsLink] = useState<string>('')
+  const [resolvedPlace, setResolvedPlace] = useState<ResolvedPlace | null>(null)
 
   // Email connector state
   const [emailProvider, setEmailProvider] = useState<string>('')
@@ -65,16 +75,30 @@ export function ConnectorConnectSheet({
       redirectUrl: typeof window !== 'undefined'
         ? `${window.location.origin}/dashboard/connectors/callback`
         : '',
+      placeId: resolvedPlace?.placeId,
+      businessName: resolvedPlace?.businessName,
+      businessAddress: resolvedPlace?.address,
     },
     { enabled: false } // manual trigger
   )
+
+  const resolveMapsLinkMutation = trpc.connector.resolveMapsLink.useMutation({
+    onSuccess: (data) => {
+      setResolvedPlace(data)
+      toast.success('Business found!')
+    },
+    onError: (err) => {
+      toast.error(err.message || 'Could not resolve this Google Maps link')
+      setResolvedPlace(null)
+    },
+  })
 
   const connectMutation = trpc.connector.connect.useMutation({
     onSuccess: () => {
       toast.success('Connector connected successfully')
       queryClient.invalidateQueries({ queryKey: [['connector', 'listInstances']] })
       onOpenChange(false)
-      resetEmailForm()
+      resetForms()
     },
     onError: (err) => {
       toast.error(err.message || 'Failed to connect')
@@ -85,10 +109,20 @@ export function ConnectorConnectSheet({
   const isEmail = connectorType?.id === 'email'
   const isLocationBound = connectorType?.bindingLevel === 'location'
 
-  function resetEmailForm() {
+  function resetForms() {
     setEmailProvider('')
     setEmailApiKey('')
     setFromEmail('')
+    setMapsLink('')
+    setResolvedPlace(null)
+  }
+
+  function handleResolveMapsLink() {
+    if (!currentWorkspaceId || !mapsLink) return
+    resolveMapsLinkMutation.mutate({
+      url: mapsLink,
+      workspaceId: currentWorkspaceId,
+    })
   }
 
   async function handleAuthorize() {
@@ -114,6 +148,10 @@ export function ConnectorConnectSheet({
 
   const canProceed = !isLocationBound || !!selectedLocationId
   const canSubmitEmail = !!emailProvider && !!emailApiKey && !!fromEmail
+  const isValidMapsLink =
+    mapsLink.includes('google.com/maps') ||
+    mapsLink.includes('maps.app.goo.gl') ||
+    mapsLink.includes('goo.gl/maps')
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -165,7 +203,69 @@ export function ConnectorConnectSheet({
 
           {/* GBP OAuth flow */}
           {isGbp && (
-            <div className="space-y-3">
+            <div className="space-y-4">
+              {/* Step 2: Google Maps link */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium">
+                  Google Maps Link
+                </label>
+                <p className="text-xs text-muted-foreground">
+                  Paste the Google Maps link for your business listing. We'll
+                  use this to identify your business and sync reviews.
+                </p>
+                <div className="flex gap-2">
+                  <Input
+                    type="url"
+                    placeholder="https://www.google.com/maps/place/..."
+                    value={mapsLink}
+                    onChange={(e) => {
+                      setMapsLink(e.target.value)
+                      setResolvedPlace(null)
+                    }}
+                    className="flex-1"
+                  />
+                  <Button
+                    variant="secondary"
+                    onClick={handleResolveMapsLink}
+                    disabled={
+                      !isValidMapsLink ||
+                      !canProceed ||
+                      resolveMapsLinkMutation.isPending
+                    }
+                  >
+                    {resolveMapsLinkMutation.isPending ? (
+                      <Loader2 className="size-4 animate-spin" />
+                    ) : (
+                      'Resolve'
+                    )}
+                  </Button>
+                </div>
+              </div>
+
+              {/* Resolved place card */}
+              {resolvedPlace && (
+                <div className="rounded-lg border border-green-200 bg-green-50 dark:border-green-900 dark:bg-green-950/30 p-4">
+                  <div className="flex items-start gap-3">
+                    <CheckCircle2 className="size-5 text-green-600 dark:text-green-400 mt-0.5 shrink-0" />
+                    <div className="space-y-1">
+                      <p className="text-sm font-medium">
+                        {resolvedPlace.businessName || 'Business found'}
+                      </p>
+                      {resolvedPlace.address && (
+                        <p className="text-xs text-muted-foreground flex items-center gap-1">
+                          <MapPin className="size-3" />
+                          {resolvedPlace.address}
+                        </p>
+                      )}
+                      <p className="text-xs text-muted-foreground font-mono">
+                        Place ID: {resolvedPlace.placeId}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Step 3: Authorize */}
               <div className="rounded-lg border bg-muted/30 p-4 text-sm text-muted-foreground">
                 <p>
                   You'll be redirected to Google to authorize access to your

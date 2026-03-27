@@ -583,7 +583,7 @@ Write a response:`
           where: eq(reviews.id, schedule.reviewId),
         })
 
-        if (review) {
+        if (review && review.locationId) {
           const today = new Date().toISOString().split('T')[0]
           await this.db
             .insert(aiResponseDailyCounts)

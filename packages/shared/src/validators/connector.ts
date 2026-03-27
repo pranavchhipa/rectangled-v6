@@ -29,6 +29,9 @@ export const gbpAuthUrlSchema = z.object({
   workspaceId: uuidSchema,
   locationId: uuidSchema.optional(),
   redirectUrl: z.string().url(),
+  placeId: z.string().optional(),
+  businessName: z.string().optional(),
+  businessAddress: z.string().optional(),
 })
 
 export const gbpCallbackSchema = z.object({
@@ -36,6 +39,11 @@ export const gbpCallbackSchema = z.object({
   workspaceId: uuidSchema,
   locationId: uuidSchema.optional(),
   redirectUrl: z.string().url(),
+})
+
+export const resolveMapsLinkSchema = z.object({
+  url: z.string().url(),
+  workspaceId: uuidSchema,
 })
 
 export const publishGbpPostSchema = z.object({

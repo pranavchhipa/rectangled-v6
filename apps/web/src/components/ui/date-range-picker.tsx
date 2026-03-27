@@ -66,8 +66,8 @@ export function DateRangePicker({ dateRange, onDateRangeChange, presets = ['7d',
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button variant="outline" size="sm" className={`justify-start text-left font-normal ${className ?? ''}`}>
-          <CalendarIcon className="mr-2 size-4" />
+        <Button variant="outline" size="sm" className={`h-9 justify-start text-left text-sm font-normal ${className ?? ''}`}>
+          <CalendarIcon className="mr-2 size-3.5" />
           {displayText}
         </Button>
       </PopoverTrigger>

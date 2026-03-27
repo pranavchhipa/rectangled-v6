@@ -33,6 +33,10 @@ services:
         type: SECRET
       - key: RAZORPAY_KEY_SECRET
         type: SECRET
+      - key: GOOGLE_API_KEY
+        type: SECRET
+      - key: GOOGLE_REDIRECT_URL
+        value: ${APP_URL}/gbp/auth
       - key: EMAIL_FROM
         value: noreply@rectangled.io
       - key: API_PORT
