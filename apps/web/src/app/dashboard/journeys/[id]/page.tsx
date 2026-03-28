@@ -1535,8 +1535,7 @@ export default function JourneyBuilderPage() {
                     {loc.name}
                   </span>
                 ) : null
-              })()
-              )}
+              })()}
             </div>
           </div>
         </div>
