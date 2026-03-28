@@ -1332,8 +1332,14 @@ export default function JourneyBuilderPage() {
     setScreens((prev) => {
       const config = getDefaultConfig(screenType)
       // Auto-populate Google review URL if GBP is connected
-      if (screenType === 'review_redirect' && gbpPlaceId) {
-        config.links = [{ platform: 'Google', url: `https://search.google.com/local/writereview?placeid=${gbpPlaceId}` }]
+      if (gbpPlaceId) {
+        const autoUrl = `https://search.google.com/local/writereview?placeid=${gbpPlaceId}`
+        if (screenType === 'review_redirect') {
+          config.links = [{ platform: 'Google', url: autoUrl }]
+        }
+        if (screenType === 'rating' && config.redirectLinks) {
+          config.redirectLinks = [{ platform: 'Google', url: autoUrl }]
+        }
       }
       const newScreen: ScreenDraft = {
         order: insertIndex ?? prev.length,

@@ -10,6 +10,7 @@ import {
   members,
   customers,
   reviews,
+  connectorInstances,
 } from '@rectangled/db'
 
 @Injectable()
@@ -96,7 +97,68 @@ export class JourneyService {
       .where(eq(journeys.id, input.id))
       .returning()
 
+    // When locationId changes, auto-fill Google review URL in screen configs
+    if (input.locationId !== undefined && input.locationId !== null) {
+      await this.autoFillGoogleReviewUrl(input.id, journey.workspaceId, input.locationId)
+    }
+
     return updated
+  }
+
+  private async autoFillGoogleReviewUrl(journeyId: string, workspaceId: string, locationId: string) {
+    // Find GBP connector for this location
+    const gbpConnector = await this.db.query.connectorInstances.findFirst({
+      where: and(
+        eq(connectorInstances.workspaceId, workspaceId),
+        eq(connectorInstances.connectorTypeId, 'gbp'),
+        eq(connectorInstances.locationId, locationId),
+      ),
+    })
+    const placeId = (gbpConnector?.config as any)?.placeId
+    if (!placeId) return
+
+    const googleUrl = `https://search.google.com/local/writereview?placeid=${placeId}`
+
+    // Fetch all screens for this journey
+    const screens = await this.db.query.journeyScreens.findMany({
+      where: eq(journeyScreens.journeyId, journeyId),
+    })
+
+    for (const screen of screens) {
+      const config = (screen.config ?? {}) as Record<string, any>
+      let updated = false
+
+      // Single-screen rating with embedded redirectLinks
+      if (screen.screenType === 'rating' && Array.isArray(config.redirectLinks)) {
+        const googleLink = config.redirectLinks.find((l: any) => l.platform === 'Google')
+        if (googleLink && (!googleLink.url || googleLink.url.includes('writereview?placeid='))) {
+          googleLink.url = googleUrl
+          updated = true
+        } else if (!googleLink) {
+          config.redirectLinks.unshift({ platform: 'Google', url: googleUrl })
+          updated = true
+        }
+      }
+
+      // Legacy review_redirect screen
+      if (screen.screenType === 'review_redirect' && Array.isArray(config.links)) {
+        const googleLink = config.links.find((l: any) => l.platform === 'Google')
+        if (googleLink && (!googleLink.url || googleLink.url.includes('writereview?placeid='))) {
+          googleLink.url = googleUrl
+          updated = true
+        } else if (!googleLink) {
+          config.links.unshift({ platform: 'Google', url: googleUrl })
+          updated = true
+        }
+      }
+
+      if (updated) {
+        await this.db
+          .update(journeyScreens)
+          .set({ config })
+          .where(eq(journeyScreens.id, screen.id))
+      }
+    }
   }
 
   async archive(id: string, userId: string) {
@@ -125,6 +187,35 @@ export class JourneyService {
   ) {
     const journey = await this.findOrThrow(journeyId)
     await this.requireMembership(journey.workspaceId, userId)
+
+    // Auto-fill Google review URLs from journey's location before saving
+    let googleUrl: string | undefined
+    if (journey.locationId) {
+      const gbpConnector = await this.db.query.connectorInstances.findFirst({
+        where: and(
+          eq(connectorInstances.workspaceId, journey.workspaceId),
+          eq(connectorInstances.connectorTypeId, 'gbp'),
+          eq(connectorInstances.locationId, journey.locationId),
+        ),
+      })
+      const placeId = (gbpConnector?.config as any)?.placeId
+      if (placeId) googleUrl = `https://search.google.com/local/writereview?placeid=${placeId}`
+    }
+
+    // Fill empty Google URLs in screen configs
+    if (googleUrl) {
+      for (const s of screens) {
+        const config = (s.config || {}) as Record<string, any>
+        if (s.screenType === 'rating' && Array.isArray(config.redirectLinks)) {
+          const gl = config.redirectLinks.find((l: any) => l.platform === 'Google')
+          if (gl && !gl.url) gl.url = googleUrl
+        }
+        if (s.screenType === 'review_redirect' && Array.isArray(config.links)) {
+          const gl = config.links.find((l: any) => l.platform === 'Google')
+          if (gl && !gl.url) gl.url = googleUrl
+        }
+      }
+    }
 
     // Delete existing screens and re-insert
     await this.db.delete(journeyScreens).where(eq(journeyScreens.journeyId, journeyId))

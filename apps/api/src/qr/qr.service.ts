@@ -14,7 +14,7 @@ export class QrService {
     locationId?: string,
     options?: { size?: number; format?: 'png' | 'svg' }
   ) {
-    const baseUrl = process.env.FRONTEND_URL || 'http://localhost:3000'
+    const baseUrl = process.env.FRONTEND_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
     let url = `${baseUrl}/j/${journeySlug}`
     if (locationId) url += `?loc=${locationId}`
 
@@ -25,7 +25,7 @@ export class QrService {
     formSlug: string,
     options?: { size?: number; format?: 'png' | 'svg' }
   ) {
-    const baseUrl = process.env.FRONTEND_URL || 'http://localhost:3000'
+    const baseUrl = process.env.FRONTEND_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
     const url = `${baseUrl}/f/${formSlug}`
 
     return this.generateQr(url, options)
