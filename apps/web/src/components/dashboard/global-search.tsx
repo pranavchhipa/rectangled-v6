@@ -13,6 +13,7 @@ import {
 import {
   Dialog,
   DialogContent,
+  DialogTitle,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { trpc } from '@/lib/trpc'
@@ -70,6 +71,7 @@ export function GlobalSearch({ open, onOpenChange }: GlobalSearchProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="p-0 gap-0 max-w-lg">
+        <DialogTitle className="sr-only">Search</DialogTitle>
         <div className="flex items-center border-b px-3">
           <Search className="size-4 text-muted-foreground shrink-0" />
           <Input
