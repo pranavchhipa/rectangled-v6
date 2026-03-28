@@ -1,13 +1,12 @@
 'use client'
 
 import Link from 'next/link'
-import { usePathname, useRouter } from 'next/navigation'
+import { usePathname } from 'next/navigation'
 import {
   LayoutDashboard,
   MapPin,
   Users,
   Settings,
-  LogOut,
   ChevronsUpDown,
   Plus,
   Inbox,
@@ -42,7 +41,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { useAuthStore } from '@/stores/auth-store'
 
 const navItems = [
@@ -66,29 +64,15 @@ const navItems = [
 
 export function DashboardSidebar() {
   const pathname = usePathname()
-  const router = useRouter()
-  const { user, memberships, currentWorkspaceId, setCurrentWorkspace, logout } =
+  const { memberships, currentWorkspaceId, setCurrentWorkspace } =
     useAuthStore()
 
   const currentWorkspace = memberships.find(
     (m) => m.workspaceId === currentWorkspaceId
   )
 
-  const initials =
-    user?.name
-      ?.split(' ')
-      .map((n) => n[0])
-      .join('')
-      .toUpperCase()
-      .slice(0, 2) ?? 'U'
-
   const workspaceInitial =
     currentWorkspace?.workspaceName?.[0]?.toUpperCase() ?? 'W'
-
-  const handleLogout = () => {
-    logout()
-    router.push('/login')
-  }
 
   return (
     <Sidebar>
@@ -182,43 +166,6 @@ export function DashboardSidebar() {
           </DropdownMenuContent>
         </DropdownMenu>
 
-        <SidebarSeparator />
-
-        {/* User menu */}
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <SidebarMenuButton size="lg" className="w-full">
-              <Avatar className="w-8 h-8">
-                <AvatarFallback className="bg-primary/10 text-primary text-xs font-semibold">
-                  {initials}
-                </AvatarFallback>
-              </Avatar>
-              <div className="flex-1 text-left min-w-0">
-                <p className="text-sm font-medium truncate">{user?.name}</p>
-                <p className="text-xs text-muted-foreground truncate">
-                  {user?.email}
-                </p>
-              </div>
-            </SidebarMenuButton>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent
-            side="top"
-            align="start"
-            className="w-[--radix-dropdown-menu-trigger-width]"
-          >
-            <DropdownMenuItem
-              onClick={() => router.push('/dashboard/settings')}
-            >
-              <Settings className="w-4 h-4 mr-2" />
-              Settings
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={handleLogout}>
-              <LogOut className="w-4 h-4 mr-2" />
-              Sign out
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
       </SidebarFooter>
     </Sidebar>
   )
