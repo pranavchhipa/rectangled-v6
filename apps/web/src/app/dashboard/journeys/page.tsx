@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   Route,
@@ -15,6 +15,7 @@ import {
   Pencil,
   MessageSquare,
   Eye,
+  MapPin,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { trpc } from '@/lib/trpc'
@@ -189,12 +190,34 @@ export default function JourneysPage() {
   const [createOpen, setCreateOpen] = useState(false)
   const [newName, setNewName] = useState('')
   const [journeyType, setJourneyType] = useState<'review' | 'direct'>('review')
+  const [selectedLocationId, setSelectedLocationId] = useState<string>('')
   const [archiveId, setArchiveId] = useState<string | null>(null)
   const [qrJourney, setQrJourney] = useState<{ id: string; slug: string } | null>(null)
   const [showArchived, setShowArchived] = useState(false)
+  const [filterLocationId, setFilterLocationId] = useState<string>('all')
 
   const journeysQuery = trpc.journey.list.useQuery(
-    { workspaceId: currentWorkspaceId!, includeArchived: showArchived },
+    { workspaceId: currentWorkspaceId!, locationId: filterLocationId !== 'all' ? filterLocationId : undefined, includeArchived: showArchived },
+    { enabled: !!currentWorkspaceId }
+  )
+
+  // Fetch locations for the create dialog
+  const locationsQuery = trpc.location.list.useQuery(
+    { workspaceId: currentWorkspaceId! },
+    { enabled: !!currentWorkspaceId }
+  )
+  const locations = locationsQuery.data ?? []
+
+  // Auto-select location if only one exists
+  useEffect(() => {
+    if (locations.length === 1 && !selectedLocationId) {
+      setSelectedLocationId(locations[0].id)
+    }
+  }, [locations, selectedLocationId])
+
+  // Fetch connectors to auto-fill Google review URL
+  const connectorsQuery = trpc.connector.listInstances.useQuery(
+    { workspaceId: currentWorkspaceId! },
     { enabled: !!currentWorkspaceId }
   )
 
@@ -202,18 +225,56 @@ export default function JourneysPage() {
 
   const createMutation = trpc.journey.create.useMutation({
     onSuccess: async (data) => {
+      // Auto-detect Google review URL from GBP connector — only if location is selected
+      const locId = selectedLocationId || undefined
+      const allConnectors = connectorsQuery.data ?? []
+      const gbpConnectors = allConnectors.filter((c: any) => c.connectorTypeId === 'gbp' && c.config?.placeId)
+      const gbpMatch = locId
+        ? gbpConnectors.find((c: any) => c.locationId === locId)
+        : gbpConnectors.length === 1 ? gbpConnectors[0] : undefined
+      const googleReviewUrl = gbpMatch?.config?.placeId
+        ? `https://search.google.com/local/writereview?placeid=${gbpMatch.config.placeId}`
+        : ''
+
       // Auto-create screens based on journey type
       const screens = journeyType === 'review'
         ? [
-            { order: 0, screenType: 'rating', title: 'How was your experience?', subtitle: 'Tap a star to rate', config: { maxRating: 5, positiveThreshold: 4, iconStyle: 'stars' } },
-            { order: 1, screenType: 'feedback', title: 'What went wrong?', subtitle: 'Help us improve your experience', config: { placeholder: 'Tell us more (optional)...', tags: ['Food Quality', 'Service', 'Cleanliness', 'Wait Time', 'Staff Behavior', 'Ambience'] } },
-            { order: 2, screenType: 'review_redirect', title: 'Share your experience', config: { message: 'Please share your experience on Google!', links: [{ platform: 'Google', url: '' }] } },
-            { order: 3, screenType: 'thank_you', title: 'Thank you!', config: { message: 'We appreciate your feedback!' } },
+            {
+              order: 0,
+              screenType: 'rating',
+              title: 'Please Rate Your Experience',
+              subtitle: 'Tap a star to rate',
+              config: {
+                maxRating: 5,
+                positiveThreshold: 4,
+                iconStyle: 'stars',
+                feedbackTags: ['Food Quality', 'Service', 'Cleanliness', 'Wait Time', 'Staff Behavior', 'Ambience'],
+                feedbackPlaceholder: 'Tell us more (optional)...',
+                redirectMessage: 'Please share your experience on Google!',
+                redirectLinks: [{ platform: 'Google', url: googleReviewUrl }],
+                thankYouMessage: 'We appreciate your feedback!',
+                showCoupon: false,
+              },
+            },
           ]
         : [
-            { order: 0, screenType: 'rating', title: 'Rate your experience', subtitle: 'Tap a star to rate', config: { maxRating: 5, positiveThreshold: 0, iconStyle: 'stars' } },
-            { order: 1, screenType: 'review_redirect', title: 'Share your experience', config: { message: 'Please share your experience on Google!', links: [{ platform: 'Google', url: '' }] } },
-            { order: 2, screenType: 'thank_you', title: 'Thank you!', config: { message: 'We appreciate your feedback!' } },
+            {
+              order: 0,
+              screenType: 'rating',
+              title: 'Please Rate Your Experience',
+              subtitle: 'Tap a star to rate',
+              config: {
+                maxRating: 5,
+                positiveThreshold: 0,
+                iconStyle: 'stars',
+                feedbackTags: [],
+                feedbackPlaceholder: '',
+                redirectMessage: 'Please share your experience on Google!',
+                redirectLinks: [{ platform: 'Google', url: googleReviewUrl }],
+                thankYouMessage: 'We appreciate your feedback!',
+                showCoupon: false,
+              },
+            },
           ]
 
       try {
@@ -224,6 +285,7 @@ export default function JourneysPage() {
       setCreateOpen(false)
       setNewName('')
       setJourneyType('review')
+      setSelectedLocationId('')
       utils.journey.list.invalidate()
       router.push(`/dashboard/journeys/${data.id}`)
     },
@@ -256,7 +318,11 @@ export default function JourneysPage() {
 
   function handleCreate() {
     if (!newName.trim() || !currentWorkspaceId) return
-    createMutation.mutate({ workspaceId: currentWorkspaceId, name: newName.trim() })
+    createMutation.mutate({
+      workspaceId: currentWorkspaceId,
+      name: newName.trim(),
+      locationId: selectedLocationId || undefined,
+    })
   }
 
   function handleToggleActive(id: string, isActive: boolean) {
@@ -336,6 +402,28 @@ export default function JourneysPage() {
                   }}
                 />
               </div>
+
+              {/* Location */}
+              {locations.length > 0 && (
+                <div className="space-y-2">
+                  <Label>Location</Label>
+                  <Select value={selectedLocationId} onValueChange={setSelectedLocationId}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select a location" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {locations.map((loc: any) => (
+                        <SelectItem key={loc.id} value={loc.id}>
+                          {loc.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    Google review link will auto-fill from connected GBP
+                  </p>
+                </div>
+              )}
             </div>
             <DialogFooter>
               <Button
@@ -355,16 +443,34 @@ export default function JourneysPage() {
         </Dialog>
       </div>
 
-      {/* Archived filter */}
-      <div className="flex items-center gap-2">
-        <Switch
-          checked={showArchived}
-          onCheckedChange={setShowArchived}
-          id="show-archived"
-        />
-        <Label htmlFor="show-archived" className="text-sm text-muted-foreground cursor-pointer">
-          Show archived journeys
-        </Label>
+      {/* Filters */}
+      <div className="flex items-center gap-4 flex-wrap">
+        {locations.length > 0 && (
+          <Select value={filterLocationId} onValueChange={setFilterLocationId}>
+            <SelectTrigger className="w-[200px] h-8 text-sm">
+              <MapPin className="size-3.5 mr-1.5 text-muted-foreground" />
+              <SelectValue placeholder="All Locations" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Locations</SelectItem>
+              {locations.map((loc: any) => (
+                <SelectItem key={loc.id} value={loc.id}>
+                  {loc.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+        <div className="flex items-center gap-2">
+          <Switch
+            checked={showArchived}
+            onCheckedChange={setShowArchived}
+            id="show-archived"
+          />
+          <Label htmlFor="show-archived" className="text-sm text-muted-foreground cursor-pointer">
+            Show archived
+          </Label>
+        </div>
       </div>
 
       {/* Content */}

@@ -33,6 +33,7 @@ import {
   GitBranch,
   Workflow,
   Diamond,
+  MapPin,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { trpc } from '@/lib/trpc'
@@ -118,7 +119,17 @@ const SCREEN_TYPE_COLORS: Record<string, string> = {
 function getDefaultConfig(screenType: ScreenType): Record<string, any> {
   switch (screenType) {
     case 'rating':
-      return { maxRating: 5, positiveThreshold: 4, iconStyle: 'stars' }
+      return {
+        maxRating: 5,
+        positiveThreshold: 4,
+        iconStyle: 'stars',
+        feedbackTags: ['Food Quality', 'Service', 'Cleanliness', 'Wait Time', 'Staff Behavior', 'Ambience'],
+        feedbackPlaceholder: 'Tell us more (optional)...',
+        redirectMessage: 'Please share your experience on Google!',
+        redirectLinks: [{ platform: 'Google', url: '' }],
+        thankYouMessage: 'We appreciate your feedback!',
+        showCoupon: false,
+      }
     case 'aspects':
       return { aspects: ['Food', 'Service', 'Ambience', 'Value'] }
     case 'review_redirect':
@@ -142,7 +153,7 @@ function getDefaultConfig(screenType: ScreenType): Record<string, any> {
 
 function getDefaultTitle(screenType: ScreenType): string {
   switch (screenType) {
-    case 'rating': return 'How was your experience?'
+    case 'rating': return 'Please Rate Your Experience'
     case 'aspects': return 'What could we improve?'
     case 'review_redirect': return 'Share your experience'
     case 'feedback': return 'Tell us more'
@@ -1198,14 +1209,35 @@ export default function JourneyBuilderPage() {
   const utils = trpc.useUtils()
   const { currentWorkspaceId } = useAuthStore()
 
-  // Fetch GBP connector to auto-populate Google review URL
+  // Fetch journey first to get locationId
+  const journeyQuery = trpc.journey.getById.useQuery(
+    { id: journeyId },
+    { enabled: !!journeyId }
+  )
+  const journey = journeyQuery.data
+
+  // Fetch locations for location selector
+  const locationsQuery = trpc.location.list.useQuery(
+    { workspaceId: currentWorkspaceId! },
+    { enabled: !!currentWorkspaceId }
+  )
+  const locations = locationsQuery.data ?? []
+
+  // Fetch all GBP connectors in this workspace — pick best match by journey's locationId
   const connectorsQuery = trpc.connector.listInstances.useQuery(
     { workspaceId: currentWorkspaceId! },
     { enabled: !!currentWorkspaceId }
   )
-  const gbpPlaceId = (connectorsQuery.data ?? []).find(
-    (c: any) => c.connectorTypeId === 'gbp' && c.config?.placeId
-  )?.config?.placeId as string | undefined
+  const gbpPlaceId = (() => {
+    const allConnectors = connectorsQuery.data ?? []
+    const gbpConnectors = allConnectors.filter((c: any) => c.connectorTypeId === 'gbp' && c.config?.placeId)
+    if (gbpConnectors.length === 0) return undefined
+    const journeyLocId = (journey as any)?.locationId
+    // Only auto-fill if journey has a location set — don't guess
+    if (!journeyLocId) return gbpConnectors.length === 1 ? gbpConnectors[0]?.config?.placeId as string : undefined
+    const match = gbpConnectors.find((c: any) => c.locationId === journeyLocId)
+    return match?.config?.placeId as string | undefined
+  })()
 
   const [screens, setScreens] = useState<ScreenDraft[]>([])
   const [editingIndex, setEditingIndex] = useState<number | null>(null)
@@ -1220,11 +1252,6 @@ export default function JourneyBuilderPage() {
   // Drag state
   const [dragIndex, setDragIndex] = useState<number | null>(null)
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
-
-  const journeyQuery = trpc.journey.getById.useQuery(
-    { id: journeyId },
-    { enabled: !!journeyId }
-  )
 
   const updateScreensMutation = trpc.journey.updateScreens.useMutation({
     onSuccess: () => {
@@ -1257,14 +1284,27 @@ export default function JourneyBuilderPage() {
       setScreens(
         sorted.map((s: any) => {
           const config = s.config ?? {}
-          // Auto-fill Google review URL for existing review_redirect screens with empty links
+          // Auto-fill Google review URL for existing review_redirect screens
           if (s.screenType === 'review_redirect' && gbpPlaceId) {
             const links = config.links ?? []
             const googleLink = links.find((l: any) => l.platform === 'Google')
+            const autoUrl = `https://search.google.com/local/writereview?placeid=${gbpPlaceId}`
             if (!googleLink) {
-              config.links = [{ platform: 'Google', url: `https://search.google.com/local/writereview?placeid=${gbpPlaceId}` }, ...links]
-            } else if (!googleLink.url) {
-              googleLink.url = `https://search.google.com/local/writereview?placeid=${gbpPlaceId}`
+              config.links = [{ platform: 'Google', url: autoUrl }, ...links]
+            } else if (!googleLink.url || googleLink.url.includes('writereview?placeid=')) {
+              googleLink.url = autoUrl
+            }
+          }
+          // Auto-fill Google review URL for single-screen rating with embedded redirectLinks
+          if (s.screenType === 'rating' && gbpPlaceId && config.redirectLinks) {
+            const links = config.redirectLinks ?? []
+            const googleLink = links.find((l: any) => l.platform === 'Google')
+            const autoUrl = `https://search.google.com/local/writereview?placeid=${gbpPlaceId}`
+            if (!googleLink) {
+              config.redirectLinks = [{ platform: 'Google', url: autoUrl }, ...links]
+            } else if (!googleLink.url || googleLink.url.includes('writereview?placeid=')) {
+              // Update if empty or was previously auto-filled (contains writereview?placeid=)
+              googleLink.url = autoUrl
             }
           }
           return {
@@ -1287,8 +1327,6 @@ export default function JourneyBuilderPage() {
       setJourneyName(journeyQuery.data.name ?? '')
     }
   }, [journeyQuery.data])
-
-  const journey = journeyQuery.data
 
   function addScreen(screenType: ScreenType, insertIndex?: number) {
     setScreens((prev) => {
@@ -1483,6 +1521,32 @@ export default function JourneyBuilderPage() {
               <Badge variant={journey.isActive ? 'default' : 'secondary'}>
                 {journey.isActive ? 'Active' : 'Inactive'}
               </Badge>
+              {locations.length > 0 && (
+                <Select
+                  value={(journey as any)?.locationId || 'none'}
+                  onValueChange={(val) => {
+                    const newLocId = val === 'none' ? null : val
+                    updateJourneyMutation.mutate({ id: journeyId, locationId: newLocId }, {
+                      onSuccess: () => {
+                        utils.journey.getById.invalidate({ id: journeyId })
+                      },
+                    })
+                  }}
+                >
+                  <SelectTrigger className="h-6 w-auto gap-1 text-xs border-dashed px-2">
+                    <MapPin className="size-3" />
+                    <SelectValue placeholder="No location" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">No location</SelectItem>
+                    {locations.map((loc: any) => (
+                      <SelectItem key={loc.id} value={loc.id}>
+                        {loc.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
             </div>
           </div>
         </div>
@@ -1875,7 +1939,7 @@ export default function JourneyBuilderPage() {
                         }
                       />
                       <p className="text-xs text-muted-foreground">
-                        Ratings at or above this value route to review redirect.
+                        Ratings at or above this value route to review redirect. Set to 0 for direct review (all ratings go to Google).
                       </p>
                     </div>
                     <div className="space-y-2">
@@ -1896,6 +1960,143 @@ export default function JourneyBuilderPage() {
                           <SelectItem value="emojis">Emojis</SelectItem>
                         </SelectContent>
                       </Select>
+                    </div>
+
+                    {/* ─── Embedded: Negative Feedback Config ─── */}
+                    {(editingScreen.config.positiveThreshold ?? 4) > 0 && (
+                      <>
+                        <Separator />
+                        <div className="space-y-1">
+                          <h4 className="text-sm font-semibold">Negative Feedback</h4>
+                          <p className="text-xs text-muted-foreground">Shown when rating is below threshold</p>
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Feedback Placeholder</Label>
+                          <Input
+                            value={editingScreen.config.feedbackPlaceholder ?? ''}
+                            onChange={(e) =>
+                              updateScreen(editingIndex, {
+                                config: { ...editingScreen.config, feedbackPlaceholder: e.target.value },
+                              })
+                            }
+                            placeholder="Tell us more (optional)..."
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Feedback Tags</Label>
+                          <p className="text-xs text-muted-foreground">Customers tap these to select what went wrong. One per line.</p>
+                          <textarea
+                            className="flex min-h-[100px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 resize-none"
+                            value={(editingScreen.config.feedbackTags ?? ['Food Quality', 'Service', 'Cleanliness', 'Wait Time', 'Staff Behavior', 'Ambience']).join('\n')}
+                            onChange={(e) =>
+                              updateScreen(editingIndex, {
+                                config: {
+                                  ...editingScreen.config,
+                                  feedbackTags: e.target.value.split('\n').filter((t: string) => t.trim()),
+                                },
+                              })
+                            }
+                            placeholder={'Food Quality\nService\nCleanliness\nWait Time'}
+                          />
+                        </div>
+                      </>
+                    )}
+
+                    {/* ─── Embedded: Review Redirect Config ─── */}
+                    <Separator />
+                    <div className="space-y-1">
+                      <h4 className="text-sm font-semibold">Review Redirect</h4>
+                      <p className="text-xs text-muted-foreground">Where positive ratings are sent</p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Redirect Message</Label>
+                      <textarea
+                        className="flex min-h-[60px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                        value={editingScreen.config.redirectMessage ?? ''}
+                        onChange={(e) =>
+                          updateScreen(editingIndex, {
+                            config: { ...editingScreen.config, redirectMessage: e.target.value },
+                          })
+                        }
+                        placeholder="Please share your experience on Google!"
+                      />
+                    </div>
+                    <div className="space-y-3">
+                      <Label>Review Platforms</Label>
+                      {[
+                        { id: 'Google', placeholder: 'https://g.page/your-business/review', color: 'border-blue-300 bg-blue-50' },
+                        { id: 'Zomato', placeholder: 'https://www.zomato.com/your-restaurant/reviews', color: 'border-red-300 bg-red-50' },
+                        { id: 'Facebook', placeholder: 'https://facebook.com/your-page/reviews', color: 'border-indigo-300 bg-indigo-50' },
+                      ].map((platform) => {
+                        const links = editingScreen.config.redirectLinks ?? []
+                        const existing = links.find((l: any) => l.platform === platform.id)
+                        return (
+                          <div key={platform.id} className={`rounded-lg border p-3 ${platform.color}`}>
+                            <div className="flex items-center justify-between mb-2">
+                              <div className="flex items-center gap-2">
+                                <PlatformIconBadge platform={platform.id} size={20} />
+                                <span className="text-sm font-medium">{platform.id}</span>
+                              </div>
+                              <Checkbox
+                                checked={!!existing}
+                                onCheckedChange={(checked) => {
+                                  const updated = checked
+                                    ? [...links, { platform: platform.id, url: '' }]
+                                    : links.filter((l: any) => l.platform !== platform.id)
+                                  updateScreen(editingIndex, {
+                                    config: { ...editingScreen.config, redirectLinks: updated },
+                                  })
+                                }}
+                              />
+                            </div>
+                            {existing && (
+                              <Input
+                                placeholder={platform.placeholder}
+                                value={existing.url}
+                                onChange={(e) => {
+                                  const updated = links.map((l: any) =>
+                                    l.platform === platform.id ? { ...l, url: e.target.value } : l
+                                  )
+                                  updateScreen(editingIndex, {
+                                    config: { ...editingScreen.config, redirectLinks: updated },
+                                  })
+                                }}
+                                className="text-sm bg-white dark:bg-background"
+                              />
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
+
+                    {/* ─── Embedded: Thank You Config ─── */}
+                    <Separator />
+                    <div className="space-y-1">
+                      <h4 className="text-sm font-semibold">Thank You Screen</h4>
+                      <p className="text-xs text-muted-foreground">Shown after submission</p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Thank You Message</Label>
+                      <Input
+                        value={editingScreen.config.thankYouMessage ?? ''}
+                        onChange={(e) =>
+                          updateScreen(editingIndex, {
+                            config: { ...editingScreen.config, thankYouMessage: e.target.value },
+                          })
+                        }
+                        placeholder="We appreciate your feedback!"
+                      />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Switch
+                        checked={editingScreen.config.showCoupon ?? false}
+                        onCheckedChange={(checked) =>
+                          updateScreen(editingIndex, {
+                            config: { ...editingScreen.config, showCoupon: checked },
+                          })
+                        }
+                      />
+                      <Label>Show Coupon</Label>
                     </div>
                   </>
                 )}

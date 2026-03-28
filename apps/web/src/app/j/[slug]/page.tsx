@@ -51,14 +51,20 @@ export default function PublicSurveyPage() {
   const reviewRedirectScreen = screens.find((s: any) => s.screenType === 'review_redirect')
   const thankYouScreen = screens.find((s: any) => s.screenType === 'thank_you')
 
+  // Single-screen mode: all config embedded in rating screen
+  const isSingleScreen = !!ratingScreen?.config?.redirectLinks
+
   const positiveThreshold = ratingScreen?.config?.positiveThreshold ?? 4
   const isDirectReview = positiveThreshold === 0
-  const feedbackTags: string[] = feedbackScreen?.config?.tags ?? ['Food Quality', 'Service', 'Cleanliness', 'Wait Time', 'Staff Behavior', 'Ambience']
+  const feedbackTags: string[] = isSingleScreen
+    ? (ratingScreen?.config?.feedbackTags ?? ['Food Quality', 'Service', 'Cleanliness', 'Wait Time', 'Staff Behavior', 'Ambience'])
+    : (feedbackScreen?.config?.tags ?? ['Food Quality', 'Service', 'Cleanliness', 'Wait Time', 'Staff Behavior', 'Ambience'])
 
-  // Get Google review URL
-  const googleLink = (reviewRedirectScreen?.config?.links ?? []).find(
-    (l: any) => l.platform === 'Google'
-  )
+  // Get Google review URL (single-screen uses redirectLinks, legacy uses separate screen)
+  const redirectLinks = isSingleScreen
+    ? (ratingScreen?.config?.redirectLinks ?? [])
+    : (reviewRedirectScreen?.config?.links ?? [])
+  const googleLink = redirectLinks.find((l: any) => l.platform === 'Google')
   const googleReviewUrl = googleLink?.url || ''
 
   const submitFeedback = useCallback(() => {
@@ -190,10 +196,12 @@ export default function PublicSurveyPage() {
             <CheckCircle2 className="size-10 text-emerald-600" />
           </div>
           <h1 className="text-2xl font-bold text-slate-800">
-            {thankYouScreen?.title || 'Thank You!'}
+            {isSingleScreen ? 'Thank You!' : (thankYouScreen?.title || 'Thank You!')}
           </h1>
           <p className="text-slate-500">
-            {thankYouScreen?.config?.message || 'We appreciate your feedback. It helps us improve!'}
+            {isSingleScreen
+              ? (ratingScreen?.config?.thankYouMessage || 'We appreciate your feedback. It helps us improve!')
+              : (thankYouScreen?.config?.message || 'We appreciate your feedback. It helps us improve!')}
           </p>
         </div>
       </div>
@@ -289,10 +297,10 @@ export default function PublicSurveyPage() {
 
             <div className="space-y-1">
               <h2 className="text-lg font-bold text-slate-800">
-                {feedbackScreen?.title || 'What went wrong?'}
+                {isSingleScreen ? 'What went wrong?' : (feedbackScreen?.title || 'What went wrong?')}
               </h2>
               <p className="text-sm text-slate-500">
-                {feedbackScreen?.subtitle || 'Help us improve your experience'}
+                {isSingleScreen ? 'Help us improve your experience' : (feedbackScreen?.subtitle || 'Help us improve your experience')}
               </p>
             </div>
 
@@ -328,7 +336,7 @@ export default function PublicSurveyPage() {
               className="w-full min-h-[100px] rounded-xl border-2 border-slate-200 bg-slate-50 px-4 py-3 text-sm placeholder:text-slate-400 focus:outline-none focus:border-slate-400 transition-colors resize-none"
               value={feedbackText}
               onChange={(e) => setFeedbackText(e.target.value)}
-              placeholder={feedbackScreen?.config?.placeholder || 'Tell us more (optional)...'}
+              placeholder={isSingleScreen ? (ratingScreen?.config?.feedbackPlaceholder || 'Tell us more (optional)...') : (feedbackScreen?.config?.placeholder || 'Tell us more (optional)...')}
             />
 
             {/* Submit feedback */}

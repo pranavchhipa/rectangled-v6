@@ -26,6 +26,7 @@ export const createJourneySchema = z.object({
 export const updateJourneySchema = z.object({
   id: z.string().uuid(),
   name: z.string().min(1).max(255).optional(),
+  locationId: z.string().uuid().nullable().optional(),
   isActive: z.boolean().optional(),
   settings: z
     .object({

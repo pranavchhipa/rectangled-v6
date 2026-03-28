@@ -73,6 +73,7 @@ export class JourneyService {
     input: {
       id: string
       name?: string
+      locationId?: string | null
       isActive?: boolean
       settings?: { positiveThreshold?: number; enableCoupon?: boolean; reviewPlatform?: string }
     },
@@ -83,6 +84,7 @@ export class JourneyService {
 
     const setValues: Record<string, unknown> = { updatedAt: new Date() }
     if (input.name !== undefined) setValues.name = input.name.trim()
+    if (input.locationId !== undefined) setValues.locationId = input.locationId
     if (input.isActive !== undefined) setValues.isActive = input.isActive
     if (input.settings) {
       setValues.settings = { ...journey.settings, ...input.settings }
