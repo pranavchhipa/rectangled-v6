@@ -1527,31 +1527,15 @@ export default function JourneyBuilderPage() {
               <Badge variant={journey.isActive ? 'default' : 'secondary'}>
                 {journey.isActive ? 'Active' : 'Inactive'}
               </Badge>
-              {locations.length > 0 && (
-                <Select
-                  value={(journey as any)?.locationId || 'none'}
-                  onValueChange={(val) => {
-                    const newLocId = val === 'none' ? null : val
-                    updateJourneyMutation.mutate({ id: journeyId, locationId: newLocId }, {
-                      onSuccess: () => {
-                        utils.journey.getById.invalidate({ id: journeyId })
-                      },
-                    })
-                  }}
-                >
-                  <SelectTrigger className="h-6 w-auto gap-1 text-xs border-dashed px-2">
+              {(journey as any)?.locationId && locations.length > 0 && (() => {
+                const loc = locations.find((l: any) => l.id === (journey as any).locationId)
+                return loc ? (
+                  <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
                     <MapPin className="size-3" />
-                    <SelectValue placeholder="No location" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">No location</SelectItem>
-                    {locations.map((loc: any) => (
-                      <SelectItem key={loc.id} value={loc.id}>
-                        {loc.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                    {loc.name}
+                  </span>
+                ) : null
+              })()
               )}
             </div>
           </div>
