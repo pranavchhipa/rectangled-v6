@@ -81,7 +81,15 @@ try {
   for (const j of rows) {
     const settings = j.settings ?? {}
 
-    if (settings.enabledMetrics) {
+    // Idempotency check by SCREEN, not just settings — a journey can have
+    // v2 settings but no metric_question screen (e.g. if the original screen
+    // insert failed because the enum value didn't exist yet).
+    const hasMetricScreen = await sql`
+      SELECT 1 FROM journey_screens
+      WHERE journey_id = ${j.id} AND screen_type = 'metric_question'
+      LIMIT 1
+    `
+    if (hasMetricScreen.length > 0 && settings.enabledMetrics) {
       skipped++
       continue
     }
