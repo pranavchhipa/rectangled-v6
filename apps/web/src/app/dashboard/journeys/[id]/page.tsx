@@ -909,40 +909,40 @@ function PhonePreview({ metric, copy }: { metric: Metric; copy: MetricCopy }) {
 
   return (
     <div className="flex justify-center">
-      {/* Phone frame — iPhone-like, fixed aspect ratio */}
+      {/* Phone frame — compact iPhone-like */}
       <div
-        className="relative w-full max-w-[320px] rounded-[44px] bg-slate-900 p-3 shadow-2xl"
-        style={{ aspectRatio: '9 / 19.5' }}
+        className="relative w-full max-w-[220px] rounded-[32px] bg-slate-900 p-2 shadow-xl"
+        style={{ aspectRatio: '9 / 16' }}
       >
         {/* Notch */}
-        <div className="absolute left-1/2 top-3 h-6 w-28 -translate-x-1/2 rounded-full bg-slate-900 z-10" />
+        <div className="absolute left-1/2 top-2 h-3.5 w-16 -translate-x-1/2 rounded-full bg-slate-900 z-10" />
 
         {/* Screen */}
-        <div className="relative h-full w-full overflow-hidden rounded-[34px] bg-gradient-to-b from-slate-50 to-white flex flex-col">
+        <div className="relative h-full w-full overflow-hidden rounded-[24px] bg-gradient-to-b from-slate-50 to-white flex flex-col">
           {/* Status bar */}
-          <div className="flex items-center justify-between px-6 pt-3 pb-1 text-[10px] font-semibold text-slate-700">
+          <div className="flex items-center justify-between px-3 pt-1.5 pb-0.5 text-[8px] font-semibold text-slate-700">
             <span>9:41</span>
-            <span className="flex items-center gap-1">
-              <span className="text-[8px]">●●●●</span>
+            <span className="flex items-center gap-0.5">
+              <span className="text-[7px]">●●●</span>
               <span>5G</span>
-              <span className="ml-1">100%</span>
+              <span className="ml-0.5">100%</span>
             </span>
           </div>
 
           {/* Content */}
-          <div className="flex-1 flex flex-col items-center justify-center px-6 pb-8 space-y-6 overflow-hidden">
-            <div className="text-center space-y-1.5">
-              <h2 className="text-lg font-bold text-slate-800 leading-tight">
+          <div className="flex-1 flex flex-col items-center justify-center px-3 pb-4 space-y-3 overflow-hidden">
+            <div className="text-center space-y-0.5">
+              <h2 className="text-[11px] font-bold text-slate-800 leading-tight">
                 {copy.question}
               </h2>
-              <p className="text-[10px] uppercase tracking-[0.15em] text-slate-400 font-semibold">
+              <p className="text-[7px] uppercase tracking-[0.15em] text-slate-400 font-semibold">
                 {METRIC_LABELS[metric].name}
               </p>
             </div>
 
-            <div className="w-full space-y-2.5">
+            <div className="w-full space-y-1.5">
               <div
-                className={`grid gap-1.5 w-full ${
+                className={`grid gap-1 w-full ${
                   values.length === 5
                     ? 'grid-cols-5'
                     : values.length === 7
@@ -955,30 +955,25 @@ function PhonePreview({ metric, copy }: { metric: Metric; copy: MetricCopy }) {
                 {values.map((v) => (
                   <div
                     key={v}
-                    className="aspect-square rounded-lg border border-slate-200 bg-white flex items-center justify-center text-xs font-semibold text-slate-700 shadow-sm"
+                    className="aspect-square rounded-md border border-slate-200 bg-white flex items-center justify-center text-[9px] font-semibold text-slate-700 shadow-sm"
                   >
                     {v}
                   </div>
                 ))}
               </div>
-              <div className="flex justify-between text-[9px] text-slate-500 px-0.5 leading-tight">
-                <span className="max-w-[40%]">{copy.scaleLabels.low}</span>
-                <span className="max-w-[40%] text-right">{copy.scaleLabels.high}</span>
+              <div className="flex justify-between text-[7px] text-slate-500 px-0.5 leading-tight gap-1">
+                <span className="max-w-[45%] truncate">{copy.scaleLabels.low}</span>
+                <span className="max-w-[45%] truncate text-right">{copy.scaleLabels.high}</span>
               </div>
             </div>
 
-            <div className="w-full rounded-xl bg-slate-800 py-3 text-center text-sm font-semibold text-white shadow-md">
+            <div className="w-full rounded-lg bg-slate-800 py-1.5 text-center text-[10px] font-semibold text-white shadow">
               Continue
             </div>
           </div>
 
           {/* Home indicator */}
-          <div className="absolute bottom-1.5 left-1/2 h-1 w-24 -translate-x-1/2 rounded-full bg-slate-900/40" />
-
-          {/* Powered by */}
-          <div className="absolute bottom-6 left-0 right-0 text-center text-[8px] text-slate-300">
-            Powered by rectangled.io
-          </div>
+          <div className="absolute bottom-1 left-1/2 h-0.5 w-12 -translate-x-1/2 rounded-full bg-slate-900/40" />
         </div>
       </div>
     </div>
