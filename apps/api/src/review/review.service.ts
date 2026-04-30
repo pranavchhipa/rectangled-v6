@@ -373,11 +373,23 @@ export class ReviewService {
     }
 
     return {
-      data: data.map((r) => ({
-        ...r,
-        locationName: r.locationId ? locationNames.get(r.locationId) ?? null : null,
-        latestResponse: responsesMap.get(r.id) ?? null,
-      })),
+      data: data.map((r) => {
+        const latest = responsesMap.get(r.id) ?? null
+        // Treat 'approved' or 'posted' as "the customer-facing reply text" so
+        // the inbox UI shows the response immediately after the user clicks
+        // Send (we mark posted only after the platform call returns success).
+        const isReplied =
+          latest && (latest.status === 'posted' || latest.status === 'approved')
+        return {
+          ...r,
+          locationName: r.locationId ? locationNames.get(r.locationId) ?? null : null,
+          latestResponse: latest,
+          // Flat shortcuts the inbox UI expects.
+          responseText: isReplied ? latest!.content : null,
+          respondedAt: isReplied ? (latest!.postedAt ?? latest!.updatedAt ?? latest!.createdAt) : null,
+          responseStatus: latest?.status ?? null,
+        }
+      }),
       total,
       page,
       limit,

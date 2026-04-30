@@ -78,54 +78,71 @@ export class AIResponseService {
     const sentiment =
       review.rating >= 4 ? 'positive' : review.rating <= 2 ? 'negative' : 'mixed'
 
+    const businessContext = inferBusinessContext(workspace, location)
+
     const systemPrompt = `You're the owner of ${workspace.name}${
       location.name && location.name !== workspace.name ? ` (${location.name}${location.city ? `, ${location.city}` : ''})` : ''
-    }${workspace.industry ? `, a ${workspace.industry} business` : ''}, replying personally to a customer review on ${review.platform === 'google' ? 'Google' : review.platform}.
+    }${workspace.industry ? `, a ${workspace.industry}` : ''}, replying personally to a customer review on ${review.platform === 'google' ? 'Google' : review.platform}.
+
+BUSINESS CONTEXT (CRITICAL — your reply must feel like it's about THIS specific business, not a generic shop):
+${businessContext.summary}
+Words to consider using when natural: ${businessContext.keywords.join(', ')}.
+What you do for customers: ${businessContext.serves}.
 
 VOICE: ${tonePreset} — ${toneDesc}.
 
-THIS IS THE MOST IMPORTANT INSTRUCTION: do NOT sound like AI. Real owners write replies that are short, specific, slightly imperfect, and human. They don't use marketing speak. They mention concrete things from the review. They use contractions. They sometimes start with "And" or "But" or just a name. They write like a person, not a press release.
+THIS IS THE MOST IMPORTANT INSTRUCTION: do NOT sound like AI. Real owners write replies that are short, specific, slightly imperfect, and human. They mention concrete things related to THEIR business. They use contractions. They sometimes start with "And" or "But" or just a name. They write like a person, not a press release.
+
+EVERY REPLY MUST PASS THIS TEST: someone reading the reply alone (without seeing the original review) should be able to guess what kind of business this is. If your reply could've been written by ANY business, you've failed. Reference what you actually do — the pups, the food, the haircut, the rooms, whatever fits.
 
 ABSOLUTELY DO NOT use any of these AI tells (this is the biggest giveaway):
 ✗ "valued customer", "valued feedback", "valued patronage"
 ✗ "we appreciate your feedback", "thank you for taking the time to"
 ✗ "your satisfaction is our top priority"
-✗ "we strive to", "we endeavour to", "our team is dedicated to"
+✗ "we strive ..." in any form (we strive to, we strive for, we strive in, we strive at). Just don't use "strive".
+✗ "we endeavour to", "our team is dedicated to", "we're committed to"
+✗ "in everything we do", "in all that we do", "every time"
 ✗ "rest assured", "please know that", "kindly note"
+✗ "truly", "genuinely" as fillers — they sound AI ("truly appreciated", "genuinely thrilled")
 ✗ "warm regards", "best regards", "with appreciation", any formal sign-off
+✗ "Hope to see you again soon!" / "Looking forward to serving you" — generic closers
 ✗ "Dear ${firstName || 'customer'}", "Hi there", "Greetings"
 ✗ em-dashes ( — ), they scream AI. Use commas or full stops instead.
 ✗ tripled lists like "warm, welcoming, and personalised"
 ✗ exclamation marks at the end of every sentence
 ✗ "I'm sorry to hear that you experienced..." — too templated
-✗ "We're glad you enjoyed..." — too templated
 
 WRITE LIKE THIS INSTEAD:
 - 2 to 4 short sentences. Sometimes a 5-word sentence is fine. Asymmetric is good.
 - Use contractions: we're, you're, don't, can't, won't, that's.
-- Reference one specific thing they mentioned in the review (food item, staff member, wait time, whatever they said).
+- ${review.text && review.text.length > 20
+        ? `The review text is "${(review.text || '').slice(0, 200)}". Pull ONE specific word/thing from it and reflect it back. If they said "biryani" mention biryani, if they said "Rohan" mention Rohan, if they said "wait time" address wait time.`
+        : `The review has little or no text — so YOU bring the specifics from the business. Mention something concrete that ${workspace.name} actually does (e.g. ${businessContext.exampleMentions}).`}
 - ${sentiment === 'positive' ? "Sound genuinely pleased without being over-the-top. Don't gush." : sentiment === 'negative' ? "Own it plainly. Don't be defensive. Offer to make it right with a concrete next step (call back, email, comp). Use 'I' not just 'we' — it's more personal." : "Acknowledge the mixed feedback honestly. Address what they raised."}
 - ${firstName ? `Use the name "${firstName}" at most once, and only if it feels natural — most replies don't even need it.` : 'No name available, so just dive into the reply.'}
 - No greeting word at the start. No sign-off at the end. Just the body of the reply.
 - Match the language of the review. If they wrote in Hindi or Hinglish, reply in the same.
-- Keep it to about 30-60 words.
+- Keep it to about 25-55 words.
 - Maximum one emoji, only if the tone is friendly or witty AND it actually fits. Most replies should have zero emojis.
 
-Here are a few examples of the kind of replies a real owner writes:
+Here are examples of the kind of replies a real owner writes:
 
-Example 1 (4-star, mentions food):
-"Glad the biryani lived up to the hype, ${firstName ? firstName + '. ' : ''}Thanks for coming by. We're working on the wait-time thing, fair point."
+Example 1 (restaurant, 4-star, mentions food):
+"Glad the biryani lived up to the hype${firstName ? ', ' + firstName : ''}. Thanks for coming by. We're working on the wait-time thing, fair point."
 
-Example 2 (1-star, missed delivery):
-"This shouldn't have happened${firstName ? ', ' + firstName : ''}. I'm sorry. Drop me your order ID at hello@${workspace.name.toLowerCase().replace(/\s+/g, '')}.com and I'll sort the refund myself today."
+Example 2 (dog daycare/shelter, 5-star, generic praise):
+"Means a lot${firstName ? ', ' + firstName : ''}. The pups will be happy you're back soon. Thanks for trusting us with your boy."
 
-Example 3 (5-star, no specifics):
-"Means a lot${firstName ? ', ' + firstName : ''}. See you next time."
+Example 3 (any business, 1-star):
+"This shouldn't have happened${firstName ? ', ' + firstName : ''}. I'm sorry. Drop me your details at hello@${workspace.name.toLowerCase().replace(/\s+/g, '')}.com and I'll sort it myself today."
 
-Example 4 (3-star, mixed):
-"Honest feedback, appreciated. The slow service that night was on us — short-staffed, no excuse. Hope you'll give us another shot."
+Example 4 (salon, 5-star, no specifics):
+"Thanks${firstName ? ', ' + firstName : ''}. Tell Priya hi from us next visit, she'll be glad you liked the cut."
 
-Now write a reply in that style. Just the reply, no quotes, no preamble.`
+Example 5 (3-star, mixed):
+"Honest feedback, appreciated. The slow service that night was on us, short-staffed and no excuse. Hope you'll give us another shot."
+
+Now write a reply in that style for the review below. Just the reply, no quotes, no preamble. It MUST mention something specific to ${workspace.name}'s business — not generic phrases about "everything we do".`
 
     const reviewText = review.text ?? '(no comment, just the rating)'
     const userPrompt = `Review from ${review.reviewerName ?? 'a customer'} (${review.rating} star${review.rating !== 1 ? 's' : ''}):
@@ -195,6 +212,112 @@ Now write a reply in that style. Just the reply, no quotes, no preamble.`
 }
 
 /**
+ * Infer business-specific context from workspace name + industry so the
+ * model can reference what the business actually does, not generic
+ * "everything we do" phrases.
+ */
+function inferBusinessContext(
+  workspace: WorkspaceForAI,
+  location: LocationForAI,
+): { summary: string; keywords: string[]; serves: string; exampleMentions: string } {
+  const haystack = [workspace.name, workspace.industry, location.name]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase()
+
+  const matchers: Array<{
+    test: RegExp
+    summary: string
+    keywords: string[]
+    serves: string
+    examples: string
+  }> = [
+    {
+      test: /\b(woof|paw|pup|dog|kennel|shelter|pet|cat|vet|kibble|boarding|daycare|grooming)\b/,
+      summary: `${workspace.name} is a pet/dog business — likely boarding, daycare, grooming, or a shelter.`,
+      keywords: ['pups', 'dogs', 'boy', 'girl', 'tail', 'walks', 'boarding', 'shelter', 'safe space', 'lawn', 'play time'],
+      serves: 'looking after pets while owners are away, or as a permanent home',
+      examples: 'the pups, the lawn, the play time, our boarders, the safe space they get here',
+    },
+    {
+      test: /\b(restaurant|kitchen|cafe|bistro|biryani|pizza|burger|food|dining|chef|menu|tandoor|dosa|tiffin)\b/,
+      summary: `${workspace.name} is a food / restaurant business.`,
+      keywords: ['kitchen', 'menu', 'chef', 'dish', 'meal', 'crowd', 'service', 'wait time'],
+      serves: 'feeding people good food',
+      examples: 'a specific dish from the menu, the kitchen team, your next meal here',
+    },
+    {
+      test: /\b(salon|hair|stylist|barber|nails|spa|beauty|makeup|threading|waxing)\b/,
+      summary: `${workspace.name} is a salon / beauty / personal care business.`,
+      keywords: ['stylist', 'cut', 'colour', 'service', 'chair', 'next visit', 'team'],
+      serves: 'making customers feel good about how they look',
+      examples: 'the stylist, the cut, the products used',
+    },
+    {
+      test: /\b(hotel|stay|inn|resort|villa|rooms?|booking|guest)\b/,
+      summary: `${workspace.name} is a hotel / hospitality business.`,
+      keywords: ['rooms', 'stay', 'team', 'breakfast', 'check-in', 'next visit', 'view'],
+      serves: 'hosting guests overnight',
+      examples: 'their room, the check-in team, breakfast, the view',
+    },
+    {
+      test: /\b(clinic|doctor|dental|dentist|hospital|pharma|chemist)\b/,
+      summary: `${workspace.name} is a clinic / healthcare practice.`,
+      keywords: ['team', 'appointment', 'visit', 'care', 'follow-up'],
+      serves: 'caring for patients',
+      examples: 'the team that saw them, their follow-up, their treatment',
+    },
+    {
+      test: /\b(gym|fitness|yoga|trainer|workout|crossfit)\b/,
+      summary: `${workspace.name} is a gym / fitness business.`,
+      keywords: ['trainer', 'workout', 'class', 'session', 'progress'],
+      serves: 'helping people get fitter',
+      examples: 'their trainer, the class they attend, their progress',
+    },
+    {
+      test: /\b(school|academy|tuition|coaching|class|institute|learning)\b/,
+      summary: `${workspace.name} is an education / coaching business.`,
+      keywords: ['students', 'class', 'teacher', 'session', 'progress'],
+      serves: 'teaching students',
+      examples: 'the teacher, the class, their progress',
+    },
+    {
+      test: /\b(store|shop|retail|mart|boutique|bazaar|kirana)\b/,
+      summary: `${workspace.name} is a retail / store business.`,
+      keywords: ['the store', 'team', 'next visit', 'product'],
+      serves: 'selling things to customers',
+      examples: 'a specific product they bought, the staff who helped them',
+    },
+    {
+      test: /\b(garage|service|repair|mechanic|workshop|automotive|car|bike)\b/,
+      summary: `${workspace.name} is an automotive / repair / service business.`,
+      keywords: ['the team', 'service', 'repair', 'workshop', 'pickup'],
+      serves: 'fixing or servicing vehicles',
+      examples: 'their service, the workshop team, the work done',
+    },
+  ]
+
+  for (const m of matchers) {
+    if (m.test.test(haystack)) {
+      return {
+        summary: m.summary,
+        keywords: m.keywords,
+        serves: m.serves,
+        exampleMentions: m.examples,
+      }
+    }
+  }
+
+  // Generic fallback — still steer toward concrete language.
+  return {
+    summary: `${workspace.name}${workspace.industry ? `, a ${workspace.industry}` : ''}.`,
+    keywords: ['the team', 'next visit', 'our work'],
+    serves: workspace.industry || 'serving customers locally',
+    exampleMentions: 'the team, their next visit, the specific service they used',
+  }
+}
+
+/**
  * Post-process the model output to strip the most common AI tells that
  * sneak through despite the prompt. Last line of defence.
  */
@@ -232,13 +355,27 @@ function humanise(input: string): string {
   const bannedPhrases: Array<[RegExp, string]> = [
     [/\bvalued (customer|patronage|feedback|guest)s?\b/gi, 'you'],
     [/\byour satisfaction is our (top |#1 |number one )?priority\b/gi, ''],
-    [/\bwe strive to (provide|deliver|offer)\b/gi, "we try to"],
-    [/\bwe endeavou?r to\b/gi, "we try to"],
-    [/\bour team is dedicated to\b/gi, "we work to"],
+    // Catch ALL "we strive ..." patterns: strive to/for/in/at/towards anything
+    [/\bwe (always )?strive (to|for|in|at|towards?) [^.,!?]+/gi, ''],
+    [/\bwe['']?re (always )?striving (to|for|in|at|towards?) [^.,!?]+/gi, ''],
+    [/\bwe endeavou?r to[^.,!?]+/gi, ''],
+    [/\bour team is dedicated to[^.,!?]+/gi, ''],
+    [/\bwe['']?re (fully |completely |totally )?committed to[^.,!?]+/gi, ''],
+    [/\bin everything we do\b/gi, ''],
+    [/\bin all (that )?we do\b/gi, ''],
+    [/\b(every|each) (single )?time\b/gi, ''],
     [/\brest assured,?\s*/gi, ''],
     [/\bplease know that\b/gi, ''],
     [/\bkindly note that\b/gi, ''],
     [/\bin closing,?\s*/gi, ''],
+    [/\btruly appreciate(d)?\b/gi, 'appreciate$1'],
+    [/\bgenuinely appreciate(d)?\b/gi, 'appreciate$1'],
+    [/\b(is |are )truly\b/gi, '$1really'],
+    // Generic AI closers — strip when they're standalone trailing sentences.
+    [/\.\s*hope to (see|serve|welcome) you (back |again )?soon[!.]?\s*$/gi, '.'],
+    [/\.\s*looking forward to (seeing|serving|welcoming) you (back |again )?soon[!.]?\s*$/gi, '.'],
+    [/\.\s*we hope to see you (back |again )?soon[!.]?\s*$/gi, '.'],
+    // Sign-offs.
     [/\bwarm regards,?\s*$/gi, ''],
     [/\bbest regards,?\s*$/gi, ''],
     [/\bwith appreciation,?\s*$/gi, ''],
