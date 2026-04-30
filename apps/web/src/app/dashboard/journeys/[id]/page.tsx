@@ -614,14 +614,17 @@ export default function JourneyBuilderPage() {
                 <CardHeader className="pb-3">
                   <CardTitle className="text-sm flex items-center gap-2">
                     <Eye className="size-3.5" />
-                    Live preview
+                    Live preview — {METRIC_LABELS[activeMetric].name}
                   </CardTitle>
                 </CardHeader>
-                <CardContent>
+                <CardContent className="pb-6">
                   <PhonePreview
                     metric={activeMetric}
                     copy={config.metricCopy[activeMetric]}
                   />
+                  <p className="text-[10px] text-center text-muted-foreground mt-3">
+                    Switch metric tabs above to preview each one.
+                  </p>
                 </CardContent>
               </Card>
             </div>
@@ -901,45 +904,81 @@ function PhonePreview({ metric, copy }: { metric: Metric; copy: MetricCopy }) {
     return out
   }, [range.min, range.max, step])
 
+  // Display the value list — always render numbers; for NEV bucketed (5 buttons).
+  const tooManyForGrid = values.length > 7
+
   return (
-    <div className="mx-auto w-full max-w-[280px] rounded-[28px] border-4 border-slate-800 bg-white p-4 shadow-xl">
-      <div className="space-y-5 py-3">
-        <div className="text-center space-y-1">
-          <h2 className="text-base font-bold text-slate-800">{copy.question}</h2>
-          <p className="text-[10px] uppercase tracking-wider text-slate-400">
-            {METRIC_LABELS[metric].name}
-          </p>
-        </div>
+    <div className="flex justify-center">
+      {/* Phone frame — iPhone-like, fixed aspect ratio */}
+      <div
+        className="relative w-full max-w-[320px] rounded-[44px] bg-slate-900 p-3 shadow-2xl"
+        style={{ aspectRatio: '9 / 19.5' }}
+      >
+        {/* Notch */}
+        <div className="absolute left-1/2 top-3 h-6 w-28 -translate-x-1/2 rounded-full bg-slate-900 z-10" />
 
-        <div className="space-y-2">
-          <div
-            className={`grid gap-1 ${
-              values.length <= 5
-                ? 'grid-cols-5'
-                : values.length <= 7
-                ? 'grid-cols-7'
-                : values.length <= 6
-                ? 'grid-cols-6'
-                : 'grid-cols-11'
-            }`}
-          >
-            {values.map((v) => (
+        {/* Screen */}
+        <div className="relative h-full w-full overflow-hidden rounded-[34px] bg-gradient-to-b from-slate-50 to-white flex flex-col">
+          {/* Status bar */}
+          <div className="flex items-center justify-between px-6 pt-3 pb-1 text-[10px] font-semibold text-slate-700">
+            <span>9:41</span>
+            <span className="flex items-center gap-1">
+              <span className="text-[8px]">●●●●</span>
+              <span>5G</span>
+              <span className="ml-1">100%</span>
+            </span>
+          </div>
+
+          {/* Content */}
+          <div className="flex-1 flex flex-col items-center justify-center px-6 pb-8 space-y-6 overflow-hidden">
+            <div className="text-center space-y-1.5">
+              <h2 className="text-lg font-bold text-slate-800 leading-tight">
+                {copy.question}
+              </h2>
+              <p className="text-[10px] uppercase tracking-[0.15em] text-slate-400 font-semibold">
+                {METRIC_LABELS[metric].name}
+              </p>
+            </div>
+
+            <div className="w-full space-y-2.5">
               <div
-                key={v}
-                className="rounded border border-slate-200 bg-white py-1.5 text-center text-[11px] font-semibold text-slate-700"
+                className={`grid gap-1.5 w-full ${
+                  values.length === 5
+                    ? 'grid-cols-5'
+                    : values.length === 7
+                    ? 'grid-cols-7'
+                    : tooManyForGrid
+                    ? 'grid-cols-6'
+                    : 'grid-cols-5'
+                }`}
               >
-                {v}
+                {values.map((v) => (
+                  <div
+                    key={v}
+                    className="aspect-square rounded-lg border border-slate-200 bg-white flex items-center justify-center text-xs font-semibold text-slate-700 shadow-sm"
+                  >
+                    {v}
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-          <div className="flex justify-between text-[9px] text-slate-500 px-1">
-            <span>{copy.scaleLabels.low}</span>
-            <span>{copy.scaleLabels.high}</span>
-          </div>
-        </div>
+              <div className="flex justify-between text-[9px] text-slate-500 px-0.5 leading-tight">
+                <span className="max-w-[40%]">{copy.scaleLabels.low}</span>
+                <span className="max-w-[40%] text-right">{copy.scaleLabels.high}</span>
+              </div>
+            </div>
 
-        <div className="rounded-lg bg-slate-800 py-2 text-center text-xs font-semibold text-white">
-          Continue
+            <div className="w-full rounded-xl bg-slate-800 py-3 text-center text-sm font-semibold text-white shadow-md">
+              Continue
+            </div>
+          </div>
+
+          {/* Home indicator */}
+          <div className="absolute bottom-1.5 left-1/2 h-1 w-24 -translate-x-1/2 rounded-full bg-slate-900/40" />
+
+          {/* Powered by */}
+          <div className="absolute bottom-6 left-0 right-0 text-center text-[8px] text-slate-300">
+            Powered by rectangled.io
+          </div>
         </div>
       </div>
     </div>
