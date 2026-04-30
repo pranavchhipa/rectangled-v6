@@ -1032,7 +1032,14 @@ export class ReviewService {
   }
 
   /**
-   * Quick respond to a review from the Inbox — creates + auto-approves a response.
+   * Quick respond to a review from the Inbox — creates the response, then
+   * actually posts it to the source platform (GBP) and marks it 'posted'.
+   *
+   * For offline reviews (source='offline', no connector), it just stores the
+   * response as 'approved' since there's no platform to post to.
+   *
+   * If the platform call fails, we throw — the frontend should NOT show
+   * success when the reply isn't really live.
    */
   async respondDirectly(
     reviewId: string,
@@ -1059,6 +1066,7 @@ export class ReviewService {
       })
     }
 
+    // Insert the row first so we have an id to update.
     const [created] = await this.db
       .insert(reviewResponses)
       .values({
@@ -1070,6 +1078,76 @@ export class ReviewService {
       })
       .returning()
 
+    // If this review came from a connector (e.g. GBP), actually post the reply.
+    if (review.connectorInstanceId) {
+      try {
+        const instance = await this.connectorService.getInstanceByIdInternal(
+          review.connectorInstanceId
+        )
+
+        if (instance.connectorTypeId === 'gbp') {
+          const creds = instance.credentials as Record<string, string>
+          if (!creds?.accessToken || !creds?.refreshToken) {
+            throw new TRPCError({
+              code: 'PRECONDITION_FAILED',
+              message: 'GBP connector is missing OAuth credentials',
+            })
+          }
+
+          let accessToken = creds.accessToken
+          if (creds.expiresAt && new Date(creds.expiresAt) <= new Date()) {
+            const refreshed = await this.gbpAdapter.refreshAccessToken(
+              creds.refreshToken
+            )
+            accessToken = refreshed.accessToken
+            await this.connectorService.updateCredentials(instance.id, {
+              ...creds,
+              accessToken: refreshed.accessToken,
+              expiresAt: refreshed.expiresAt,
+            })
+          }
+
+          const gbpResourceName = (review.metadata as Record<string, string>)
+            ?.gbpResourceName
+
+          if (!gbpResourceName) {
+            throw new TRPCError({
+              code: 'PRECONDITION_FAILED',
+              message:
+                'Cannot post reply: review has no GBP resource name. Try syncing reviews again.',
+            })
+          }
+
+          await this.gbpAdapter.replyToReview(
+            accessToken,
+            gbpResourceName,
+            responseText
+          )
+
+          // Mark posted only after the platform accepted it.
+          const [posted] = await this.db
+            .update(reviewResponses)
+            .set({
+              status: 'posted',
+              postedAt: new Date(),
+              updatedAt: new Date(),
+            })
+            .where(eq(reviewResponses.id, created.id))
+            .returning()
+          return posted
+        }
+      } catch (err: any) {
+        // Platform post failed — keep the row as 'approved' (so it can be
+        // retried via review.postResponse) but bubble the error up so the
+        // frontend doesn't tell the user "Reply sent" when it wasn't.
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: err?.message || 'Failed to post reply to platform',
+        })
+      }
+    }
+
+    // Offline review (no connector) — just keep the response as 'approved'.
     return created
   }
 
