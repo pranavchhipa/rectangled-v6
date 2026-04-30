@@ -11,13 +11,53 @@ import {
   customers,
   reviews,
   connectorInstances,
+  workspaces,
+  locations,
 } from '@rectangled/db'
+import {
+  type JourneyMetric,
+  JOURNEY_METRICS,
+  METRIC_DEFAULT_THRESHOLDS,
+  DEFAULT_METRIC_QUESTION_CONFIG,
+  DEFAULT_JOURNEY_SETTINGS_V2,
+  isJourneyMetric,
+  isPositive as isPositiveScore,
+  isScoreInRange,
+  pickRandomMetric,
+} from '@rectangled/shared'
+
+type JourneySettings = {
+  enabledMetrics: JourneyMetric[]
+  thresholds: Record<JourneyMetric, number>
+  enableCoupon: boolean
+  reviewPlatform: 'google' | 'zomato' | 'swiggy'
+}
+
+type MetricQuestionConfig = {
+  metricCopy: Record<
+    JourneyMetric,
+    { question: string; scaleLabels: { low: string; high: string } }
+  >
+  aspectTags: string[]
+  feedbackPlaceholder: string
+  reviewPromptCopy: { question: string; yesLabel: string; noLabel: string }
+  redirectLinks: { google?: string; zomato?: string; swiggy?: string }
+  reviewTemplate: string
+  thankYouHappyYes: string
+  thankYouHappyNo: string
+  thankYouUnhappy: string
+}
 
 @Injectable()
 export class JourneyService {
   constructor(@Inject('DATABASE') private readonly db: Database) {}
 
-  async list(workspaceId: string, locationId: string | undefined, userId: string, includeArchived = false) {
+  async list(
+    workspaceId: string,
+    locationId: string | undefined,
+    userId: string,
+    includeArchived = false,
+  ) {
     await this.requireMembership(workspaceId, userId)
     const conditions = [eq(journeys.workspaceId, workspaceId)]
     if (locationId) conditions.push(eq(journeys.locationId, locationId))
@@ -45,12 +85,23 @@ export class JourneyService {
       workspaceId: string
       locationId?: string
       name: string
-      settings?: { positiveThreshold?: number; enableCoupon?: boolean; reviewPlatform?: string }
+      settings?: Partial<Omit<JourneySettings, 'thresholds'>> & {
+        thresholds?: Partial<Record<JourneyMetric, number>>
+      }
     },
-    userId: string
+    userId: string,
   ) {
     await this.requireMembership(input.workspaceId, userId)
     const slug = `j-${randomUUID().slice(0, 10)}`
+
+    const settings: JourneySettings = {
+      ...DEFAULT_JOURNEY_SETTINGS_V2,
+      ...(input.settings ?? {}),
+      thresholds: {
+        ...DEFAULT_JOURNEY_SETTINGS_V2.thresholds,
+        ...(input.settings?.thresholds ?? {}),
+      },
+    }
 
     const [journey] = await this.db
       .insert(journeys)
@@ -59,13 +110,25 @@ export class JourneyService {
         locationId: input.locationId,
         name: input.name.trim(),
         slug,
-        settings: {
-          positiveThreshold: input.settings?.positiveThreshold ?? 4,
-          enableCoupon: input.settings?.enableCoupon ?? false,
-          reviewPlatform: input.settings?.reviewPlatform ?? 'google',
-        },
+        settings,
       })
       .returning()
+
+    const config = this.buildDefaultMetricQuestionConfig()
+    if (input.locationId) {
+      const url = await this.lookupGoogleReviewUrl(input.workspaceId, input.locationId)
+      if (url) config.redirectLinks.google = url
+    }
+
+    await this.db.insert(journeyScreens).values({
+      journeyId: journey.id,
+      order: 0,
+      screenType: 'metric_question' as any,
+      title: 'How was your experience?',
+      subtitle: null,
+      config: config as unknown as Record<string, unknown>,
+      branchConditions: [],
+    })
 
     return journey
   }
@@ -76,9 +139,11 @@ export class JourneyService {
       name?: string
       locationId?: string | null
       isActive?: boolean
-      settings?: { positiveThreshold?: number; enableCoupon?: boolean; reviewPlatform?: string }
+      settings?: Partial<Omit<JourneySettings, 'thresholds'>> & {
+        thresholds?: Partial<Record<JourneyMetric, number>>
+      }
     },
-    userId: string
+    userId: string,
   ) {
     const journey = await this.findOrThrow(input.id)
     await this.requireMembership(journey.workspaceId, userId)
@@ -88,7 +153,13 @@ export class JourneyService {
     if (input.locationId !== undefined) setValues.locationId = input.locationId
     if (input.isActive !== undefined) setValues.isActive = input.isActive
     if (input.settings) {
-      setValues.settings = { ...journey.settings, ...input.settings }
+      const current = journey.settings as JourneySettings
+      const merged: JourneySettings = {
+        ...current,
+        ...input.settings,
+        thresholds: { ...current.thresholds, ...(input.settings.thresholds ?? {}) },
+      }
+      setValues.settings = merged
     }
 
     const [updated] = await this.db
@@ -97,7 +168,6 @@ export class JourneyService {
       .where(eq(journeys.id, input.id))
       .returning()
 
-    // When locationId changes, auto-fill Google review URL in screen configs
     if (input.locationId !== undefined && input.locationId !== null) {
       await this.autoFillGoogleReviewUrl(input.id, journey.workspaceId, input.locationId)
     }
@@ -105,8 +175,10 @@ export class JourneyService {
     return updated
   }
 
-  private async autoFillGoogleReviewUrl(journeyId: string, workspaceId: string, locationId: string) {
-    // Find GBP connector for this location
+  private async lookupGoogleReviewUrl(
+    workspaceId: string,
+    locationId: string,
+  ): Promise<string | undefined> {
     const gbpConnector = await this.db.query.connectorInstances.findFirst({
       where: and(
         eq(connectorInstances.workspaceId, workspaceId),
@@ -115,49 +187,40 @@ export class JourneyService {
       ),
     })
     const placeId = (gbpConnector?.config as any)?.placeId
-    if (!placeId) return
+    if (!placeId) return undefined
+    return `https://search.google.com/local/writereview?placeid=${placeId}`
+  }
 
-    const googleUrl = `https://search.google.com/local/writereview?placeid=${placeId}`
+  /**
+   * v2-only: writes the GBP-derived Google review URL into the metric_question
+   * screen's `redirectLinks.google` if it's empty.
+   */
+  private async autoFillGoogleReviewUrl(
+    journeyId: string,
+    workspaceId: string,
+    locationId: string,
+  ) {
+    const googleUrl = await this.lookupGoogleReviewUrl(workspaceId, locationId)
+    if (!googleUrl) return
 
-    // Fetch all screens for this journey
-    const screens = await this.db.query.journeyScreens.findMany({
-      where: eq(journeyScreens.journeyId, journeyId),
+    const screen = await this.db.query.journeyScreens.findFirst({
+      where: and(
+        eq(journeyScreens.journeyId, journeyId),
+        eq(journeyScreens.screenType, 'metric_question' as any),
+      ),
     })
+    if (!screen) return
 
-    for (const screen of screens) {
-      const config = (screen.config ?? {}) as Record<string, any>
-      let updated = false
-
-      // Single-screen rating with embedded redirectLinks
-      if (screen.screenType === 'rating' && Array.isArray(config.redirectLinks)) {
-        const googleLink = config.redirectLinks.find((l: any) => l.platform === 'Google')
-        if (googleLink && (!googleLink.url || googleLink.url.includes('writereview?placeid='))) {
-          googleLink.url = googleUrl
-          updated = true
-        } else if (!googleLink) {
-          config.redirectLinks.unshift({ platform: 'Google', url: googleUrl })
-          updated = true
-        }
-      }
-
-      // Legacy review_redirect screen
-      if (screen.screenType === 'review_redirect' && Array.isArray(config.links)) {
-        const googleLink = config.links.find((l: any) => l.platform === 'Google')
-        if (googleLink && (!googleLink.url || googleLink.url.includes('writereview?placeid='))) {
-          googleLink.url = googleUrl
-          updated = true
-        } else if (!googleLink) {
-          config.links.unshift({ platform: 'Google', url: googleUrl })
-          updated = true
-        }
-      }
-
-      if (updated) {
-        await this.db
-          .update(journeyScreens)
-          .set({ config })
-          .where(eq(journeyScreens.id, screen.id))
-      }
+    const config = (screen.config ?? {}) as Record<string, any>
+    if (!config.redirectLinks || typeof config.redirectLinks !== 'object') {
+      config.redirectLinks = {}
+    }
+    if (!config.redirectLinks.google) {
+      config.redirectLinks.google = googleUrl
+      await this.db
+        .update(journeyScreens)
+        .set({ config })
+        .where(eq(journeyScreens.id, screen.id))
     }
   }
 
@@ -172,6 +235,10 @@ export class JourneyService {
     return updated
   }
 
+  /**
+   * v2-only: a journey has exactly one `metric_question` screen. We replace
+   * it on save. Inputs are validated upstream (Zod literal type).
+   */
   async updateScreens(
     journeyId: string,
     screens: Array<{
@@ -181,45 +248,48 @@ export class JourneyService {
       title?: string
       subtitle?: string
       config?: Record<string, unknown>
-      branchConditions?: Array<{ field: string; operator: string; value?: unknown; nextScreenId: string }>
+      branchConditions?: Array<{
+        field: string
+        operator: string
+        value?: unknown
+        nextScreenId: string
+      }>
     }>,
-    userId: string
+    userId: string,
   ) {
     const journey = await this.findOrThrow(journeyId)
     await this.requireMembership(journey.workspaceId, userId)
 
-    // Auto-fill Google review URLs from journey's location before saving
-    let googleUrl: string | undefined
-    if (journey.locationId) {
-      const gbpConnector = await this.db.query.connectorInstances.findFirst({
-        where: and(
-          eq(connectorInstances.workspaceId, journey.workspaceId),
-          eq(connectorInstances.connectorTypeId, 'gbp'),
-          eq(connectorInstances.locationId, journey.locationId),
-        ),
+    if (screens.length > 1) {
+      throw new TRPCError({
+        code: 'BAD_REQUEST',
+        message: 'Journeys may only have one metric_question screen',
       })
-      const placeId = (gbpConnector?.config as any)?.placeId
-      if (placeId) googleUrl = `https://search.google.com/local/writereview?placeid=${placeId}`
+    }
+    if (screens.some((s) => s.screenType !== 'metric_question')) {
+      throw new TRPCError({
+        code: 'BAD_REQUEST',
+        message: 'Only metric_question screens are supported in v2',
+      })
     }
 
-    // Fill empty Google URLs in screen configs
+    let googleUrl: string | undefined
+    if (journey.locationId) {
+      googleUrl = await this.lookupGoogleReviewUrl(journey.workspaceId, journey.locationId)
+    }
+
     if (googleUrl) {
       for (const s of screens) {
         const config = (s.config || {}) as Record<string, any>
-        if (s.screenType === 'rating' && Array.isArray(config.redirectLinks)) {
-          const gl = config.redirectLinks.find((l: any) => l.platform === 'Google')
-          if (gl && !gl.url) gl.url = googleUrl
+        if (!config.redirectLinks || typeof config.redirectLinks !== 'object') {
+          config.redirectLinks = {}
         }
-        if (s.screenType === 'review_redirect' && Array.isArray(config.links)) {
-          const gl = config.links.find((l: any) => l.platform === 'Google')
-          if (gl && !gl.url) gl.url = googleUrl
-        }
+        if (!config.redirectLinks.google) config.redirectLinks.google = googleUrl
+        s.config = config
       }
     }
 
-    // Delete existing screens and re-insert
     await this.db.delete(journeyScreens).where(eq(journeyScreens.journeyId, journeyId))
-
     if (screens.length === 0) return []
 
     const values = screens.map((s) => ({
@@ -236,41 +306,105 @@ export class JourneyService {
     return inserted
   }
 
-  // PUBLIC: Get journey by slug (no auth)
+  /**
+   * PUBLIC v2: Get journey by slug. Server picks ONE metric uniformly at
+   * random from `settings.enabledMetrics` and returns only the copy for that
+   * metric. The threshold is NEVER returned — the client doesn't need it.
+   */
   async getPublicJourney(slug: string) {
     const journey = await this.db.query.journeys.findFirst({
       where: and(eq(journeys.slug, slug), eq(journeys.isActive, true)),
     })
 
-    if (!journey) {
+    if (!journey || journey.archivedAt) {
       throw new TRPCError({ code: 'NOT_FOUND', message: 'Journey not found' })
     }
 
-    const screens = await this.db.query.journeyScreens.findMany({
-      where: eq(journeyScreens.journeyId, journey.id),
+    const settings = journey.settings as JourneySettings
+    const enabled = (settings.enabledMetrics ?? []).filter(isJourneyMetric) as JourneyMetric[]
+    if (enabled.length === 0) {
+      throw new TRPCError({ code: 'NOT_FOUND', message: 'Journey not configured' })
+    }
+
+    const metricShown = pickRandomMetric(enabled)
+
+    const screen = await this.db.query.journeyScreens.findFirst({
+      where: and(
+        eq(journeyScreens.journeyId, journey.id),
+        eq(journeyScreens.screenType, 'metric_question' as any),
+      ),
       orderBy: [asc(journeyScreens.order)],
     })
 
-    // Return only public-safe data
+    if (!screen) {
+      throw new TRPCError({ code: 'NOT_FOUND', message: 'Journey not configured' })
+    }
+
+    const config = (screen.config ?? {}) as Partial<MetricQuestionConfig>
+    const metricCopy = config.metricCopy?.[metricShown]
+    if (!metricCopy) {
+      throw new TRPCError({ code: 'NOT_FOUND', message: 'Metric copy missing' })
+    }
+
+    const workspace = await this.db.query.workspaces.findFirst({
+      where: eq(workspaces.id, journey.workspaceId),
+    })
+    let locationName: string | undefined
+    if (journey.locationId) {
+      const loc = await this.db.query.locations.findFirst({
+        where: eq(locations.id, journey.locationId),
+      })
+      locationName = loc?.name
+    }
+    const businessName = locationName || workspace?.name || 'us'
+
+    const interpolatedReviewTemplate = (
+      config.reviewTemplate ?? 'Had a great experience at {businessName}!'
+    )
+      .replace(/\{businessName\}/g, businessName)
+      .replace(/\{metricName\}/g, metricShown.toUpperCase())
+
     return {
       id: journey.id,
+      slug: journey.slug,
       name: journey.name,
-      isActive: journey.isActive,
       locationId: journey.locationId,
-      settings: journey.settings,
-      screens: screens.map((s) => ({
-        id: s.id,
-        order: s.order,
-        screenType: s.screenType,
-        title: s.title,
-        subtitle: s.subtitle,
-        config: s.config,
-        branchConditions: s.branchConditions,
-      })),
+      settings: {
+        reviewPlatform: settings.reviewPlatform ?? 'google',
+      },
+      screen: {
+        id: screen.id,
+        metricShown,
+        question: metricCopy.question,
+        scaleLabels: metricCopy.scaleLabels,
+        aspectTags: config.aspectTags ?? [],
+        feedbackPlaceholder: config.feedbackPlaceholder ?? '',
+        reviewPromptCopy: config.reviewPromptCopy ?? {
+          question: 'Would you mind leaving us a review?',
+          yesLabel: 'Sure',
+          noLabel: 'Maybe later',
+        },
+        redirectLinks: config.redirectLinks ?? {},
+        reviewTemplate: interpolatedReviewTemplate,
+        thankYouHappyYes: config.thankYouHappyYes ?? 'Thanks!',
+        thankYouHappyNo: config.thankYouHappyNo ?? 'Thanks for your time!',
+        thankYouUnhappy: config.thankYouUnhappy ?? 'Thank you for the feedback.',
+      },
     }
   }
 
-  // PUBLIC: Submit response (no auth)
+  /**
+   * PUBLIC v2: Submit a journey response.
+   *
+   * Two-phase submit:
+   * - Phase 1 (no `updateResponseId`): customer answered the metric. Server
+   *   validates score range, computes `isPositive`, inserts the row, returns
+   *   `{ responseId, isPositive }`. No offline review yet.
+   * - Phase 2 (with `updateResponseId`): customer completed the follow-up
+   *   (happy: Yes/No, unhappy: aspect tags + feedback + contact). Server
+   *   merges the new fields. On unhappy completion, an offline review is
+   *   created so it shows up in the inbox.
+   */
   async submitResponse(input: {
     journeyId: string
     journeyScreenId?: string
@@ -280,14 +414,31 @@ export class JourneyService {
     customerName?: string
     customerEmail?: string
     customerPhone?: string
+    updateResponseId?: string
   }) {
-    // Optionally create/update customer
-    let customerId: string | undefined
-    if (input.customerName || input.customerEmail || input.customerPhone) {
-      const journey = await this.db.query.journeys.findFirst({
-        where: eq(journeys.id, input.journeyId),
+    const journey = await this.db.query.journeys.findFirst({
+      where: eq(journeys.id, input.journeyId),
+    })
+    if (!journey) {
+      throw new TRPCError({ code: 'NOT_FOUND', message: 'Journey not found' })
+    }
+
+    const settings = journey.settings as JourneySettings
+
+    // ===== PHASE 2: merge into existing response =====
+    if (input.updateResponseId) {
+      const existing = await this.db.query.journeyResponses.findFirst({
+        where: and(
+          eq(journeyResponses.id, input.updateResponseId),
+          eq(journeyResponses.journeyId, input.journeyId),
+        ),
       })
-      if (journey) {
+      if (!existing) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Response not found' })
+      }
+
+      let customerId = existing.customerId ?? undefined
+      if (!customerId && (input.customerName || input.customerEmail || input.customerPhone)) {
         const [customer] = await this.db
           .insert(customers)
           .values({
@@ -299,6 +450,85 @@ export class JourneyService {
           .returning()
         customerId = customer.id
       }
+
+      const mergedResponseData = {
+        ...((existing.responseData ?? {}) as Record<string, unknown>),
+        ...input.responseData,
+      }
+
+      await this.db
+        .update(journeyResponses)
+        .set({
+          responseData: mergedResponseData,
+          ...(customerId ? { customerId } : {}),
+        })
+        .where(eq(journeyResponses.id, input.updateResponseId))
+
+      const metricShown = (mergedResponseData.metricShown as JourneyMetric) || undefined
+      const metricScore = mergedResponseData.metricScore as number | undefined
+      const isPos = this.computeIsPositive(metricShown, metricScore, settings)
+
+      // Create offline review on unhappy-path completion.
+      if (metricShown && metricScore !== undefined && isPos === false) {
+        const aspectTags = (mergedResponseData.aspectTags as string[] | undefined) ?? null
+        await this.db
+          .insert(reviews)
+          .values({
+            workspaceId: journey.workspaceId,
+            locationId: existing.locationId ?? input.locationId ?? null,
+            platform: 'offline',
+            platformReviewId: `offline-${existing.id}`,
+            reviewerName: input.customerName || 'Anonymous',
+            // Map metric score onto a 1-5 rating for the reviews table contract.
+            // Unhappy responses always render as a low rating.
+            rating: 2,
+            text: (mergedResponseData.feedback as string) || null,
+            reviewedAt: new Date(),
+            source: 'offline',
+            journeyResponseId: existing.id,
+            aspectTags,
+            customerId: customerId ?? null,
+            metadata: { metricShown, metricScore } as any,
+          })
+          .onConflictDoNothing()
+      }
+
+      return { success: true, responseId: existing.id, isPositive: isPos }
+    }
+
+    // ===== PHASE 1: first submit =====
+    const data = input.responseData
+    const metricShown = data.metricShown as JourneyMetric | undefined
+    const metricScore = data.metricScore as number | undefined
+
+    if (!metricShown || !isJourneyMetric(metricShown)) {
+      throw new TRPCError({ code: 'BAD_REQUEST', message: 'metricShown is required' })
+    }
+    if (typeof metricScore !== 'number' || !isScoreInRange(metricShown, metricScore)) {
+      throw new TRPCError({
+        code: 'BAD_REQUEST',
+        message: `Score out of range for metric ${metricShown}`,
+      })
+    }
+
+    const isPos = this.computeIsPositive(metricShown, metricScore, settings)
+
+    // Mirror metricScore into the per-metric field for analytics back-compat.
+    const responseData: Record<string, unknown> = { ...data }
+    responseData[`${metricShown}Score`] = metricScore
+
+    let customerId: string | undefined
+    if (input.customerName || input.customerEmail || input.customerPhone) {
+      const [customer] = await this.db
+        .insert(customers)
+        .values({
+          workspaceId: journey.workspaceId,
+          name: input.customerName,
+          email: input.customerEmail,
+          phone: input.customerPhone,
+        })
+        .returning()
+      customerId = customer.id
     }
 
     const [response] = await this.db
@@ -308,40 +538,44 @@ export class JourneyService {
         journeyScreenId: input.journeyScreenId,
         locationId: input.locationId,
         sessionId: input.sessionId,
-        responseData: input.responseData,
+        responseData,
         customerId,
       })
       .returning()
 
-    // If this is a negative feedback response, create an offline review
-    const rating = input.responseData.rating as number | undefined
-    if (rating && rating <= 3) {
-      const journey = await this.db.query.journeys.findFirst({
-        where: eq(journeys.id, input.journeyId),
-      })
-      if (journey) {
-        await this.db.insert(reviews).values({
-          workspaceId: journey.workspaceId,
-          locationId: input.locationId,
-          platform: 'offline',
-          platformReviewId: `offline-${response.id}`,
-          reviewerName: input.customerName || 'Anonymous',
-          rating,
-          text: (input.responseData.feedback as string) || null,
-          reviewedAt: new Date(),
-          source: 'offline',
-          journeyResponseId: response.id,
-          aspectTags: (input.responseData.tags as string[]) || (input.responseData.aspectTags as string[]) || null,
-          customerId,
-        })
-      }
-    }
+    return { success: true, responseId: response.id, isPositive: isPos }
+  }
 
-    return { success: true, responseId: response.id }
+  private computeIsPositive(
+    metric: JourneyMetric | undefined,
+    score: number | undefined,
+    settings: JourneySettings,
+  ): boolean | null {
+    if (!metric || score === undefined) return null
+    const threshold = settings.thresholds?.[metric] ?? METRIC_DEFAULT_THRESHOLDS[metric]
+    return isPositiveScore(metric, score, threshold)
+  }
+
+  private buildDefaultMetricQuestionConfig(): MetricQuestionConfig {
+    return {
+      metricCopy: { ...DEFAULT_METRIC_QUESTION_CONFIG.metricCopy },
+      aspectTags: [...DEFAULT_METRIC_QUESTION_CONFIG.aspectTags],
+      feedbackPlaceholder: DEFAULT_METRIC_QUESTION_CONFIG.feedbackPlaceholder,
+      reviewPromptCopy: { ...DEFAULT_METRIC_QUESTION_CONFIG.reviewPromptCopy },
+      redirectLinks: { ...DEFAULT_METRIC_QUESTION_CONFIG.redirectLinks },
+      reviewTemplate: DEFAULT_METRIC_QUESTION_CONFIG.reviewTemplate,
+      thankYouHappyYes: DEFAULT_METRIC_QUESTION_CONFIG.thankYouHappyYes,
+      thankYouHappyNo: DEFAULT_METRIC_QUESTION_CONFIG.thankYouHappyNo,
+      thankYouUnhappy: DEFAULT_METRIC_QUESTION_CONFIG.thankYouUnhappy,
+    }
   }
 
   async seedDefault(workspaceId: string, locationId: string | undefined) {
     const slug = `j-${randomUUID().slice(0, 10)}`
+    const settings: JourneySettings = {
+      ...DEFAULT_JOURNEY_SETTINGS_V2,
+      thresholds: { ...DEFAULT_JOURNEY_SETTINGS_V2.thresholds },
+    }
     const [journey] = await this.db
       .insert(journeys)
       .values({
@@ -351,58 +585,25 @@ export class JourneyService {
         slug,
         isDefault: true,
         isActive: true,
-        settings: { positiveThreshold: 4, enableCoupon: false, reviewPlatform: 'google' },
+        settings,
       })
       .returning()
 
-    // Create default 3-screen flow
-    await this.db.insert(journeyScreens).values([
-      {
-        journeyId: journey.id,
-        order: 0,
-        screenType: 'rating' as any,
-        title: 'How was your experience?',
-        subtitle: 'Tap to rate',
-        config: { type: 'stars', maxRating: 5 },
-        branchConditions: [],
-      },
-      {
-        journeyId: journey.id,
-        order: 1,
-        screenType: 'review_redirect' as any,
-        title: 'Thank you!',
-        subtitle: 'Would you share your experience on Google?',
-        config: { showForRating: 'positive', platform: 'google' },
-        branchConditions: [],
-      },
-      {
-        journeyId: journey.id,
-        order: 2,
-        screenType: 'aspects' as any,
-        title: "We're sorry to hear that",
-        subtitle: "What didn't you like?",
-        config: { showForRating: 'negative' },
-        branchConditions: [],
-      },
-      {
-        journeyId: journey.id,
-        order: 3,
-        screenType: 'contact_collection' as any,
-        title: 'We want to make this right',
-        subtitle: 'Please share your contact so we can reach out',
-        config: { showForRating: 'negative', fields: ['name', 'phone', 'email'] },
-        branchConditions: [],
-      },
-      {
-        journeyId: journey.id,
-        order: 4,
-        screenType: 'thank_you' as any,
-        title: 'Thank you!',
-        subtitle: 'Your feedback helps us improve',
-        config: {},
-        branchConditions: [],
-      },
-    ])
+    const config = this.buildDefaultMetricQuestionConfig()
+    if (locationId) {
+      const url = await this.lookupGoogleReviewUrl(workspaceId, locationId)
+      if (url) config.redirectLinks.google = url
+    }
+
+    await this.db.insert(journeyScreens).values({
+      journeyId: journey.id,
+      order: 0,
+      screenType: 'metric_question' as any,
+      title: 'How was your experience?',
+      subtitle: null,
+      config: config as unknown as Record<string, unknown>,
+      branchConditions: [],
+    })
 
     return journey
   }
@@ -412,7 +613,10 @@ export class JourneyService {
       where: and(eq(members.workspaceId, workspaceId), eq(members.userId, userId)),
     })
     if (!membership || !membership.acceptedAt) {
-      throw new TRPCError({ code: 'FORBIDDEN', message: 'You are not a member of this workspace' })
+      throw new TRPCError({
+        code: 'FORBIDDEN',
+        message: 'You are not a member of this workspace',
+      })
     }
     return membership
   }
@@ -427,3 +631,5 @@ export class JourneyService {
     return journey
   }
 }
+
+export { JOURNEY_METRICS }

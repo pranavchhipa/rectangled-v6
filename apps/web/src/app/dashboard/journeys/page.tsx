@@ -189,7 +189,6 @@ export default function JourneysPage() {
 
   const [createOpen, setCreateOpen] = useState(false)
   const [newName, setNewName] = useState('')
-  const [journeyType, setJourneyType] = useState<'review' | 'direct'>('review')
   const [selectedLocationId, setSelectedLocationId] = useState<string>('')
   const [archiveId, setArchiveId] = useState<string | null>(null)
   const [qrJourney, setQrJourney] = useState<{ id: string; slug: string } | null>(null)
@@ -215,76 +214,16 @@ export default function JourneysPage() {
     }
   }, [locations, selectedLocationId])
 
-  // Fetch connectors to auto-fill Google review URL
-  const connectorsQuery = trpc.connector.listInstances.useQuery(
-    { workspaceId: currentWorkspaceId! },
-    { enabled: !!currentWorkspaceId }
-  )
-
-  const updateScreensMutation = trpc.journey.updateScreens.useMutation()
+  // Note: `journey.create` already seeds the v2 metric_question screen with
+  // sensible defaults and auto-fills the Google review URL from the GBP
+  // connector for the selected location. No post-create updateScreens call
+  // is needed.
 
   const createMutation = trpc.journey.create.useMutation({
-    onSuccess: async (data) => {
-      // Auto-detect Google review URL from GBP connector — only if location is selected
-      const locId = selectedLocationId || undefined
-      const allConnectors = connectorsQuery.data ?? []
-      const gbpConnectors = allConnectors.filter((c: any) => c.connectorTypeId === 'gbp' && c.config?.placeId)
-      const gbpMatch = locId
-        ? gbpConnectors.find((c: any) => c.locationId === locId)
-        : gbpConnectors.length === 1 ? gbpConnectors[0] : undefined
-      const googleReviewUrl = gbpMatch?.config?.placeId
-        ? `https://search.google.com/local/writereview?placeid=${gbpMatch.config.placeId}`
-        : ''
-
-      // Auto-create screens based on journey type
-      const screens = journeyType === 'review'
-        ? [
-            {
-              order: 0,
-              screenType: 'rating',
-              title: 'Please Rate Your Experience',
-              subtitle: 'Tap a star to rate',
-              config: {
-                maxRating: 5,
-                positiveThreshold: 4,
-                iconStyle: 'stars',
-                feedbackTags: ['Food Quality', 'Service', 'Cleanliness', 'Wait Time', 'Staff Behavior', 'Ambience'],
-                feedbackPlaceholder: 'Tell us more (optional)...',
-                redirectMessage: 'Please share your experience on Google!',
-                redirectLinks: [{ platform: 'Google', url: googleReviewUrl }],
-                thankYouMessage: 'We appreciate your feedback!',
-                showCoupon: false,
-              },
-            },
-          ]
-        : [
-            {
-              order: 0,
-              screenType: 'rating',
-              title: 'Please Rate Your Experience',
-              subtitle: 'Tap a star to rate',
-              config: {
-                maxRating: 5,
-                positiveThreshold: 0,
-                iconStyle: 'stars',
-                feedbackTags: [],
-                feedbackPlaceholder: '',
-                redirectMessage: 'Please share your experience on Google!',
-                redirectLinks: [{ platform: 'Google', url: googleReviewUrl }],
-                thankYouMessage: 'We appreciate your feedback!',
-                showCoupon: false,
-              },
-            },
-          ]
-
-      try {
-        await updateScreensMutation.mutateAsync({ journeyId: data.id, screens })
-      } catch {}
-
-      toast.success('Journey created with screens')
+    onSuccess: (data) => {
+      toast.success('Journey created')
       setCreateOpen(false)
       setNewName('')
-      setJourneyType('review')
       setSelectedLocationId('')
       utils.journey.list.invalidate()
       router.push(`/dashboard/journeys/${data.id}`)
@@ -350,51 +289,16 @@ export default function JourneysPage() {
             <DialogHeader>
               <DialogTitle>Create Journey</DialogTitle>
               <DialogDescription>
-                Choose a journey type and give it a name.
+                Each visitor is asked one randomly-picked metric (CSAT, NPS, CES, NEV, or CLI). You can fine-tune copy and thresholds in the builder after creating it.
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4 py-4">
-              {/* Journey Type Selection */}
-              <div className="space-y-2">
-                <Label>Journey Type</Label>
-                <div className="grid grid-cols-2 gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setJourneyType('review')}
-                    className={`rounded-lg border-2 p-4 text-left transition-all ${
-                      journeyType === 'review'
-                        ? 'border-primary bg-primary/5 shadow-sm'
-                        : 'border-border hover:border-muted-foreground/30'
-                    }`}
-                  >
-                    <div className="font-semibold text-sm">Review Option</div>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Filters ratings — low ratings (1-3) go to feedback, high ratings (4-5) redirect to Google
-                    </p>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setJourneyType('direct')}
-                    className={`rounded-lg border-2 p-4 text-left transition-all ${
-                      journeyType === 'direct'
-                        ? 'border-primary bg-primary/5 shadow-sm'
-                        : 'border-border hover:border-muted-foreground/30'
-                    }`}
-                  >
-                    <div className="font-semibold text-sm">Direct Review</div>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      No filtering — any rating directly redirects to Google review page
-                    </p>
-                  </button>
-                </div>
-              </div>
-
               {/* Name */}
               <div className="space-y-2">
                 <Label htmlFor="journey-name">Journey Name</Label>
                 <Input
                   id="journey-name"
-                  placeholder={journeyType === 'review' ? 'e.g. Post-visit feedback' : 'e.g. Quick Google Review'}
+                  placeholder="e.g. Post-visit feedback"
                   value={newName}
                   onChange={(e) => setNewName(e.target.value)}
                   onKeyDown={(e) => {

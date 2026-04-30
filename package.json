@@ -12,6 +12,7 @@
     "db:push": "turbo db:push",
     "db:generate": "turbo db:generate",
     "db:studio": "cd packages/db && npx drizzle-kit studio",
+    "migrate:journey-v2": "node scripts/migrate-journey-v2.mjs",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\"",
     "clean": "turbo clean && rm -rf node_modules"
   },

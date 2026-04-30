@@ -28,6 +28,7 @@ export const screenTypeEnum = pgEnum('screen_type', [
   'nps',
   'csat',
   'ces',
+  'metric_question',
 ])
 
 export const truformTypeEnum = pgEnum('truform_type', ['nps', 'csat', 'ces', 'custom'])

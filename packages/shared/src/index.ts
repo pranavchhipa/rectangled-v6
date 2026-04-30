@@ -40,3 +40,6 @@ export * from './validators/appointment'
 // NEV & CLI Constants
 export * from './constants/emotions'
 export * from './constants/cli'
+
+// Journey v2 — Adaptive metric system
+export * from './constants/journey-metrics'

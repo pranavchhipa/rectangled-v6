@@ -27,14 +27,23 @@ export const journeys = pgTable('journeys', {
   isActive: boolean('is_active').default(true).notNull(),
   settings: jsonb('settings')
     .$type<{
-      positiveThreshold: number
+      // v2 — Adaptive Customer Journey
+      enabledMetrics: Array<'csat' | 'nps' | 'ces' | 'nev' | 'cli'>
+      thresholds: {
+        csat: number
+        nps: number
+        ces: number
+        nev: number
+        cli: number
+      }
       enableCoupon: boolean
-      reviewPlatform: string
+      reviewPlatform: 'google' | 'zomato' | 'swiggy'
     }>()
     .default({
-      positiveThreshold: 4,
       enableCoupon: false,
       reviewPlatform: 'google',
+      enabledMetrics: ['csat', 'nps', 'ces', 'nev', 'cli'],
+      thresholds: { csat: 4, nps: 9, ces: 3, nev: 0, cli: 5 },
     })
     .notNull(),
   archivedAt: timestamp('archived_at'),
