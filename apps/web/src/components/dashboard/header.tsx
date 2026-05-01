@@ -17,6 +17,7 @@ import { Button } from '@/components/ui/button'
 import { useAuthStore } from '@/stores/auth-store'
 import { NotificationBell } from '@/components/dashboard/notification-bell'
 import { GlobalSearch } from '@/components/dashboard/global-search'
+import { OrgSwitcher } from '@/components/dashboard/org-switcher'
 
 export function DashboardHeader() {
   const router = useRouter()
@@ -53,6 +54,9 @@ export function DashboardHeader() {
       <header className="h-14 bg-background border-b border-border flex items-center gap-3 px-4">
         <SidebarTrigger className="-ml-1" />
         <Separator orientation="vertical" className="h-6" />
+
+        {/* Phase 1 — organization switcher (hidden in single-org direct mode) */}
+        <OrgSwitcher />
 
         {/* Search trigger */}
         <button

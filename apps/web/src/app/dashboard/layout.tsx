@@ -7,6 +7,7 @@ import { DashboardHeader } from '@/components/dashboard/header'
 import { SidebarProvider, SidebarInset } from '@/components/ui/sidebar'
 import { useAuthGuard } from '@/hooks/use-auth-guard'
 import { AiChatWidget } from '@/components/dashboard/ai-chat-widget'
+import { OrgHydrator } from '@/components/dashboard/org-hydrator'
 import { useAuthStore } from '@/stores/auth-store'
 import { trpc } from '@/lib/trpc'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -74,6 +75,7 @@ export default function DashboardLayout({
 
   return (
     <SidebarProvider>
+      <OrgHydrator />
       <DashboardSidebar />
       <SidebarInset>
         <DashboardHeader />
