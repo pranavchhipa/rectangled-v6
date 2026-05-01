@@ -4,6 +4,7 @@ import { eq, and, desc, sql } from 'drizzle-orm'
 import { randomUUID } from 'crypto'
 import type { Database } from '@rectangled/db'
 import { truforms, truformResponses, members } from '@rectangled/db'
+import { throwLegacyFrozen } from '../common/legacy-frozen'
 
 @Injectable()
 export class TruformService {
@@ -36,6 +37,7 @@ export class TruformService {
     },
     userId: string
   ) {
+    throwLegacyFrozen('truform', 'create')
     await this.requireMembership(input.workspaceId, userId)
     const slug = `f-${randomUUID().slice(0, 10)}`
 
@@ -66,6 +68,7 @@ export class TruformService {
     },
     userId: string
   ) {
+    throwLegacyFrozen('truform', 'update')
     const form = await this.findOrThrow(input.id)
     await this.requireMembership(form.workspaceId, userId)
 
@@ -92,6 +95,7 @@ export class TruformService {
   }
 
   async activate(id: string, userId: string) {
+    throwLegacyFrozen('truform', 'activate')
     const form = await this.findOrThrow(id)
     await this.requireMembership(form.workspaceId, userId)
     const [updated] = await this.db
@@ -103,6 +107,7 @@ export class TruformService {
   }
 
   async archive(id: string, userId: string) {
+    throwLegacyFrozen('truform', 'archive')
     const form = await this.findOrThrow(id)
     await this.requireMembership(form.workspaceId, userId)
     const [updated] = await this.db
@@ -131,6 +136,7 @@ export class TruformService {
     answers: Record<string, unknown>
     metadata: Record<string, unknown>
   }) {
+    throwLegacyFrozen('truform', 'submitResponse')
     const [response] = await this.db
       .insert(truformResponses)
       .values({

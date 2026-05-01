@@ -25,6 +25,7 @@ import {
   isScoreInRange,
   pickRandomMetric,
 } from '@rectangled/shared'
+import { throwLegacyFrozen } from '../common/legacy-frozen'
 
 type JourneySettings = {
   enabledMetrics: JourneyMetric[]
@@ -91,6 +92,7 @@ export class JourneyService {
     },
     userId: string,
   ) {
+    throwLegacyFrozen('journey', 'create')
     await this.requireMembership(input.workspaceId, userId)
     const slug = `j-${randomUUID().slice(0, 10)}`
 
@@ -145,6 +147,7 @@ export class JourneyService {
     },
     userId: string,
   ) {
+    throwLegacyFrozen('journey', 'update')
     const journey = await this.findOrThrow(input.id)
     await this.requireMembership(journey.workspaceId, userId)
 
@@ -225,6 +228,7 @@ export class JourneyService {
   }
 
   async archive(id: string, userId: string) {
+    throwLegacyFrozen('journey', 'archive')
     const journey = await this.findOrThrow(id)
     await this.requireMembership(journey.workspaceId, userId)
     const [updated] = await this.db
@@ -257,6 +261,7 @@ export class JourneyService {
     }>,
     userId: string,
   ) {
+    throwLegacyFrozen('journey', 'updateScreens')
     const journey = await this.findOrThrow(journeyId)
     await this.requireMembership(journey.workspaceId, userId)
 
@@ -416,6 +421,7 @@ export class JourneyService {
     customerPhone?: string
     updateResponseId?: string
   }) {
+    throwLegacyFrozen('journey', 'submitResponse')
     const journey = await this.db.query.journeys.findFirst({
       where: eq(journeys.id, input.journeyId),
     })
@@ -571,6 +577,7 @@ export class JourneyService {
   }
 
   async seedDefault(workspaceId: string, locationId: string | undefined) {
+    throwLegacyFrozen('journey', 'seedDefault')
     const slug = `j-${randomUUID().slice(0, 10)}`
     const settings: JourneySettings = {
       ...DEFAULT_JOURNEY_SETTINGS_V2,
@@ -632,6 +639,7 @@ export class JourneyService {
     },
     userId: string,
   ) {
+    throwLegacyFrozen('journey', 'bulkDeploy')
     if (input.targetLocationIds.length === 0) {
       throw new TRPCError({
         code: 'BAD_REQUEST',
