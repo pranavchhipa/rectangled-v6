@@ -106,3 +106,31 @@ export const completeSchema = z.object({
   }),
   terminalStepId: z.string().min(1).max(64).optional(),
 })
+
+// ─── Phase 3 Stage E — legacy compat shim ───────────────────────────────
+//
+// The legacy renderer pages (apps/web/src/app/{j,f}/[slug]/page.tsx)
+// keep their existing UI but call these mutations instead of the now-
+// frozen journey.submitResponse / truform.submitResponse.
+// Input shapes mirror the legacy mutations exactly so the renderer
+// doesn't have to change its internal logic. Phase 5 deletes these
+// along with the legacy URL paths.
+
+export const submitLegacyJourneySchema = z.object({
+  journeyId: z.string().uuid(),
+  journeyScreenId: z.string().uuid().optional(),
+  locationId: z.string().uuid().optional(),
+  sessionId: z.string(),
+  responseData: z.record(z.unknown()),
+  customerName: z.string().optional(),
+  customerEmail: z.string().email().optional(),
+  customerPhone: z.string().optional(),
+  updateResponseId: z.string().uuid().optional(),
+})
+
+export const submitLegacyTruformSchema = z.object({
+  truformId: z.string().uuid(),
+  score: z.number().optional(),
+  answers: z.record(z.unknown()),
+  metadata: z.record(z.unknown()).default({}),
+})

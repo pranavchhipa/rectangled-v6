@@ -8,6 +8,8 @@ import {
   getInitialStateSchema,
   advanceSchema,
   completeSchema,
+  submitLegacyJourneySchema,
+  submitLegacyTruformSchema,
 } from '@rectangled/shared'
 import { SurveyCrudService } from './survey-crud.service'
 import { SurveyEngineService } from './survey-engine.service'
@@ -47,6 +49,22 @@ export function createSurveyRouter(
     complete: publicProcedure.input(completeSchema).mutation(async ({ input }) => {
       return engine.complete(input)
     }),
+
+    // ─── Phase 3 Stage E — legacy compat shim ──────────────────────────
+    // These keep `/j/{slug}` and `/f/{slug}` URLs working. Storage now
+    // goes to survey_responses; the input/return shapes match the old
+    // journey/truform mutations so the renderer pages don't change.
+    submitLegacyJourney: publicProcedure
+      .input(submitLegacyJourneySchema)
+      .mutation(async ({ input }) => {
+        return engine.submitLegacyJourney(input)
+      }),
+
+    submitLegacyTruform: publicProcedure
+      .input(submitLegacyTruformSchema)
+      .mutation(async ({ input }) => {
+        return engine.submitLegacyTruform(input)
+      }),
 
     // ─── Protected CRUD ─────────────────────────────────────────────────
     list: protectedProcedure

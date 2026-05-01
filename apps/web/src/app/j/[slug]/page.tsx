@@ -47,7 +47,11 @@ export default function PublicJourneyPage() {
   const [email, setEmail] = useState('')
 
   const journeyQuery = trpc.journey.getPublic.useQuery({ slug }, { enabled: !!slug })
-  const submitMutation = trpc.journey.submitResponse.useMutation()
+  // Phase 3 Stage E — writes go through the new survey engine via the
+  // legacy compat shim. Same input/return shape, so the renderer logic
+  // below didn't have to change. journey.submitResponse is frozen as
+  // of Phase 4.
+  const submitMutation = trpc.survey.submitLegacyJourney.useMutation()
 
   const journey = journeyQuery.data as
     | undefined

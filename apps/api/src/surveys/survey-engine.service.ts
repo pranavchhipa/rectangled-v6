@@ -10,6 +10,7 @@ import {
   workspaces,
   locations,
   customers,
+  reviews,
 } from '@rectangled/db'
 import {
   type SurveyStep,
@@ -433,6 +434,269 @@ export class SurveyEngineService {
     // For now, identical — the renderer can read the step verbatim.
     // Future work: strip builder-only fields, interpolate copy.
     return step
+  }
+
+  // ─── Phase 3 Stage E — legacy compat shim ──────────────────────────────
+  //
+  // These two methods exist to keep `/j/{slug}` and `/f/{slug}` URLs
+  // working without dual-writing to the now-frozen legacy tables. The
+  // legacy renderer pages (apps/web/src/app/{j,f}/[slug]/page.tsx) call
+  // these instead of the deprecated journey.submitResponse / truform.
+  // submitResponse mutations.
+  //
+  // Behaviour mirrors the legacy submit flow exactly so the renderer
+  // can stay on its existing two-phase + immediate-submit shapes; only
+  // the storage destination changes (journey_responses → survey_responses,
+  // truform_responses → survey_responses).
+  //
+  // Phase 5 (T+1mo) drops the legacy URL paths AND these shim methods
+  // along with the legacy tables.
+
+  /**
+   * Drop-in replacement for the legacy `journey.submitResponse` mutation.
+   * Same input shape, same return shape — the renderer doesn't have to
+   * change its UI logic, just which mutation it calls.
+   */
+  async submitLegacyJourney(input: {
+    journeyId: string
+    journeyScreenId?: string
+    locationId?: string
+    sessionId: string
+    responseData: Record<string, unknown>
+    customerName?: string
+    customerEmail?: string
+    customerPhone?: string
+    updateResponseId?: string
+  }): Promise<{ success: true; responseId: string; isPositive: boolean | null }> {
+    // 1. Find the survey backing this legacy journey id.
+    const survey = await this.db.query.surveys.findFirst({
+      where: eq(surveys.legacyJourneyId, input.journeyId),
+    })
+    if (!survey) {
+      throw new TRPCError({
+        code: 'NOT_FOUND',
+        message: 'No survey backs this legacy journey id',
+      })
+    }
+    if (survey.template !== 'quick') {
+      throw new TRPCError({
+        code: 'BAD_REQUEST',
+        message: 'Legacy journey shim used on a deep-template survey',
+      })
+    }
+
+    // ===== PHASE 2: merge into existing response =====
+    if (input.updateResponseId) {
+      const existing = await this.db.query.surveyResponses.findFirst({
+        where: and(
+          eq(surveyResponses.id, input.updateResponseId),
+          eq(surveyResponses.surveyId, survey.id),
+        ),
+      })
+      if (!existing) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Response not found' })
+      }
+
+      let customerId = existing.customerId ?? null
+      if (
+        !customerId &&
+        (input.customerName || input.customerEmail || input.customerPhone)
+      ) {
+        const [customer] = await this.db
+          .insert(customers)
+          .values({
+            workspaceId: survey.workspaceId,
+            name: input.customerName ?? null,
+            email: input.customerEmail ?? null,
+            phone: input.customerPhone ?? null,
+          })
+          .returning()
+        customerId = customer?.id ?? null
+      }
+
+      const merged: Record<string, unknown> = {
+        ...((existing.responseData ?? {}) as Record<string, unknown>),
+        ...input.responseData,
+      }
+
+      const metricShown =
+        (merged.metricShown as SurveyMetric | undefined) ?? undefined
+      const metricScore =
+        typeof merged.metricScore === 'number'
+          ? (merged.metricScore as number)
+          : undefined
+      const isPos = this.computeLegacyIsPositive(survey, metricShown, metricScore)
+
+      await this.db
+        .update(surveyResponses)
+        .set({
+          responseData: merged,
+          customerId: customerId ?? existing.customerId,
+          metricShown: metricShown ?? existing.metricShown,
+          metricScore: metricScore ?? existing.metricScore,
+          isPositive: isPos !== null ? isPos : existing.isPositive,
+          completedAt: new Date(),
+        })
+        .where(eq(surveyResponses.id, input.updateResponseId))
+
+      // Create offline review on unhappy-path completion (legacy parity).
+      if (metricShown && metricScore !== undefined && isPos === false) {
+        const aspectTags = (merged.aspectTags as string[] | undefined) ?? null
+        await this.db
+          .insert(reviews)
+          .values({
+            workspaceId: survey.workspaceId,
+            locationId: existing.locationId ?? input.locationId ?? null,
+            platform: 'offline' as any,
+            platformReviewId: `offline-${existing.id}`,
+            reviewerName: input.customerName || 'Anonymous',
+            rating: 2,
+            text: (merged.feedback as string) ?? null,
+            reviewedAt: new Date(),
+            source: 'offline' as any,
+            // The legacy column was journey_response_id; on the new schema
+            // it doesn't exist — the link is via reviews.metadata.surveyResponseId
+            // for analytics. Future cleanup happens in Phase 5.
+            aspectTags,
+            customerId: customerId ?? null,
+            metadata: {
+              metricShown,
+              metricScore,
+              surveyResponseId: existing.id,
+            } as any,
+          })
+          .onConflictDoNothing()
+      }
+
+      return { success: true, responseId: existing.id, isPositive: isPos }
+    }
+
+    // ===== PHASE 1: first submit =====
+    const data = input.responseData
+    const metricShown = data.metricShown as SurveyMetric | undefined
+    const metricScore = data.metricScore as number | undefined
+
+    if (!metricShown) {
+      throw new TRPCError({ code: 'BAD_REQUEST', message: 'metricShown is required' })
+    }
+    if (typeof metricScore !== 'number' || !isScoreInRange(metricShown, metricScore)) {
+      throw new TRPCError({
+        code: 'BAD_REQUEST',
+        message: `Score out of range for metric ${metricShown}`,
+      })
+    }
+
+    const isPos = this.computeLegacyIsPositive(survey, metricShown, metricScore)
+
+    // Mirror metricScore into the per-metric field for analytics back-compat.
+    const responseData: Record<string, unknown> = { ...data }
+    responseData[`${metricShown}Score`] = metricScore
+
+    let customerId: string | null = null
+    if (input.customerName || input.customerEmail || input.customerPhone) {
+      const [customer] = await this.db
+        .insert(customers)
+        .values({
+          workspaceId: survey.workspaceId,
+          name: input.customerName ?? null,
+          email: input.customerEmail ?? null,
+          phone: input.customerPhone ?? null,
+        })
+        .returning()
+      customerId = customer?.id ?? null
+    }
+
+    // Idempotent start row (per legacy semantics — survey_starts exists).
+    await this.db
+      .insert(surveyStarts)
+      .values({ surveyId: survey.id, sessionId: input.sessionId, metadata: {} })
+      .onConflictDoNothing()
+
+    const [response] = await this.db
+      .insert(surveyResponses)
+      .values({
+        surveyId: survey.id,
+        workspaceId: survey.workspaceId,
+        locationId: input.locationId ?? survey.locationId ?? null,
+        customerId,
+        sessionId: input.sessionId,
+        responseData,
+        metricShown,
+        metricScore,
+        isPositive: isPos,
+        score: metricScore,
+        answers: {},
+        // legacy submit collects metric on first call; consider it complete
+        // for the purposes of analytics. The follow-up call (Phase 2 above)
+        // re-stamps completedAt and merges contact info.
+        completedAt: new Date(),
+        metadata: {},
+      })
+      .returning()
+
+    return { success: true, responseId: response.id, isPositive: isPos }
+  }
+
+  /**
+   * Drop-in replacement for the legacy `truform.submitResponse` mutation.
+   * Single-call (no two-phase), writes to survey_responses backing the
+   * deep-template survey.
+   */
+  async submitLegacyTruform(input: {
+    truformId: string
+    score?: number
+    answers: Record<string, unknown>
+    metadata: Record<string, unknown>
+  }): Promise<{ success: true; responseId: string }> {
+    const survey = await this.db.query.surveys.findFirst({
+      where: eq(surveys.legacyTruformId, input.truformId),
+    })
+    if (!survey) {
+      throw new TRPCError({
+        code: 'NOT_FOUND',
+        message: 'No survey backs this legacy truform id',
+      })
+    }
+    if (survey.template !== 'deep') {
+      throw new TRPCError({
+        code: 'BAD_REQUEST',
+        message: 'Legacy truform shim used on a quick-template survey',
+      })
+    }
+
+    const sessionId = randomUUID()
+    await this.db
+      .insert(surveyStarts)
+      .values({ surveyId: survey.id, sessionId, metadata: {} })
+      .onConflictDoNothing()
+
+    const [response] = await this.db
+      .insert(surveyResponses)
+      .values({
+        surveyId: survey.id,
+        workspaceId: survey.workspaceId,
+        locationId: survey.locationId ?? null,
+        sessionId,
+        responseData: input.answers,
+        score: input.score ?? null,
+        answers: input.answers,
+        completedAt: new Date(),
+        metadata: input.metadata ?? {},
+      })
+      .returning()
+
+    return { success: true, responseId: response.id }
+  }
+
+  private computeLegacyIsPositive(
+    survey: typeof surveys.$inferSelect,
+    metric: SurveyMetric | undefined,
+    score: number | undefined,
+  ): boolean | null {
+    if (!metric || score === undefined) return null
+    const threshold = this.resolveThreshold(survey, metric)
+    if (threshold === null) return null
+    return isPositiveScore(metric, score, threshold)
   }
 }
 

@@ -1,9 +1,9 @@
-# Phase 3 — Surveys & Journeys merger (backend)
+# Phase 3 — Surveys & Journeys merger
 
-**Status:** Backend complete (Stages A → D). Frontend stages (E compat shim, F builder UI) deferred for UX review.
+**Status:** Stages A → E shipped. Stage F (builder UI) still deferred for UX review.
 **Migrations applied:** 0011, 0012 (in production)
 **Backfill:** 10 quick + 5 deep surveys; 375 survey_responses (verified idempotent).
-**Tests:** 70 passing (added 17 for survey-branch-eval).
+**Tests:** 74 passing (added 17 for survey-branch-eval, 4 for legacy-frozen).
 **Source spec:** `PRD_OptimizerV6_Master.md` § Phase 3, `PHASE_3_PLAN.md`
 
 ---
@@ -125,15 +125,32 @@ Two surfaces in one router:
 
 ---
 
-## What's deliberately deferred
+## Stage E — Compatibility shim (commit pending)
 
-### Stage E — Compatibility shim (NOT shipped)
+Sequenced after Phase 4 so the shim has nothing to dual-write to even if it wanted to (legacy tables are now INSERT/UPDATE-blocked at the DB level). All writes go to `surveys` / `survey_responses` only.
 
-The legacy URLs `/j/{slug}` and `/f/{slug}` should route through the new engine instead of the old journey/truform handlers. Deferred because:
-- The new engine is API-only today; the renderer changes (or a thin compat layer in the existing renderer) need a UI review.
-- No existing customer URL breaks: the legacy tables still exist, and the legacy handlers still work. We're additive.
+**Two new public mutations on the survey router:**
 
-When E lands, the legacy `journey.submitResponse` / `truform.submit` mutations will dual-write into `survey_responses` so analytics see the same shape regardless of which entry point a visitor used.
+- `survey.submitLegacyJourney(input)` — drop-in replacement for the (now-frozen) `journey.submitResponse`. Same input shape (`journeyId`, `journeyScreenId`, `locationId`, `sessionId`, `responseData`, `customerName/Email/Phone`, `updateResponseId`) and same return shape (`{success, responseId, isPositive}`). Internally:
+  1. Looks up the survey by `legacy_journey_id = input.journeyId`.
+  2. Two-phase semantics preserved: first call inserts a new `survey_responses` row with `metric_shown`/`metric_score`/`is_positive` populated; follow-up call with `updateResponseId` shallow-merges `response_data` and updates the same row.
+  3. Offline review on unhappy completion (legacy parity) — written to `reviews` with `metadata.surveyResponseId` linking back.
+  4. Idempotent `survey_starts` insert via `UNIQUE(survey_id, session_id)`.
+
+- `survey.submitLegacyTruform(input)` — drop-in replacement for `truform.submitResponse`. Single-call (no two-phase), inserts to `survey_responses` with `score` + `answers` populated. Returns `{success, responseId}`.
+
+**Frontend changes** (minimal — single-line swap each):
+- `apps/web/src/app/j/[slug]/page.tsx`: `trpc.journey.submitResponse` → `trpc.survey.submitLegacyJourney`. The renderer's UI logic (asking metric → happy/unhappy split → review prompt → thank-you) is untouched.
+- `apps/web/src/app/f/[slug]/page.tsx`: `trpc.truform.submitResponse` → `trpc.survey.submitLegacyTruform`. Same — UI untouched.
+
+The READ queries (`journey.getPublic` / `truform.getPublic`) keep working — Phase 4 only blocked writes, so the renderers still pull their copy from the legacy tables. Phase 5 will replace those reads when the legacy tables are dropped (the surveys + steps shape carries everything the renderer needs).
+
+**What this preserves:**
+- QR codes in the wild (`/j/{slug}` and `/f/{slug}`) keep working forever.
+- Existing UI is untouched — no UX review needed for Stage E.
+- Every new response lands in `survey_responses` with `legacy_journey_response_id` / `legacy_truform_response_id` left NULL (these are NEW responses, not backfill).
+
+## What's still deferred
 
 ### Stage F — Builder UI (NOT shipped)
 
@@ -157,6 +174,7 @@ The schema and engine already support `mode='builder'` end-to-end: `survey.updat
 ## Commit log
 
 ```
+<pending> feat(surveys): Stage E — legacy compat shim for /j/ + /f/ URLs
 b7adf97  feat(surveys): Stage D — survey router (public engine + protected CRUD)
 ec9445d  feat(surveys): Stage B — backfill journeys + truforms into surveys
 529fa61  feat(surveys): Stage C — step library + survey engine

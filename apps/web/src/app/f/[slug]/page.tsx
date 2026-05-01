@@ -212,7 +212,10 @@ export default function PublicFormPage() {
     { enabled: !!slug }
   )
 
-  const submitMutation = trpc.truform.submitResponse.useMutation({
+  // Phase 3 Stage E — writes go through the new survey engine via the
+  // legacy compat shim. Same input/return shape; truform.submitResponse
+  // is frozen as of Phase 4.
+  const submitMutation = trpc.survey.submitLegacyTruform.useMutation({
     onSuccess: () => {
       setSubmitted(true)
     },
