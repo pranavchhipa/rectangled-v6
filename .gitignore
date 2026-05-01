@@ -5,6 +5,7 @@ node_modules/
 dist/
 .next/
 .turbo/
+*.tsbuildinfo
 
 # Environment
 .env
@@ -35,3 +36,8 @@ coverage/
 pgdata/
 redisdata/
 .env.production
+
+# Ad-hoc local debugging scripts (hardcoded local credentials — do not commit)
+scripts/check-*.mjs
+scripts/fix-*.mjs
+scripts/reset-*.mjs

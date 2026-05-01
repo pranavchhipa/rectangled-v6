@@ -1,0 +1,911 @@
+================================================================================
+         RECTANGLED.IO — CUSTOMER JOURNEY SYSTEM — PRODUCT REQUIREMENTS DOCUMENT
+================================================================================
+
+Document Version: 1.0
+Date: 2026-04-02
+Project: OptimizerV6 (rectangled.io)
+
+================================================================================
+TABLE OF CONTENTS
+================================================================================
+
+1. Overview & Purpose
+2. Who Uses It
+3. What It Does
+4. How It Works (End-to-End Flows)
+5. Database Schema (Complete)
+6. API Endpoints (Complete)
+7. Zod Validators (Complete)
+8. Screen Types & Configurations
+9. Frontend Pages
+10. Dependencies & Integrations
+11. Automation System
+12. QR Code System
+13. Public Survey Page Logic
+14. Drizzle Relations (Complete)
+15. Current Architecture (Single-Screen Redesign)
+
+================================================================================
+1. OVERVIEW & PURPOSE
+================================================================================
+
+The Customer Journey system is the core feedback collection engine of Rectangled.io.
+It lets businesses create customizable feedback flows (called "Journeys") that
+customers interact with after visiting a business. The system captures ratings,
+filters positive vs negative experiences, redirects happy customers to leave
+Google reviews, and captures detailed feedback from unhappy customers.
+
+WHY IT EXISTS:
+- Indian SMBs need more Google reviews to rank higher in local search
+- Negative experiences should be captured privately (not on Google)
+- Businesses need structured feedback (tags, aspects) not just star ratings
+- The whole flow must work from a QR code scan — zero friction
+
+================================================================================
+2. WHO USES IT
+================================================================================
+
+BUSINESS OWNER / MANAGER (Dashboard User):
+- Creates and configures journeys
+- Assigns journeys to specific locations
+- Generates QR codes for tables/counters/receipts
+- Views response analytics
+- Sets up automation rules (auto-reply, send coupon, escalate)
+
+CUSTOMER (Public User — No Auth Required):
+- Scans QR code or visits journey link
+- Rates experience (1-5 stars)
+- Gets routed based on rating:
+  → High rating (4-5): Redirected to Google review page
+  → Low rating (1-3): Shown feedback form with tags
+- Optionally provides contact info
+- Sees thank you message
+
+SYSTEM / AUTOMATION:
+- Triggers post-response actions (coupons, messages, AI replies)
+- Creates offline reviews from low ratings
+- Tracks customer across journeys
+
+================================================================================
+3. WHAT IT DOES
+================================================================================
+
+CORE CAPABILITIES:
+1. Journey CRUD (create, read, update, archive)
+2. Screen builder (drag-reorder, add/delete screens, configure each)
+3. 9 screen types (rating, nps, csat, ces, feedback, aspects, etc.)
+4. Smart routing based on rating threshold
+5. Google review URL auto-fill from GBP connector
+6. Location-aware (each journey linked to a business location)
+7. QR code generation (PNG/SVG, with logo support)
+8. Public survey page (no auth, mobile-first)
+9. Response collection & storage
+10. Customer creation from responses
+11. Offline review creation from low ratings
+12. Automation triggers (post-response actions)
+13. Analytics on response data
+
+================================================================================
+4. HOW IT WORKS (END-TO-END FLOWS)
+================================================================================
+
+--- FLOW 1: CREATE JOURNEY ---
+
+Step 1: Owner opens /dashboard/journeys
+Step 2: Clicks "Create Journey"
+Step 3: Selects type:
+        - "Review Option": Filters by rating (low→feedback, high→Google)
+        - "Direct Review": Any rating → Google redirect
+Step 4: Enters name, selects location from dropdown
+Step 5: System creates journey with:
+        - Auto-generated slug (format: j-{uuid-slice-10})
+        - locationId from selected location
+        - Default settings (positiveThreshold=4, enableCoupon=false)
+Step 6: System creates 1 default rating screen with embedded config:
+        - feedbackTags, redirectLinks, thankYouMessage all in one screen
+        - Google review URL auto-filled from GBP connector if location has one
+Step 7: Redirected to journey builder for customization
+
+--- FLOW 2: CUSTOMER RATES (REVIEW OPTION TYPE) ---
+
+Step 1: Customer scans QR code → opens /j/{slug}
+Step 2: Sees "Please Rate Your Experience" with 5 stars
+Step 3: Taps a star rating
+
+  IF RATING >= positiveThreshold (default 4):
+    Step 4a: Shows redirect message "Please share your experience on Google!"
+    Step 4b: Opens Google review URL in new tab
+    Step 4c: Submits response to backend (rating stored)
+    Step 4d: Shows thank you message
+
+  IF RATING < positiveThreshold:
+    Step 4a: Shows feedback dialog with:
+             - Tag pills (Food Quality, Service, Cleanliness, etc.)
+             - Textarea for detailed feedback
+             - Optional contact fields
+    Step 4b: Customer selects tags + writes feedback
+    Step 4c: Submits response to backend
+    Step 4d: Backend creates offline review (platform='offline', source='journey')
+    Step 4e: Shows thank you message
+    Step 4f: Automation triggers may fire (send coupon, escalate, etc.)
+
+--- FLOW 3: CUSTOMER RATES (DIRECT REVIEW TYPE) ---
+
+Step 1: Customer scans QR → opens /j/{slug}
+Step 2: Sees rating screen
+Step 3: Taps any star (positiveThreshold=0, so ALL ratings redirect)
+Step 4: Google review page opens
+Step 5: Response saved to backend
+Step 6: Thank you message shown
+
+--- FLOW 4: RESPONSE SUBMISSION (BACKEND) ---
+
+Step 1: Public page calls journey.submitResponse
+Step 2: Backend validates input (journeyId, sessionId, responseData)
+Step 3: If customerName/Email/Phone provided:
+        - Upsert customer record in customers table
+Step 4: Insert journeyResponse with:
+        - journeyId, journeyScreenId, customerId, locationId
+        - sessionId (browser UUID for dedup)
+        - responseData (rating, feedback, tags, aspectTags)
+        - ipAddress, userAgent
+Step 5: If rating <= 3:
+        - Create offline review entry in reviews table
+        - platform='offline', source='journey'
+        - Includes rating, feedback text, aspect tags
+Step 6: Return { success: true, responseId }
+Step 7: Automation system checks for matching rules
+
+--- FLOW 5: AUTOMATION EXECUTION ---
+
+Step 1: Response triggers automation check
+Step 2: System finds matching rules:
+        - journey_completed_positive (rating >= threshold)
+        - journey_completed_negative (rating < threshold)
+        - journey_abandoned (session exists, no response)
+Step 3: For each matching rule, create queue entry:
+        - scheduledFor = now + rule.delayMinutes
+Step 4: Background processor picks up queue items where scheduledFor <= now
+Step 5: Executes action based on actionType:
+        - send_coupon: Issue coupon from template
+        - send_message: Email/WhatsApp via templates
+        - create_escalation: Flag for manager review
+        - tag_customer: Add tags to customer record
+        - trigger_journey: Start another journey
+        - ai_reply_review: Generate AI reply via OpenRouter → post to Google
+Step 6: Update queue status (completed/failed)
+
+================================================================================
+5. DATABASE SCHEMA (COMPLETE)
+================================================================================
+
+--- TABLE: journeys ---
+
+Column          | Type            | Constraints
+----------------|-----------------|------------------------------------------
+id              | UUID            | PK, default random
+workspaceId     | UUID            | FK workspaces(id), CASCADE, NOT NULL
+locationId      | UUID            | FK locations(id), CASCADE, NULLABLE
+name            | VARCHAR(255)    | NOT NULL
+slug            | VARCHAR(100)    | UNIQUE, NOT NULL (format: j-{uuid-slice})
+isDefault       | BOOLEAN         | DEFAULT false, NOT NULL
+isActive        | BOOLEAN         | DEFAULT true, NOT NULL
+settings        | JSONB           | NOT NULL (see Settings shape below)
+archivedAt      | TIMESTAMP       | NULLABLE (null = not archived)
+createdAt       | TIMESTAMP       | DEFAULT now(), NOT NULL
+updatedAt       | TIMESTAMP       | DEFAULT now(), NOT NULL
+
+Settings JSONB shape:
+{
+  positiveThreshold: number (1-5, default 4)
+  enableCoupon: boolean (default false)
+  reviewPlatform: string (default 'google')
+}
+
+
+--- TABLE: journey_screens ---
+
+Column          | Type            | Constraints
+----------------|-----------------|------------------------------------------
+id              | UUID            | PK, default random
+journeyId       | UUID            | FK journeys(id), CASCADE, NOT NULL
+order           | INTEGER         | NOT NULL (0-indexed)
+screenType      | ENUM            | NOT NULL (see Screen Types below)
+title           | TEXT            | NULLABLE
+subtitle        | TEXT            | NULLABLE
+config          | JSONB           | DEFAULT {}, NOT NULL
+branchConditions| JSONB           | DEFAULT [], NOT NULL (array)
+createdAt       | TIMESTAMP       | DEFAULT now(), NOT NULL
+updatedAt       | TIMESTAMP       | DEFAULT now(), NOT NULL
+
+screenType ENUM values:
+  'rating', 'aspects', 'review_redirect', 'feedback',
+  'contact_collection', 'thank_you', 'nps', 'csat', 'ces'
+
+branchConditions shape:
+[
+  {
+    field: string,       // e.g. 'rating'
+    operator: string,    // e.g. 'gte', 'lt', 'eq'
+    value?: unknown,     // e.g. 4
+    nextScreenId: string // UUID of target screen
+  }
+]
+
+
+--- TABLE: journey_responses ---
+
+Column          | Type            | Constraints
+----------------|-----------------|------------------------------------------
+id              | UUID            | PK, default random
+journeyId       | UUID            | FK journeys(id), CASCADE, NOT NULL
+journeyScreenId | UUID            | FK journey_screens(id), SET NULL, NULLABLE
+customerId      | UUID            | FK customers(id), SET NULL, NULLABLE
+locationId      | UUID            | FK locations(id), CASCADE, NULLABLE
+sessionId       | VARCHAR(100)    | NOT NULL (browser session UUID)
+responseData    | JSONB           | DEFAULT {}, NOT NULL
+ipAddress       | VARCHAR(45)     | NULLABLE
+userAgent       | TEXT            | NULLABLE
+createdAt       | TIMESTAMP       | DEFAULT now(), NOT NULL
+
+responseData shape (varies by screen):
+{
+  rating: number,           // 1-5 star rating
+  feedback: string,         // freeform text
+  tags: string[],           // selected feedback tags
+  aspectTags: string[],     // aspect selections
+  email: string,            // contact info
+  phone: string,
+  name: string,
+  npsScore: number,         // 0-10 for NPS
+  csatScore: number,        // for CSAT
+  cesScore: number,         // 1-7 for CES
+}
+
+
+--- TABLE: automation_rules ---
+
+Column          | Type            | Constraints
+----------------|-----------------|------------------------------------------
+id              | UUID            | PK, default random
+workspaceId     | UUID            | FK workspaces(id), CASCADE, NOT NULL
+journeyId       | UUID            | FK journeys(id), CASCADE, NULLABLE (null=global)
+name            | VARCHAR(255)    | NOT NULL
+triggerEvent    | ENUM            | NOT NULL (see Trigger Events below)
+delayMinutes    | INTEGER         | NOT NULL
+actionType      | ENUM            | NOT NULL (see Action Types below)
+actionConfig    | JSONB           | DEFAULT {}, NOT NULL
+conditions      | JSONB           | NULLABLE
+isActive        | BOOLEAN         | DEFAULT true, NOT NULL
+createdAt       | TIMESTAMP       | DEFAULT now(), NOT NULL
+updatedAt       | TIMESTAMP       | DEFAULT now(), NOT NULL
+
+triggerEvent ENUM values:
+  'journey_completed_positive'
+  'journey_completed_negative'
+  'journey_abandoned'
+  'review_posted'
+  'review_posted_google'
+  'customer_dormant'
+  'custom'
+
+actionType ENUM values:
+  'send_coupon'
+  'send_message'
+  'create_escalation'
+  'tag_customer'
+  'trigger_journey'
+  'ai_reply_review'
+
+actionConfig shapes:
+  send_coupon:      { couponTemplateId: string }
+  send_message:     { channel: 'email'|'whatsapp', templateId: string }
+  create_escalation:{ priority: 'low'|'medium'|'high'|'critical' }
+  tag_customer:     { tags: string[] }
+  trigger_journey:  { journeyId: string }
+  ai_reply_review:  { ratingFilter: 'all'|'positive'|'negative',
+                       tone: 'professional'|'friendly'|'casual',
+                       includeBusinessName: boolean,
+                       maxLength: 'short'|'medium'|'long' }
+
+
+--- TABLE: automation_queue ---
+
+Column          | Type            | Constraints
+----------------|-----------------|------------------------------------------
+id              | UUID            | PK, default random
+ruleId          | UUID            | FK automation_rules(id), CASCADE, NOT NULL
+workspaceId     | UUID            | FK workspaces(id), CASCADE, NOT NULL
+customerId      | UUID            | FK customers(id), SET NULL, NULLABLE
+journeyResponseId| UUID           | FK journey_responses(id), SET NULL, NULLABLE
+reviewId        | UUID            | FK reviews(id), SET NULL, NULLABLE
+scheduledFor    | TIMESTAMP       | NOT NULL (when to execute)
+status          | ENUM            | DEFAULT 'pending', NOT NULL
+attempts        | INTEGER         | DEFAULT 0, NOT NULL
+lastError       | TEXT            | NULLABLE
+completedAt     | TIMESTAMP       | NULLABLE
+metadata        | JSONB           | DEFAULT {}, NOT NULL
+createdAt       | TIMESTAMP       | DEFAULT now(), NOT NULL
+updatedAt       | TIMESTAMP       | DEFAULT now(), NOT NULL
+
+status ENUM values:
+  'pending', 'processing', 'completed', 'failed', 'cancelled'
+
+
+================================================================================
+6. API ENDPOINTS (COMPLETE)
+================================================================================
+
+All endpoints are tRPC procedures. Auth = JWT token required.
+
+--- PROTECTED (Auth Required) ---
+
+ENDPOINT                        | TYPE     | INPUT SCHEMA                    | DESCRIPTION
+--------------------------------|----------|----------------------------------|------------------------------------------
+journey.list                    | Query    | listJourneysSchema               | List journeys for workspace, optional location/archived filter
+journey.getById                 | Query    | getJourneyByIdSchema             | Get single journey with all screens
+journey.create                  | Mutation | createJourneySchema              | Create journey with name, location, settings
+journey.update                  | Mutation | updateJourneySchema              | Update name, locationId, isActive, settings
+journey.updateScreens           | Mutation | updateJourneyScreensSchema       | Replace all screens (delete + insert)
+journey.archive                 | Mutation | archiveJourneySchema             | Set archivedAt, isActive=false
+qr.generateJourneyQr           | Mutation | generateJourneyQrSchema          | Generate QR code PNG/SVG data URL
+qr.generateBulkQr              | Mutation | generateBulkQrSchema             | Bulk QR generation for multiple journeys
+automation.listRules            | Query    | listAutomationRulesSchema        | List automation rules for workspace/journey
+automation.createRule           | Mutation | createAutomationRuleSchema       | Create automation rule
+automation.updateRule           | Mutation | updateAutomationRuleSchema       | Update existing rule
+automation.deleteRule           | Mutation | deleteAutomationRuleSchema       | Delete rule
+automation.listQueue            | Query    | listAutomationQueueSchema        | List queue items with pagination
+automation.cancelQueued         | Mutation | cancelAutomationQueuedSchema     | Cancel pending queue item
+automation.getStats             | Query    | getAutomationStatsSchema         | Aggregated automation stats
+
+--- PUBLIC (No Auth) ---
+
+ENDPOINT                        | TYPE     | INPUT SCHEMA                    | DESCRIPTION
+--------------------------------|----------|----------------------------------|------------------------------------------
+journey.getPublic               | Query    | getPublicJourneySchema           | Get active journey by slug (public-safe fields only)
+journey.submitResponse          | Mutation | submitJourneyResponseSchema      | Submit customer response, create customer, create offline review
+
+
+================================================================================
+7. ZOD VALIDATORS (COMPLETE)
+================================================================================
+
+--- listJourneysSchema ---
+{
+  workspaceId: z.string().uuid(),
+  locationId: z.string().uuid().optional(),
+  includeArchived: z.boolean().optional(),
+}
+
+--- getJourneyByIdSchema ---
+{
+  id: z.string().uuid(),
+}
+
+--- createJourneySchema ---
+{
+  workspaceId: z.string().uuid(),
+  locationId: z.string().uuid().optional(),
+  name: z.string().min(1).max(255),
+  settings: z.object({
+    positiveThreshold: z.number().int().min(1).max(5).default(4),
+    enableCoupon: z.boolean().default(false),
+    reviewPlatform: z.string().default('google'),
+  }).optional(),
+}
+
+--- updateJourneySchema ---
+{
+  id: z.string().uuid(),
+  name: z.string().min(1).max(255).optional(),
+  locationId: z.string().uuid().nullable().optional(),
+  isActive: z.boolean().optional(),
+  settings: z.object({
+    positiveThreshold: z.number().int().min(1).max(5).optional(),
+    enableCoupon: z.boolean().optional(),
+    reviewPlatform: z.string().optional(),
+  }).optional(),
+}
+
+--- archiveJourneySchema ---
+{
+  id: z.string().uuid(),
+}
+
+--- updateJourneyScreensSchema ---
+{
+  journeyId: z.string().uuid(),
+  screens: z.array(screenSchema),
+}
+
+--- screenSchema ---
+{
+  id: z.string().uuid().optional(),
+  order: z.number().int(),
+  screenType: z.enum(['rating','aspects','review_redirect','feedback',
+                       'contact_collection','thank_you','nps','csat','ces']),
+  title: z.string().optional(),
+  subtitle: z.string().optional(),
+  config: z.record(z.unknown()).default({}),
+  branchConditions: z.array(z.object({
+    field: z.string(),
+    operator: z.string(),
+    value: z.unknown().optional(),
+    nextScreenId: z.string(),
+  })).default([]),
+}
+
+--- getPublicJourneySchema ---
+{
+  slug: z.string(),
+}
+
+--- submitJourneyResponseSchema ---
+{
+  journeyId: z.string().uuid(),
+  journeyScreenId: z.string().uuid().optional(),
+  locationId: z.string().uuid().optional(),
+  sessionId: z.string(),
+  responseData: z.record(z.unknown()),
+  customerName: z.string().optional(),
+  customerEmail: z.string().email().optional(),
+  customerPhone: z.string().optional(),
+}
+
+--- generateJourneyQrSchema ---
+{
+  workspaceId: z.string().uuid().optional(),
+  membershipId: z.string().uuid().optional(),
+  journeyId: z.string().uuid(),
+  locationId: z.string().uuid().optional(),
+  size: z.number().int().min(100).max(2000).optional(),
+  format: z.enum(['png','svg']).optional(),
+}
+
+
+================================================================================
+8. SCREEN TYPES & CONFIGURATIONS
+================================================================================
+
+--- RATING ---
+Purpose: Collect star rating (1-5)
+Default config (single-screen mode):
+{
+  maxRating: 5,
+  positiveThreshold: 4,
+  iconStyle: 'stars',                              // 'stars' | 'emojis' | 'hearts' | 'thumbs'
+  feedbackTags: ['Food Quality', 'Service', 'Cleanliness', 'Wait Time', 'Staff Behavior', 'Ambience'],
+  feedbackPlaceholder: 'Tell us more (optional)...',
+  redirectMessage: 'Please share your experience on Google!',
+  redirectLinks: [{ platform: 'Google', url: 'https://search.google.com/local/writereview?placeid=...' }],
+  thankYouMessage: 'We appreciate your feedback!',
+  showCoupon: false,
+}
+
+--- ASPECTS ---
+Purpose: Multi-select aspect/reason pills
+Default config:
+{
+  aspects: ['Food', 'Service', 'Ambience', 'Value', 'Cleanliness']
+}
+
+--- REVIEW_REDIRECT ---
+Purpose: Redirect to external review platforms (legacy, used in 4-screen flows)
+Default config:
+{
+  message: 'We appreciate your feedback! Would you mind sharing your experience?',
+  links: [{ platform: 'Google', url: '' }]
+}
+
+--- FEEDBACK ---
+Purpose: Freeform text feedback collection
+Default config:
+{
+  placeholder: 'Tell us more about your experience...'
+}
+
+--- CONTACT_COLLECTION ---
+Purpose: Collect customer contact details
+Default config:
+{
+  fields: ['name', 'email', 'phone']
+}
+
+--- THANK_YOU ---
+Purpose: End-of-journey thank you message (legacy, used in 4-screen flows)
+Default config:
+{
+  message: 'Thank you for your feedback!',
+  showCoupon: false
+}
+
+--- NPS (Net Promoter Score) ---
+Purpose: 0-10 scale "How likely to recommend"
+Default config:
+{
+  question: 'How likely are you to recommend us?',
+  lowLabel: 'Not at all likely',
+  highLabel: 'Extremely likely'
+}
+
+--- CSAT (Customer Satisfaction) ---
+Purpose: Satisfaction measurement
+Default config:
+{
+  question: 'How satisfied are you?',
+  scaleType: 'stars'                               // 'stars' | 'emojis' | 'numbers'
+}
+
+--- CES (Customer Effort Score) ---
+Purpose: 1-7 scale effort measurement
+Default config:
+{
+  question: 'How easy was your experience?',
+  lowLabel: 'Very difficult',
+  midLabel: 'Neither',
+  highLabel: 'Very easy'
+}
+
+
+================================================================================
+9. FRONTEND PAGES
+================================================================================
+
+--- PAGE: /dashboard/journeys (Journey List) ---
+File: apps/web/src/app/dashboard/journeys/page.tsx
+
+Features:
+- Grid card layout showing all journeys
+- Each card shows: name, slug, active badge, screen count, response count, created date
+- Location filter dropdown (All Locations / specific location)
+- Show archived toggle
+- Create Journey dialog:
+  - Type selector (Review Option / Direct Review)
+  - Name input
+  - Location dropdown (auto-selects if single location)
+  - Auto-fills Google review URL from GBP connector at creation time
+- Journey card actions: edit, toggle active, QR code, archive
+- QR code dialog with copy link + download QR buttons
+- Click card → navigate to builder
+
+--- PAGE: /dashboard/journeys/[id] (Journey Builder) ---
+File: apps/web/src/app/dashboard/journeys/[id]/page.tsx
+
+Tabs: Builder | Flow View | Automation
+
+BUILDER TAB:
+- Screen list (left): drag-to-reorder, numbered, type icons
+- Screen settings panel: opens as sheet when screen clicked
+  - Title, subtitle fields
+  - Screen-type-specific config editors:
+    - Rating: threshold, icon style, feedback tags, redirect links, thank you message
+    - Feedback: placeholder text, tags
+    - Review Redirect: message, platform links (Google/Zomato/Facebook)
+    - Thank You: message, coupon toggle
+    - NPS/CSAT/CES: question, labels
+- Mobile preview (right): live preview of selected screen
+- Add Screen button (between screens + at bottom)
+- Screen type picker dialog (9 types with icons)
+- Save button (saves all screens at once via updateScreens)
+- Preview button (opens public URL in new tab)
+- QR Code button
+
+HEADER:
+- Journey name (click to edit inline)
+- Slug display with copy button
+- Active/Inactive badge
+- Location selector dropdown (MapPin icon, updates journey.locationId)
+
+AUTO-FILL LOGIC:
+- Fetches ALL workspace GBP connectors
+- If journey has locationId → match that location's connector
+- If no locationId + 1 GBP → auto-fill
+- If no locationId + multiple GBPs → don't auto-fill (user must pick location)
+- Updates URLs containing 'writereview?placeid=' (previously auto-generated)
+- Triggers on: page load, location change, gbpPlaceId change
+
+--- PAGE: /j/[slug] (Public Survey) ---
+File: apps/web/src/app/j/[slug]/page.tsx
+
+(See section 13 for detailed logic)
+
+
+================================================================================
+10. DEPENDENCIES & INTEGRATIONS
+================================================================================
+
+--- LOCATIONS ---
+Relationship: journeys.locationId → locations.id (nullable FK, cascade delete)
+Usage:
+  - Filter journeys by location in list page
+  - Find matching GBP connector for Google review URL
+  - Store locationId in journey responses
+  - QR code can include ?loc={locationId} parameter
+
+--- GBP CONNECTOR (Google Business Profile) ---
+Relationship: Indirect via locationId matching
+Usage:
+  - connectorInstances where connectorTypeId='gbp' AND locationId matches
+  - Extracts config.placeId from connector
+  - Generates: https://search.google.com/local/writereview?placeid={placeId}
+  - Auto-fills in: journey creation, screen save, builder load
+  - Also used by automation (ai_reply_review) to post replies to Google
+
+--- CUSTOMERS ---
+Relationship: journeyResponses.customerId → customers.id (nullable FK, set null)
+Usage:
+  - Created during submitResponse if name/email/phone provided
+  - Upserted by email match within workspace
+  - Tracks: firstSeenAt, lastSeenAt, totalReviews, averageRating
+  - Can be tagged by automation rules
+
+--- REVIEWS ---
+Relationship: reviews.journeyResponseId (no FK constraint, stored as reference)
+Usage:
+  - Low ratings (<=3) create offline review:
+    platform='offline', source='journey'
+    platformReviewId='offline-{responseId}'
+    Includes rating, feedback text, aspect tags
+  - Shows in Inbox alongside Google/Zomato reviews
+  - Can trigger 'review_posted' automation
+
+--- COUPONS ---
+Relationship: couponInstances.journeyResponseId → journeyResponses.id
+Usage:
+  - showCoupon flag in thank_you / rating screen config
+  - Automation action 'send_coupon' issues coupon after response
+  - Coupon template linked via actionConfig.couponTemplateId
+
+--- AUTOMATION ---
+Relationship: automationRules.journeyId → journeys.id (nullable FK, cascade)
+Usage:
+  - Rules can be journey-specific or global (journeyId=null)
+  - Triggers: journey_completed_positive/negative, journey_abandoned
+  - Queue entries reference journeyResponseId
+  - Default rules seeded on journey creation (optional)
+
+--- QR CODES ---
+Relationship: Generated on-demand, not stored
+Usage:
+  - QR encodes URL: {baseUrl}/j/{slug}?loc={locationId}
+  - Generated via 'qrcode' npm package
+  - Supports PNG (default 300px) and SVG
+  - High error correction for logo overlay variant
+  - Bulk generation for multiple journeys/forms
+
+--- ANALYTICS ---
+Relationship: journeyResponses queried for metrics
+Usage:
+  - Response count per journey
+  - Rating distribution
+  - Conversion rate (responses / QR scans)
+  - Tag/aspect frequency analysis
+  - NEV (Net Emotional Value) scores from responses
+  - CLI (Customer Loyalty Index) segments
+
+--- NEV (Net Emotional Value) ---
+Relationship: nevResponses.journeyResponseId → journeyResponses.id
+Usage:
+  - Emotional sentiment scoring from journey responses
+  - Separate analysis layer on top of ratings
+
+--- CLI (Customer Loyalty Index) ---
+Relationship: cliResponses.journeyResponseId → journeyResponses.id
+Usage:
+  - Customer loyalty segment tracking
+  - Derived from journey response patterns
+
+
+================================================================================
+11. AUTOMATION SYSTEM (DETAILED)
+================================================================================
+
+PURPOSE:
+Automate post-response actions — send coupons to unhappy customers,
+AI-reply to Google reviews, escalate critical feedback, etc.
+
+TRIGGER EVENTS:
+1. journey_completed_positive  — Rating >= positiveThreshold
+2. journey_completed_negative  — Rating < positiveThreshold
+3. journey_abandoned           — Session started but no response submitted
+4. review_posted              — Any review posted (from any source)
+5. review_posted_google       — Google review specifically
+6. customer_dormant           — Customer inactive for X days
+7. custom                     — Manual/API trigger
+
+ACTION TYPES:
+1. send_coupon       — Issue coupon from template to customer
+2. send_message      — Email or WhatsApp message via templates
+3. create_escalation — Create escalation ticket for manager
+4. tag_customer      — Add tags to customer record
+5. trigger_journey   — Start another journey for the customer
+6. ai_reply_review   — Generate AI reply and post to Google
+
+DEFAULT RULES (seeded on journey creation):
+1. "Thank positive reviewers" — journey_completed_positive, 3 day delay, send_message
+2. "Win-back negative reviewers" — journey_completed_negative, 1 day delay, send_coupon
+3. "Remind abandoned journeys" — journey_abandoned, 2 hour delay, send_message
+
+AI REPLY EXECUTION FLOW:
+1. Queue item picked up by background processor
+2. Load review from DB (using reviewId)
+3. Check ratingFilter (positive=4-5, negative=1-3, all)
+4. Generate reply via OpenRouter API (gpt-4o-mini):
+   - System prompt with tone, business name, max length
+   - Review text as user input
+5. Fetch GBP connector with valid access token (refresh OAuth if expired)
+6. Post reply to Google via GBP adapter using review.metadata.reviewResourceName
+7. Update queue status to completed/failed
+
+QUEUE PROCESSING:
+- Background interval checks for pending items where scheduledFor <= now
+- Processes one at a time
+- Max attempts tracking
+- Error messages stored in lastError
+- Status transitions: pending → processing → completed/failed
+- Can be manually cancelled (pending only)
+
+
+================================================================================
+12. QR CODE SYSTEM
+================================================================================
+
+GENERATION:
+- Library: 'qrcode' npm package
+- Default: PNG format, 300px, error correction level M
+- Logo variant: High error correction, 2px margin (for center logo overlay)
+- SVG support available
+
+URL FORMAT:
+  {NEXT_PUBLIC_APP_URL}/j/{journey.slug}
+  Optional: ?loc={locationId}
+
+API ENDPOINTS:
+- qr.generateJourneyQr — Single journey QR
+- qr.generateFormQr — TruForm QR
+- qr.generateBulkQr — Multiple items at once
+
+RESPONSE FORMAT:
+  { qrDataUrl: string }  // base64 PNG or SVG data URL
+
+UI:
+- QR dialog in journey list (click QR icon on card)
+- QR button in journey builder header
+- Shows QR image + copy link + download buttons
+
+
+================================================================================
+13. PUBLIC SURVEY PAGE LOGIC (DETAILED)
+================================================================================
+
+File: apps/web/src/app/j/[slug]/page.tsx
+
+PAGE LOAD:
+1. Extract slug from URL params
+2. Fetch journey via journey.getPublic(slug) — no auth
+3. If journey not found or inactive → show 404
+4. Generate sessionId (crypto.randomUUID or Math.random fallback)
+5. Find rating screen from journey.screens
+6. Detect single-screen mode: isSingleScreen = !!ratingScreen.config.redirectLinks
+
+SINGLE-SCREEN MODE (new, 1 screen):
+- feedbackTags from ratingScreen.config.feedbackTags
+- redirectLinks from ratingScreen.config.redirectLinks
+- thankYouMessage from ratingScreen.config.thankYouMessage
+- feedbackPlaceholder from ratingScreen.config.feedbackPlaceholder
+
+LEGACY MODE (old, 4 screens):
+- feedbackTags from feedbackScreen.config.tags
+- redirectLinks from reviewRedirectScreen.config.links
+- thankYouMessage from thankYouScreen.config.message
+
+RATING INTERACTION:
+- Star hover effect (highlights stars up to hovered)
+- Click locks in rating
+- After click, evaluates routing:
+
+  IF positiveThreshold = 0 (Direct Review):
+    → Redirect to first Google link in redirectLinks
+    → Submit response with rating
+    → Show thank you
+
+  IF rating >= positiveThreshold:
+    → Show redirect message
+    → Open Google review URL (new tab)
+    → Submit response with rating
+    → Show thank you
+
+  IF rating < positiveThreshold:
+    → Show feedback dialog modal
+    → Display tag pills for selection (tappable)
+    → Show textarea with placeholder
+    → On submit:
+      - Call journey.submitResponse with rating + feedback + tags
+      - Close dialog
+      - Show thank you message
+
+THANK YOU SCREEN:
+- Shows thankYouMessage text
+- Optional coupon display (if showCoupon enabled)
+- No further navigation
+
+
+================================================================================
+14. DRIZZLE RELATIONS (COMPLETE)
+================================================================================
+
+// Journey core relations
+journeys → workspace (many-to-one)
+journeys → location (many-to-one, nullable)
+journeys → screens (one-to-many)
+journeys → responses (one-to-many)
+
+// Screen relations
+journeyScreens → journey (many-to-one)
+
+// Response relations
+journeyResponses → journey (many-to-one)
+journeyResponses → screen (many-to-one, nullable)
+journeyResponses → customer (many-to-one, nullable)
+journeyResponses → location (many-to-one, nullable)
+
+// Automation relations
+automationRules → workspace (many-to-one)
+automationRules → journey (many-to-one, nullable)
+automationRules → queueEntries (one-to-many)
+
+automationQueue → rule (many-to-one)
+automationQueue → workspace (many-to-one)
+automationQueue → customer (many-to-one, nullable)
+automationQueue → journeyResponse (many-to-one, nullable)
+automationQueue → review (many-to-one, nullable)
+
+// Cross-references from other modules
+couponInstances → journeyResponse (many-to-one, nullable)
+nevResponses → journeyResponse (many-to-one, nullable)
+cliResponses → journeyResponse (many-to-one, nullable)
+reviews.journeyResponseId (loose reference, no FK constraint)
+
+
+================================================================================
+15. CURRENT ARCHITECTURE (SINGLE-SCREEN REDESIGN — 2026-03-28)
+================================================================================
+
+BEFORE (Legacy 4-Screen):
+  Screen 1: Rating (star input)
+  Screen 2: Feedback (tags + textarea)
+  Screen 3: Review Redirect (Google link)
+  Screen 4: Thank You (message)
+
+AFTER (Single-Screen):
+  Screen 1: Rating (everything embedded in config)
+    - Star rating input
+    - feedbackTags (shown in negative feedback dialog)
+    - feedbackPlaceholder
+    - redirectLinks (Google review URL)
+    - redirectMessage
+    - thankYouMessage
+    - showCoupon
+
+WHY CHANGED:
+- The public page already rendered everything as one continuous flow
+- Having 4 screens in the builder was confusing — customers never see "screens"
+- Simpler mental model: 1 journey = 1 screen = 1 config
+
+BACKWARD COMPATIBILITY:
+- Public page detects mode via: isSingleScreen = !!ratingScreen.config.redirectLinks
+- If true → reads all config from rating screen
+- If false → reads from separate feedback/redirect/thankyou screens
+- Old journeys with 4 screens continue to work
+
+LOCATION-AWARE GBP AUTO-FILL:
+- Journey.locationId links journey to a business location
+- GBP connector on that location provides placeId
+- Google review URL auto-generated: https://search.google.com/local/writereview?placeid={placeId}
+- Auto-fill triggers: on page load, on location change, on screen save
+- Smart matching: locationId match preferred, single-GBP fallback, no-guess for ambiguous
+
+================================================================================
+END OF DOCUMENT
+================================================================================
