@@ -10,6 +10,8 @@ import {
   completeSchema,
   submitLegacyJourneySchema,
   submitLegacyTruformSchema,
+  getPublicLegacyJourneySchema,
+  getPublicLegacyTruformSchema,
 } from '@rectangled/shared'
 import { SurveyCrudService } from './survey-crud.service'
 import { SurveyEngineService } from './survey-engine.service'
@@ -64,6 +66,21 @@ export function createSurveyRouter(
       .input(submitLegacyTruformSchema)
       .mutation(async ({ input }) => {
         return engine.submitLegacyTruform(input)
+      }),
+
+    // ─── Phase 5 — legacy-shape read endpoints ─────────────────────────
+    // After the legacy tables drop, the renderer reads from these
+    // instead of trpc.journey.getPublic / trpc.truform.getPublic.
+    getPublicLegacyJourney: publicProcedure
+      .input(getPublicLegacyJourneySchema)
+      .query(async ({ input }) => {
+        return engine.getPublicLegacyJourney(input)
+      }),
+
+    getPublicLegacyTruform: publicProcedure
+      .input(getPublicLegacyTruformSchema)
+      .query(async ({ input }) => {
+        return engine.getPublicLegacyTruform(input)
       }),
 
     // ─── Protected CRUD ─────────────────────────────────────────────────

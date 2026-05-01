@@ -46,7 +46,13 @@ export default function PublicJourneyPage() {
   const [phone, setPhone] = useState('')
   const [email, setEmail] = useState('')
 
-  const journeyQuery = trpc.journey.getPublic.useQuery({ slug }, { enabled: !!slug })
+  // Phase 5 — reads now come from the survey engine (legacy shape).
+  // The renderer's UI is unchanged; only the query target moved.
+  // journey.getPublic was removed when the legacy tables dropped.
+  const journeyQuery = trpc.survey.getPublicLegacyJourney.useQuery(
+    { slug },
+    { enabled: !!slug },
+  )
   // Phase 3 Stage E — writes go through the new survey engine via the
   // legacy compat shim. Same input/return shape, so the renderer logic
   // below didn't have to change. journey.submitResponse is frozen as

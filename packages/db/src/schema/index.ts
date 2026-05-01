@@ -11,8 +11,9 @@ export * from './refresh-tokens'
 export * from './reviews'
 export * from './business-aspects'
 export * from './onboarding'
-export * from './journeys'
-export * from './truforms'
+// Phase 5 (migration 0014) — journeys, truforms, journey-screens schemas
+// were removed when the legacy tables were dropped. surveys + survey_responses
+// is the unified replacement.
 export * from './listings'
 export * from './billing'
 export * from './ai-schedules'

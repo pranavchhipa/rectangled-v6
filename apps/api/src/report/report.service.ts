@@ -9,11 +9,8 @@ import {
   reviews,
   reviewResponses,
   businessAspects,
-  truforms,
-  truformResponses,
-  journeys,
-  journeyScreens,
-  journeyResponses,
+  surveys,
+  surveyResponses,
   members,
 } from '@rectangled/db'
 
@@ -302,14 +299,26 @@ export class ReportService {
     dateTo: Date,
     locationId?: string,
   ): Promise<Record<string, unknown>> {
-    // Get all forms for workspace
-    const formConditions = [eq(truforms.workspaceId, workspaceId)]
-    if (locationId) formConditions.push(eq(truforms.locationId, locationId))
+    // Phase 5 — pulled from surveys WHERE template='deep' instead of the
+    // dropped truforms table. type lives in survey.settings.type now.
+    const formConditions = [
+      eq(surveys.workspaceId, workspaceId),
+      eq(surveys.template, 'deep'),
+    ]
+    if (locationId) formConditions.push(eq(surveys.locationId, locationId))
 
-    const allForms = await this.db
+    const allForms = (await this.db
       .select()
-      .from(truforms)
-      .where(and(...formConditions))
+      .from(surveys)
+      .where(and(...formConditions))).map((s) => ({
+      id: s.id,
+      name: s.name,
+      type: ((s.settings as { type?: string })?.type ?? 'csat') as
+        | 'nps'
+        | 'csat'
+        | 'ces'
+        | 'custom',
+    }))
 
     const formIds = allForms.map((f) => f.id)
 
@@ -325,16 +334,23 @@ export class ReportService {
     }
 
     // Get all responses in date range
-    const allResponses = await this.db
+    const allResponses = (await this.db
       .select()
-      .from(truformResponses)
+      .from(surveyResponses)
       .where(
         and(
-          sql`${truformResponses.truformId} IN ${formIds}`,
-          gte(truformResponses.createdAt, dateFrom),
-          lte(truformResponses.createdAt, dateTo),
+          sql`${surveyResponses.surveyId} IN ${formIds}`,
+          gte(surveyResponses.createdAt, dateFrom),
+          lte(surveyResponses.createdAt, dateTo),
         ),
-      )
+      )).map((r) => ({
+      // alias surveyId → truformId so the rest of this method (ported
+      // verbatim from the legacy implementation) reads naturally.
+      truformId: r.surveyId,
+      score: r.score,
+      completedAt: r.completedAt,
+      createdAt: r.createdAt,
+    }))
 
     // Build per-form stats
     const perFormStats = allForms.map((form) => {
@@ -419,14 +435,26 @@ export class ReportService {
     dateTo: Date,
     locationId?: string,
   ): Promise<Record<string, unknown>> {
-    // Get all journeys
-    const journeyConditions = [eq(journeys.workspaceId, workspaceId)]
-    if (locationId) journeyConditions.push(eq(journeys.locationId, locationId))
+    // Phase 5 — pulled from surveys WHERE template='quick' instead of the
+    // dropped journeys table. The "screen" concept (journey_screens) was
+    // replaced by typed step graphs (surveys.steps); the dropOffByScreen
+    // analysis below is intentionally returned as `[]` until a Phase 6
+    // rewrite ports it to per-step abandonment via survey_starts +
+    // survey_responses.
+    const journeyConditions = [
+      eq(surveys.workspaceId, workspaceId),
+      eq(surveys.template, 'quick'),
+    ]
+    if (locationId) journeyConditions.push(eq(surveys.locationId, locationId))
 
-    const allJourneys = await this.db
+    const allJourneys = (await this.db
       .select()
-      .from(journeys)
-      .where(and(...journeyConditions))
+      .from(surveys)
+      .where(and(...journeyConditions))).map((s) => ({
+      id: s.id,
+      name: s.name,
+      slug: s.slug,
+    }))
 
     const journeyIds = allJourneys.map((j) => j.id)
 
@@ -442,23 +470,29 @@ export class ReportService {
     }
 
     // Get all responses in date range
-    const allJourneyResponses = await this.db
+    const allJourneyResponses = (await this.db
       .select()
-      .from(journeyResponses)
+      .from(surveyResponses)
       .where(
         and(
-          sql`${journeyResponses.journeyId} IN ${journeyIds}`,
-          gte(journeyResponses.createdAt, dateFrom),
-          lte(journeyResponses.createdAt, dateTo),
+          sql`${surveyResponses.surveyId} IN ${journeyIds}`,
+          gte(surveyResponses.createdAt, dateFrom),
+          lte(surveyResponses.createdAt, dateTo),
         ),
-      )
+      )).map((r) => ({
+      // alias for the legacy variable names below.
+      journeyId: r.surveyId,
+      sessionId: r.sessionId,
+      createdAt: r.createdAt,
+      responseData: r.responseData,
+      isPositive: r.isPositive,
+      completedAt: r.completedAt,
+    }))
 
-    // Get all screens for these journeys
-    const allScreens = await this.db
-      .select()
-      .from(journeyScreens)
-      .where(sql`${journeyScreens.journeyId} IN ${journeyIds}`)
-      .orderBy(journeyScreens.journeyId, journeyScreens.order)
+    // Phase 5 — journey_screens table dropped; per-screen breakdown not
+    // available from the new schema without rewriting against step ids.
+    // Returning empty so downstream JSON shape stays consistent.
+    const allScreens: Array<{ id: string; journeyId: string; order: number }> = []
 
     // Group responses by session to detect completion
     const sessionMap = new Map<string, typeof allJourneyResponses>()
@@ -486,14 +520,15 @@ export class ReportService {
       const journeyId = sessionResponses[0].journeyId
       const maxOrder = screenCountByJourney.get(journeyId) ?? 1
 
-      // Find max screen order reached
-      let maxReachedOrder = 0
-      for (const resp of sessionResponses) {
-        const screen = allScreens.find((s) => s.id === resp.journeyScreenId)
-        if (screen && screen.order > maxReachedOrder) {
-          maxReachedOrder = screen.order
-        }
-      }
+      // Phase 5 — journey_screens dropped; can't reconstruct
+      // per-screen abandonment depth. Approximate completion as "any
+      // response in this session has completedAt set", which is what
+      // the new survey engine writes on terminal step. maxOrder=1
+      // ensures the comparison below behaves as a binary completed?.
+      const sessionCompleted = sessionResponses.some(
+        (r) => r.completedAt !== null,
+      )
+      const maxReachedOrder = sessionCompleted ? maxOrder : 0
 
       if (maxReachedOrder >= maxOrder) {
         completedSessions++
@@ -558,18 +593,16 @@ export class ReportService {
     const perJourneyStats = allJourneys.map((journey) => {
       const jResponses = allJourneyResponses.filter((r) => r.journeyId === journey.id)
       const jSessions = new Set(jResponses.map((r) => r.sessionId))
-      const jScreens = allScreens.filter((s) => s.journeyId === journey.id)
-      const maxOrder = Math.max(...jScreens.map((s) => s.order), 1)
+      // Phase 5 — journey_screens dropped; per-journey screen depth not
+      // available. Treat completion as "any response in the session has
+      // completedAt set" (mirrors the engine's terminal-write semantics).
+      const maxOrder = 1
 
       let jCompleted = 0
       for (const sessionId of jSessions) {
         const sResponses = jResponses.filter((r) => r.sessionId === sessionId)
-        let maxReached = 0
-        for (const resp of sResponses) {
-          const screen = jScreens.find((s) => s.id === resp.journeyScreenId)
-          if (screen && screen.order > maxReached) maxReached = screen.order
-        }
-        if (maxReached >= maxOrder) jCompleted++
+        const sessionCompleted = sResponses.some((r) => r.completedAt !== null)
+        if (sessionCompleted) jCompleted++
       }
 
       return {
@@ -578,7 +611,9 @@ export class ReportService {
         totalSessions: jSessions.size,
         completedSessions: jCompleted,
         completionRate: jSessions.size > 0 ? Math.round((jCompleted / jSessions.size) * 100) : 0,
-        screenCount: jScreens.length,
+        // Phase 5 — screen breakdown unavailable; the new step-graph
+        // shape needs a different report.
+        screenCount: 0,
       }
     })
 

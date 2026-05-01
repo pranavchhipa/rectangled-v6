@@ -12,8 +12,10 @@ import { workspaces } from './workspaces'
 import { locations } from './locations'
 import { customers } from './customers'
 import { reviews } from './reviews'
-import { truformResponses } from './truforms'
-import { journeyResponses } from './journeys'
+// Phase 5 — truformResponses + journeyResponses tables dropped. The
+// truform_response_id / journey_response_id columns below remain as
+// plain orphan UUIDs (no FK) for historical analytics; cross-reference
+// to the new shape via survey_responses.legacy_*_response_id.
 import { emotionClusterEnum, emotionPolarityEnum, nevSourceEnum } from './enums'
 
 /** Predefined emotion definitions (seeded) */
@@ -42,14 +44,9 @@ export const nevResponses = pgTable('nev_responses', {
   reviewId: uuid('review_id').references(() => reviews.id, {
     onDelete: 'set null',
   }),
-  truformResponseId: uuid('truform_response_id').references(
-    () => truformResponses.id,
-    { onDelete: 'set null' }
-  ),
-  journeyResponseId: uuid('journey_response_id').references(
-    () => journeyResponses.id,
-    { onDelete: 'set null' }
-  ),
+  // Phase 5 — orphan UUIDs (no FK). See note at top of file.
+  truformResponseId: uuid('truform_response_id'),
+  journeyResponseId: uuid('journey_response_id'),
   source: nevSourceEnum('source').notNull(),
   emotions: jsonb('emotions')
     .$type<Array<{ emotionId: string; intensity: number }>>()

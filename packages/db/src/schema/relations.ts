@@ -11,8 +11,10 @@ import { reviews, reviewResponses } from './reviews'
 import { customers } from './customers'
 import { businessAspects } from './business-aspects'
 import { onboardingState } from './onboarding'
-import { journeys, journeyScreens, journeyResponses } from './journeys'
-import { truforms, truformResponses } from './truforms'
+// Phase 5 — journeys, truforms, journey-screens schemas + tables removed.
+// Cross-table relations to journeyResponses / truformResponses dropped
+// alongside; the orphan UUID columns on coupon_instances, automation_queue,
+// nev_responses, cli_responses no longer relate to anything.
 import { businessListings, listingChangeLog, listingPosts } from './listings'
 import { subscriptions, invoices } from './billing'
 import { aiResponseSchedules, aiResponseDailyCounts } from './ai-schedules'
@@ -99,8 +101,9 @@ export const workspacesRelations = relations(workspaces, ({ one, many }) => ({
   reviews: many(reviews),
   customers: many(customers),
   businessAspects: many(businessAspects),
-  journeys: many(journeys),
-  truforms: many(truforms),
+  // Phase 5 — journeys + truforms removed. Replaced by:
+  //   surveys: many(surveys)
+  // (relation declared in surveysRelations below).
   businessListings: many(businessListings),
   listingPosts: many(listingPosts),
   couponTemplates: many(couponTemplates),
@@ -215,68 +218,12 @@ export const onboardingStateRelations = relations(onboardingState, ({ one }) => 
 }))
 
 // Journey relations
-export const journeysRelations = relations(journeys, ({ one, many }) => ({
-  workspace: one(workspaces, {
-    fields: [journeys.workspaceId],
-    references: [workspaces.id],
-  }),
-  location: one(locations, {
-    fields: [journeys.locationId],
-    references: [locations.id],
-  }),
-  screens: many(journeyScreens),
-  responses: many(journeyResponses),
-}))
-
-export const journeyScreensRelations = relations(journeyScreens, ({ one }) => ({
-  journey: one(journeys, {
-    fields: [journeyScreens.journeyId],
-    references: [journeys.id],
-  }),
-}))
-
-export const journeyResponsesRelations = relations(journeyResponses, ({ one }) => ({
-  journey: one(journeys, {
-    fields: [journeyResponses.journeyId],
-    references: [journeys.id],
-  }),
-  screen: one(journeyScreens, {
-    fields: [journeyResponses.journeyScreenId],
-    references: [journeyScreens.id],
-  }),
-  customer: one(customers, {
-    fields: [journeyResponses.customerId],
-    references: [customers.id],
-  }),
-  location: one(locations, {
-    fields: [journeyResponses.locationId],
-    references: [locations.id],
-  }),
-}))
-
-// Truform relations
-export const truformsRelations = relations(truforms, ({ one, many }) => ({
-  workspace: one(workspaces, {
-    fields: [truforms.workspaceId],
-    references: [workspaces.id],
-  }),
-  location: one(locations, {
-    fields: [truforms.locationId],
-    references: [locations.id],
-  }),
-  responses: many(truformResponses),
-}))
-
-export const truformResponsesRelations = relations(truformResponses, ({ one }) => ({
-  truform: one(truforms, {
-    fields: [truformResponses.truformId],
-    references: [truforms.id],
-  }),
-  customer: one(customers, {
-    fields: [truformResponses.customerId],
-    references: [customers.id],
-  }),
-}))
+// Phase 5 — journeysRelations / journeyScreensRelations /
+// journeyResponsesRelations / truformsRelations / truformResponsesRelations
+// all removed when the legacy tables dropped. Surveys + survey_responses
+// have their own relations declared elsewhere; no cross-table relations
+// from coupon_instances / automation_queue / nev_responses / cli_responses
+// to the (now-orphan) journey/truform-response columns.
 
 // Listing relations
 export const businessListingsRelations = relations(businessListings, ({ one, many }) => ({
@@ -359,10 +306,8 @@ export const couponInstancesRelations = relations(couponInstances, ({ one }) => 
     fields: [couponInstances.locationId],
     references: [locations.id],
   }),
-  journeyResponse: one(journeyResponses, {
-    fields: [couponInstances.journeyResponseId],
-    references: [journeyResponses.id],
-  }),
+  // Phase 5 — journeyResponse relation removed (target table dropped).
+  // couponInstances.journeyResponseId is now an orphan UUID.
   review: one(reviews, {
     fields: [couponInstances.reviewId],
     references: [reviews.id],
@@ -448,10 +393,9 @@ export const automationRulesRelations = relations(automationRules, ({ one, many 
     fields: [automationRules.workspaceId],
     references: [workspaces.id],
   }),
-  journey: one(journeys, {
-    fields: [automationRules.journeyId],
-    references: [journeys.id],
-  }),
+  // Phase 5 — journey relation removed (table dropped). journeyId column
+  // is an orphan UUID; rule scoping has moved to scope='workspace' and the
+  // chain rules system from Phase 2.
   queueEntries: many(automationQueue),
 }))
 
@@ -468,10 +412,7 @@ export const automationQueueRelations = relations(automationQueue, ({ one }) => 
     fields: [automationQueue.customerId],
     references: [customers.id],
   }),
-  journeyResponse: one(journeyResponses, {
-    fields: [automationQueue.journeyResponseId],
-    references: [journeyResponses.id],
-  }),
+  // Phase 5 — journeyResponse relation removed.
   review: one(reviews, {
     fields: [automationQueue.reviewId],
     references: [reviews.id],
@@ -496,14 +437,7 @@ export const nevResponsesRelations = relations(nevResponses, ({ one }) => ({
     fields: [nevResponses.reviewId],
     references: [reviews.id],
   }),
-  truformResponse: one(truformResponses, {
-    fields: [nevResponses.truformResponseId],
-    references: [truformResponses.id],
-  }),
-  journeyResponse: one(journeyResponses, {
-    fields: [nevResponses.journeyResponseId],
-    references: [journeyResponses.id],
-  }),
+  // Phase 5 — truformResponse + journeyResponse relations removed.
 }))
 
 // CLI relations
@@ -520,14 +454,7 @@ export const cliResponsesRelations = relations(cliResponses, ({ one }) => ({
     fields: [cliResponses.locationId],
     references: [locations.id],
   }),
-  truformResponse: one(truformResponses, {
-    fields: [cliResponses.truformResponseId],
-    references: [truformResponses.id],
-  }),
-  journeyResponse: one(journeyResponses, {
-    fields: [cliResponses.journeyResponseId],
-    references: [journeyResponses.id],
-  }),
+  // Phase 5 — truformResponse + journeyResponse relations removed.
 }))
 
 // WapiSnap relations

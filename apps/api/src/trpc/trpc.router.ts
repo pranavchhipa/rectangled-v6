@@ -12,8 +12,7 @@ import { createReviewRouter } from '../review/review.router'
 import { createCustomerRouter } from '../customer/customer.router'
 import { createOnboardingRouter } from '../onboarding/onboarding.router'
 import { createBusinessAspectRouter } from '../business-aspect/business-aspect.router'
-import { createJourneyRouter } from '../journey/journey.router'
-import { createTruformRouter } from '../truform/truform.router'
+// Phase 5 — createJourneyRouter + createTruformRouter deleted; survey.* covers both.
 import { createListingRouter } from '../listing/listing.router'
 import { createBillingRouter } from '../billing/billing.router'
 import { createAiResponseRouter } from '../ai-response/ai-response.router'
@@ -32,8 +31,7 @@ import { ReviewService } from '../review/review.service'
 import { CustomerService } from '../customer/customer.service'
 import { OnboardingService } from '../onboarding/onboarding.service'
 import { BusinessAspectService } from '../business-aspect/business-aspect.service'
-import { JourneyService } from '../journey/journey.service'
-import { TruformService } from '../truform/truform.service'
+// Phase 5 — JourneyService + TruformService deleted.
 import { ListingService } from '../listing/listing.service'
 import { BillingService } from '../billing/billing.service'
 import { AiResponseAutomationService } from '../ai-response/ai-response.service'
@@ -90,8 +88,7 @@ export const appRouter = router({
   customer: createCustomerRouter(null as any),
   onboarding: createOnboardingRouter(null as any),
   businessAspect: createBusinessAspectRouter(null as any),
-  journey: createJourneyRouter(null as any),
-  truform: createTruformRouter(null as any),
+  // Phase 5 — journey + truform routers removed; survey.* covers both.
   listing: createListingRouter(null as any),
   billing: createBillingRouter(null as any),
   aiResponse: createAiResponseRouter(null as any),
@@ -132,8 +129,7 @@ export class TrpcRouter implements OnModuleInit {
     private readonly customerService: CustomerService,
     private readonly onboardingService: OnboardingService,
     private readonly businessAspectService: BusinessAspectService,
-    private readonly journeyService: JourneyService,
-    private readonly truformService: TruformService,
+    // Phase 5 — journeyService + truformService deleted.
     private readonly listingService: ListingService,
     private readonly billingService: BillingService,
     private readonly aiResponseAutomationService: AiResponseAutomationService,
@@ -178,8 +174,7 @@ export class TrpcRouter implements OnModuleInit {
       customer: createCustomerRouter(this.customerService),
       onboarding: createOnboardingRouter(this.onboardingService),
       businessAspect: createBusinessAspectRouter(this.businessAspectService),
-      journey: createJourneyRouter(this.journeyService),
-      truform: createTruformRouter(this.truformService),
+      // Phase 5 — journey + truform routers removed.
       listing: createListingRouter(this.listingService),
       billing: createBillingRouter(this.billingService),
       aiResponse: createAiResponseRouter(this.aiResponseAutomationService),

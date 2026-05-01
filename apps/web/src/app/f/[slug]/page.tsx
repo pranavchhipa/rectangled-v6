@@ -207,7 +207,9 @@ export default function PublicFormPage() {
   const [customerPhone, setCustomerPhone] = useState('')
   const [submitted, setSubmitted] = useState(false)
 
-  const formQuery = trpc.truform.getPublic.useQuery(
+  // Phase 5 — reads now come from the survey engine (legacy shape).
+  // truform.getPublic was removed when the legacy tables dropped.
+  const formQuery = trpc.survey.getPublicLegacyTruform.useQuery(
     { slug },
     { enabled: !!slug }
   )

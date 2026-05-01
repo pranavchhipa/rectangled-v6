@@ -4,7 +4,7 @@ import { eq, and, lte, sql, desc, count, gt, gte, inArray } from 'drizzle-orm'
 import { randomUUID } from 'crypto'
 import OpenAI from 'openai'
 import type { Database } from '@rectangled/db'
-import { automationRules, automationQueue, members, reviews, reviewResponses, connectorInstances, workspaces, customers, journeyResponses } from '@rectangled/db'
+import { automationRules, automationQueue, members, reviews, reviewResponses, connectorInstances, workspaces, customers, surveyResponses } from '@rectangled/db'
 import { GbpAdapter } from '../connector/adapters/gbp.adapter'
 import { buildTriggerKey } from './triggerKey'
 import { resolveRulesByScope, type ScopedRule } from './scope-resolution'
@@ -163,10 +163,23 @@ export class AutomationService {
         })
         locationId = r?.locationId ?? null
       } else if (context.journeyResponseId) {
-        const jr = await this.db.query.journeyResponses.findFirst({
-          where: eq(journeyResponses.id, context.journeyResponseId),
-        })
-        locationId = jr?.locationId ?? null
+        // Phase 5 — journeyResponses table dropped. context.journeyResponseId
+        // is now a survey_responses.id (the new write path) OR a stale UUID
+        // pointing at a no-longer-existent legacy row. Try the survey
+        // responses table; if not found, also try via legacy_journey_response_id
+        // for backward compat with any in-flight queue entries from before
+        // the cutover.
+        const sr =
+          (await this.db.query.surveyResponses.findFirst({
+            where: eq(surveyResponses.id, context.journeyResponseId),
+          })) ??
+          (await this.db.query.surveyResponses.findFirst({
+            where: eq(
+              surveyResponses.legacyJourneyResponseId,
+              context.journeyResponseId,
+            ),
+          }))
+        locationId = sr?.locationId ?? null
       }
     }
 

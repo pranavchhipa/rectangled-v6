@@ -10,8 +10,7 @@ import { ReviewModule } from '../review/review.module'
 import { CustomerModule } from '../customer/customer.module'
 import { OnboardingModule } from '../onboarding/onboarding.module'
 import { BusinessAspectModule } from '../business-aspect/business-aspect.module'
-import { JourneyModule } from '../journey/journey.module'
-import { TruformModule } from '../truform/truform.module'
+// Phase 5 — JourneyModule + TruformModule deleted; SurveysModule covers both.
 import { ListingModule } from '../listing/listing.module'
 import { BillingModule } from '../billing/billing.module'
 import { AiResponseAutomationModule } from '../ai-response/ai-response.module'
@@ -33,7 +32,7 @@ import { ChainModule } from '../chain/chain.module'
 import { SurveysModule } from '../surveys/surveys.module'
 
 @Module({
-  imports: [AuthModule, WorkspaceModule, LocationModule, MemberModule, ConnectorModule, ReviewModule, CustomerModule, OnboardingModule, BusinessAspectModule, JourneyModule, TruformModule, ListingModule, BillingModule, AiResponseAutomationModule, CouponModule, CxRoutingModule, NotificationModule, QrModule, AutomationModule, NevModule, CliModule, ReportModule, EmailModule, WapisnapModule, RaisModule, AppointmentModule, AiAgentModule, OrganizationModule, ChainModule, SurveysModule],
+  imports: [AuthModule, WorkspaceModule, LocationModule, MemberModule, ConnectorModule, ReviewModule, CustomerModule, OnboardingModule, BusinessAspectModule, ListingModule, BillingModule, AiResponseAutomationModule, CouponModule, CxRoutingModule, NotificationModule, QrModule, AutomationModule, NevModule, CliModule, ReportModule, EmailModule, WapisnapModule, RaisModule, AppointmentModule, AiAgentModule, OrganizationModule, ChainModule, SurveysModule],
   providers: [TrpcRouter, TrpcService],
   exports: [TrpcService],
 })

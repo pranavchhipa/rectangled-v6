@@ -1,8 +1,8 @@
 import { Injectable, Inject } from '@nestjs/common'
 import { TRPCError } from '@trpc/server'
-import { eq, and } from 'drizzle-orm'
+import { eq, and, or } from 'drizzle-orm'
 import type { Database } from '@rectangled/db'
-import { journeys, truforms, members } from '@rectangled/db'
+import { surveys, members } from '@rectangled/db'
 import QRCode from 'qrcode'
 
 @Injectable()
@@ -67,29 +67,46 @@ export class QrService {
 
   // --- Lookup helpers used by router ---
 
+  /**
+   * Phase 5 — looks up the slug for a survey of template='quick'. Accepts
+   * either the new `surveys.id` or the legacy `journeys.id` (preserved on
+   * `surveys.legacy_journey_id` for backfilled rows). Callers that still
+   * hold legacy IDs keep working until they migrate.
+   */
   async lookupJourneySlug(journeyId: string, workspaceId: string | undefined, userId: string) {
     if (workspaceId) {
       await this.requireMembership(workspaceId, userId)
     }
+    const idMatch = or(
+      eq(surveys.id, journeyId),
+      eq(surveys.legacyJourneyId, journeyId),
+    )
     const conditions = workspaceId
-      ? and(eq(journeys.id, journeyId), eq(journeys.workspaceId, workspaceId))
-      : eq(journeys.id, journeyId)
-    const journey = await this.db.query.journeys.findFirst({ where: conditions })
-    if (!journey) {
+      ? and(idMatch, eq(surveys.workspaceId, workspaceId), eq(surveys.template, 'quick'))
+      : and(idMatch, eq(surveys.template, 'quick'))
+    const survey = await this.db.query.surveys.findFirst({ where: conditions })
+    if (!survey) {
       throw new TRPCError({ code: 'NOT_FOUND', message: 'Journey not found' })
     }
-    return journey.slug
+    return survey.slug
   }
 
+  /**
+   * Phase 5 — same as above for template='deep' (formerly truforms).
+   */
   async lookupFormSlug(formId: string, workspaceId: string, userId: string) {
     await this.requireMembership(workspaceId, userId)
-    const form = await this.db.query.truforms.findFirst({
-      where: and(eq(truforms.id, formId), eq(truforms.workspaceId, workspaceId)),
+    const survey = await this.db.query.surveys.findFirst({
+      where: and(
+        or(eq(surveys.id, formId), eq(surveys.legacyTruformId, formId)),
+        eq(surveys.workspaceId, workspaceId),
+        eq(surveys.template, 'deep'),
+      ),
     })
-    if (!form) {
+    if (!survey) {
       throw new TRPCError({ code: 'NOT_FOUND', message: 'Form not found' })
     }
-    return form.slug
+    return survey.slug
   }
 
   // --- Private ---

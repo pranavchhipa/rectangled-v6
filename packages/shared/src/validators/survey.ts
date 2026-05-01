@@ -131,6 +131,28 @@ export const submitLegacyJourneySchema = z.object({
 export const submitLegacyTruformSchema = z.object({
   truformId: z.string().uuid(),
   score: z.number().optional(),
-  answers: z.record(z.unknown()),
+  answers: z.record(z.unknown()).default({}),
   metadata: z.record(z.unknown()).default({}),
+  // The legacy renderer also passes contact fields, but the legacy
+  // submit endpoint silently dropped them — preserving that behaviour
+  // here. Future work: route these through the customer upsert.
+  customerName: z.string().optional(),
+  customerEmail: z.string().email().optional(),
+  customerPhone: z.string().optional(),
+})
+
+// ─── Phase 5 — legacy-shape read endpoints ──────────────────────────────
+//
+// After the legacy tables are dropped, the renderer pages need to read
+// from `surveys` instead of `journeys`/`truforms`. These two queries
+// reconstruct the legacy read shape from the survey row + step graph
+// so the renderer's UI doesn't have to change. Phase 5+ work can rebuild
+// the renderers against the native survey shape and delete these.
+
+export const getPublicLegacyJourneySchema = z.object({
+  slug: z.string().min(1).max(64),
+})
+
+export const getPublicLegacyTruformSchema = z.object({
+  slug: z.string().min(1).max(64),
 })

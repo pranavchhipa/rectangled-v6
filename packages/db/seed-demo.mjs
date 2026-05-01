@@ -2,6 +2,18 @@
  * OptimizerV6 — Comprehensive Demo Data Seed Script
  * Populates the entire ecosystem for the test@example.com account
  * with 100+ customers, reviews, coupons, forms, escalations, team members, billing, etc.
+ *
+ * ⚠ Phase 5 (2026-05-02): journeys, truforms, journey_responses, truform_responses,
+ *   and journey_screens tables were dropped. The journey + truform seeding sections
+ *   below are guarded with `if (false)` and will not run. The script otherwise still
+ *   works for the rest of the seed surface (members, locations, reviews, etc).
+ *
+ *   To re-introduce demo journeys/truforms, port the legacy INSERTs to:
+ *     - INSERT INTO surveys(...) WITH template='quick' (was journeys)
+ *     - INSERT INTO surveys(...) WITH template='deep' (was truforms)
+ *     - INSERT INTO survey_responses(...) (replaces both response tables)
+ *   The step graph builders live in @rectangled/shared
+ *   (buildQuickIntelligentSteps, buildDeepIntelligentSteps).
  */
 import postgres from 'postgres'
 import { randomUUID, createHash } from 'crypto'
@@ -126,11 +138,10 @@ async function seed() {
   await sql`DELETE FROM ai_response_schedules WHERE review_id IN (SELECT id FROM reviews WHERE workspace_id = ${WORKSPACE_ID})`
   await sql`DELETE FROM review_responses WHERE review_id IN (SELECT id FROM reviews WHERE workspace_id = ${WORKSPACE_ID})`
   await sql`DELETE FROM reviews WHERE workspace_id = ${WORKSPACE_ID}`
-  await sql`DELETE FROM truform_responses WHERE truform_id IN (SELECT id FROM truforms WHERE workspace_id = ${WORKSPACE_ID})`
-  await sql`DELETE FROM truforms WHERE workspace_id = ${WORKSPACE_ID}`
-  await sql`DELETE FROM journey_responses WHERE journey_id IN (SELECT id FROM journeys WHERE workspace_id = ${WORKSPACE_ID})`
-  await sql`DELETE FROM journey_screens WHERE journey_id IN (SELECT id FROM journeys WHERE workspace_id = ${WORKSPACE_ID})`
-  await sql`DELETE FROM journeys WHERE workspace_id = ${WORKSPACE_ID}`
+  // Phase 5 — legacy tables dropped; clean up the new surveys table instead.
+  await sql`DELETE FROM survey_responses WHERE workspace_id = ${WORKSPACE_ID}`
+  await sql`DELETE FROM survey_starts WHERE survey_id IN (SELECT id FROM surveys WHERE workspace_id = ${WORKSPACE_ID})`
+  await sql`DELETE FROM surveys WHERE workspace_id = ${WORKSPACE_ID}`
   await sql`DELETE FROM ai_response_daily_counts WHERE location_id IN (SELECT id FROM locations WHERE workspace_id = ${WORKSPACE_ID})`
   await sql`DELETE FROM business_aspects WHERE workspace_id = ${WORKSPACE_ID}`
   await sql`DELETE FROM connector_instances WHERE workspace_id = ${WORKSPACE_ID}`
@@ -314,14 +325,23 @@ async function seed() {
   }
   console.log(`   ✓ ${responseCount} review responses created`)
 
-  // ─── 10. Create Journeys (3 journeys with screens) ────────────────────────
-  console.log('\n🗺️ Creating journeys...')
+  // ─── 10. Create Journeys (Phase 5 — disabled; tables dropped) ───────────
+  // The legacy journeys + journey_screens tables were dropped in
+  // Phase 5 (migration 0014). Demo journey seeding is stubbed out
+  // until this section is ported to INSERT INTO surveys(template='quick'…).
+  // The rest of the seed (members, locations, customers, reviews, coupons,
+  // automations, billing, ...) still runs.
+  console.log('\n🗺️ Skipping journey seeding (Phase 5 — port to surveys pending)')
+  const journeyIds = []
+  const journeyResponseIds = []
+  const truformIds = []
+  const truformResponseIds = []
+  if (false) {
   const journeyData = [
     { name: 'Dine-In Feedback Journey', slug: 'dine-in-feedback-' + rand(1000,9999), locIdx: 0, isDefault: true },
     { name: 'Delivery Feedback Journey', slug: 'delivery-feedback-' + rand(1000,9999), locIdx: 1, isDefault: false },
     { name: 'Quick NPS Survey', slug: 'quick-nps-' + rand(1000,9999), locIdx: 2, isDefault: false },
   ]
-  const journeyIds = []
   const journeyScreenIds = []
   for (const j of journeyData) {
     const jId = uuid()
@@ -409,6 +429,7 @@ async function seed() {
       })}, ${sql.json({ source: pick(['qr', 'email', 'whatsapp', 'link']), device: pick(['mobile', 'desktop', 'tablet']) })}, ${daysAgo(rand(0, 60))}, ${daysAgo(rand(0, 60))})`
   }
   console.log(`   ✓ 150 truform responses created`)
+  } // end if(false) — Phase 5 stub for legacy journey/truform seeding
 
   // ─── 13. Create Coupon Templates & Instances ───────────────────────────────
   console.log('\n🎟️ Creating coupons...')

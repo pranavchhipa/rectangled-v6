@@ -13,7 +13,9 @@ import {
 import { workspaces } from './workspaces'
 import { locations } from './locations'
 import { customers } from './customers'
-import { journeyResponses } from './journeys'
+// Phase 5 — journeyResponses table dropped. journey_response_id column
+// below is now an orphan UUID (no FK); cross-reference via
+// survey_responses.legacy_journey_response_id.
 import { reviews } from './reviews'
 import {
   discountTypeEnum,
@@ -62,10 +64,7 @@ export const couponInstances = pgTable(
     locationId: uuid('location_id').references(() => locations.id, {
       onDelete: 'set null',
     }),
-    journeyResponseId: uuid('journey_response_id').references(
-      () => journeyResponses.id,
-      { onDelete: 'set null' }
-    ),
+    journeyResponseId: uuid('journey_response_id'),
     reviewId: uuid('review_id').references(() => reviews.id, {
       onDelete: 'set null',
     }),

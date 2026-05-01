@@ -21,8 +21,8 @@ export * from './validators/review'
 export * from './validators/customer'
 export * from './validators/onboarding'
 export * from './validators/business-aspect'
-export * from './validators/journey'
-export * from './validators/truform'
+// Phase 5 — journey + truform validators removed with their services.
+// survey validators (below) cover both templates now.
 export * from './validators/billing'
 export * from './validators/ai-response'
 export * from './validators/coupon'

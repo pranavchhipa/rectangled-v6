@@ -11,7 +11,10 @@ import {
 } from 'drizzle-orm/pg-core'
 import { sql } from 'drizzle-orm'
 import { workspaces } from './workspaces'
-import { journeys, journeyResponses } from './journeys'
+// Phase 5 — journeys + journeyResponses tables dropped. journey_id and
+// journey_response_id columns below are now orphan UUIDs (no FK).
+// Cross-reference via surveys.legacy_journey_id and
+// survey_responses.legacy_journey_response_id.
 import { customers } from './customers'
 import { reviews } from './reviews'
 import { organizations } from './organizations'
@@ -23,9 +26,7 @@ export const automationRules = pgTable('automation_rules', {
   workspaceId: uuid('workspace_id')
     .notNull()
     .references(() => workspaces.id, { onDelete: 'cascade' }),
-  journeyId: uuid('journey_id').references(() => journeys.id, {
-    onDelete: 'cascade',
-  }),
+  journeyId: uuid('journey_id'),
   name: varchar('name', { length: 255 }).notNull(),
   triggerEvent: automationTriggerEnum('trigger_event').notNull(),
   delayMinutes: integer('delay_minutes').notNull(),
@@ -78,10 +79,7 @@ export const automationQueue = pgTable(
     customerId: uuid('customer_id').references(() => customers.id, {
       onDelete: 'set null',
     }),
-    journeyResponseId: uuid('journey_response_id').references(
-      () => journeyResponses.id,
-      { onDelete: 'set null' }
-    ),
+    journeyResponseId: uuid('journey_response_id'),
     reviewId: uuid('review_id').references(() => reviews.id, {
       onDelete: 'set null',
     }),
