@@ -41,5 +41,8 @@ export * from './validators/appointment'
 export * from './constants/emotions'
 export * from './constants/cli'
 
+// Phase 1 — Organization roles and role-derivation helpers
+export * from './constants/organization-roles'
+
 // Journey v2 — Adaptive metric system
 export * from './constants/journey-metrics'
