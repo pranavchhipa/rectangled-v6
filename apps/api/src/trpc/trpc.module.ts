@@ -30,9 +30,10 @@ import { AppointmentModule } from '../appointment/appointment.module'
 import { AiAgentModule } from '../ai-agent/ai-agent.module'
 import { OrganizationModule } from '../organization/organization.module'
 import { ChainModule } from '../chain/chain.module'
+import { SurveysModule } from '../surveys/surveys.module'
 
 @Module({
-  imports: [AuthModule, WorkspaceModule, LocationModule, MemberModule, ConnectorModule, ReviewModule, CustomerModule, OnboardingModule, BusinessAspectModule, JourneyModule, TruformModule, ListingModule, BillingModule, AiResponseAutomationModule, CouponModule, CxRoutingModule, NotificationModule, QrModule, AutomationModule, NevModule, CliModule, ReportModule, EmailModule, WapisnapModule, RaisModule, AppointmentModule, AiAgentModule, OrganizationModule, ChainModule],
+  imports: [AuthModule, WorkspaceModule, LocationModule, MemberModule, ConnectorModule, ReviewModule, CustomerModule, OnboardingModule, BusinessAspectModule, JourneyModule, TruformModule, ListingModule, BillingModule, AiResponseAutomationModule, CouponModule, CxRoutingModule, NotificationModule, QrModule, AutomationModule, NevModule, CliModule, ReportModule, EmailModule, WapisnapModule, RaisModule, AppointmentModule, AiAgentModule, OrganizationModule, ChainModule, SurveysModule],
   providers: [TrpcRouter, TrpcService],
   exports: [TrpcService],
 })

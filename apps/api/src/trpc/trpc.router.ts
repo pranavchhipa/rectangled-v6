@@ -65,6 +65,9 @@ import { OrganizationService } from '../organization/organization.service'
 import { OrganizationMemberService } from '../organization/organization-member.service'
 import { createChainRouter } from '../chain/chain.router'
 import { ChainService } from '../chain/chain.service'
+import { createSurveyRouter } from '../surveys/survey.router'
+import { SurveyCrudService } from '../surveys/survey-crud.service'
+import { SurveyEngineService } from '../surveys/survey-engine.service'
 import { z } from 'zod'
 
 // Static router for type export — uses null as any for service injection
@@ -108,6 +111,7 @@ export const appRouter = router({
   organization: createOrganizationRouter(null as any),
   organizationMember: createOrganizationMemberRouter(null as any),
   chain: createChainRouter(null as any),
+  survey: createSurveyRouter(null as any, null as any),
 })
 
 export type AppRouter = typeof appRouter
@@ -150,6 +154,8 @@ export class TrpcRouter implements OnModuleInit {
     private readonly organizationService: OrganizationService,
     private readonly organizationMemberService: OrganizationMemberService,
     private readonly chainService: ChainService,
+    private readonly surveyCrudService: SurveyCrudService,
+    private readonly surveyEngineService: SurveyEngineService,
   ) {}
 
   onModuleInit() {
@@ -193,6 +199,7 @@ export class TrpcRouter implements OnModuleInit {
       organization: createOrganizationRouter(this.organizationService),
       organizationMember: createOrganizationMemberRouter(this.organizationMemberService),
       chain: createChainRouter(this.chainService),
+      survey: createSurveyRouter(this.surveyCrudService, this.surveyEngineService),
     })
 
     const app = this.httpAdapterHost.httpAdapter.getInstance()

@@ -125,7 +125,11 @@ export class SurveyEngineService {
     surveyId: string
     sessionId: string
     fromStepId: string
-    answer: unknown
+    /** Whatever the renderer echoes for the just-answered step; the
+     *  engine validates against the step kind. Optional because z.unknown()
+     *  in the validator infers an optional field — the engine treats
+     *  `undefined` as "no answer" and rejects it for required questions. */
+    answer?: unknown
     /** When the previous step was AskMetric, the renderer echoes which
      *  metric it showed so the engine can branch correctly. */
     metricShown?: SurveyMetric
@@ -326,7 +330,7 @@ export class SurveyEngineService {
     fromStep: SurveyStep,
     survey: typeof surveys.$inferSelect,
     input: {
-      answer: unknown
+      answer?: unknown
       metricShown?: SurveyMetric
       metricScore?: number
     },

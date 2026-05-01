@@ -57,3 +57,6 @@ export * from './constants/journey-metrics'
 export * from './types/survey-steps'
 export * from './constants/survey-step-builders'
 export * from './constants/survey-branch-eval'
+
+// Phase 3 — Survey CRUD + engine validators
+export * from './validators/survey'
