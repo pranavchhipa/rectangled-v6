@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { Loader2, Building2, CheckCircle2, AlertCircle } from 'lucide-react'
 import { trpc } from '@/lib/trpc'
@@ -24,8 +24,30 @@ import {
  *   3. If logged in → call organizationMember.acceptInvite({token}).
  *      On success: switch to that org (sets cookie) and route to dashboard.
  *      On error: show the error with a path back to login.
+ *
+ * Next.js 15 requires any client page that reads useSearchParams() during
+ * prerender to live inside a <Suspense> boundary, otherwise `next build`
+ * fails with `missing-suspense-with-csr-bailout`. The default export is a
+ * thin Suspense wrapper around the real component below.
  */
 export default function AcceptInvitePage() {
+  return (
+    <Suspense
+      fallback={
+        <Shell>
+          <CardContent className="text-center py-10">
+            <Loader2 className="size-6 animate-spin mx-auto text-muted-foreground" />
+            <p className="text-sm text-muted-foreground mt-3">Loading…</p>
+          </CardContent>
+        </Shell>
+      }
+    >
+      <AcceptInviteInner />
+    </Suspense>
+  )
+}
+
+function AcceptInviteInner() {
   const params = useSearchParams()
   const router = useRouter()
   const accessToken = useAuthStore((s) => s.accessToken)
