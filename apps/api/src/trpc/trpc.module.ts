@@ -29,9 +29,10 @@ import { RaisModule } from '../rais/rais.module'
 import { AppointmentModule } from '../appointment/appointment.module'
 import { AiAgentModule } from '../ai-agent/ai-agent.module'
 import { OrganizationModule } from '../organization/organization.module'
+import { ChainModule } from '../chain/chain.module'
 
 @Module({
-  imports: [AuthModule, WorkspaceModule, LocationModule, MemberModule, ConnectorModule, ReviewModule, CustomerModule, OnboardingModule, BusinessAspectModule, JourneyModule, TruformModule, ListingModule, BillingModule, AiResponseAutomationModule, CouponModule, CxRoutingModule, NotificationModule, QrModule, AutomationModule, NevModule, CliModule, ReportModule, EmailModule, WapisnapModule, RaisModule, AppointmentModule, AiAgentModule, OrganizationModule],
+  imports: [AuthModule, WorkspaceModule, LocationModule, MemberModule, ConnectorModule, ReviewModule, CustomerModule, OnboardingModule, BusinessAspectModule, JourneyModule, TruformModule, ListingModule, BillingModule, AiResponseAutomationModule, CouponModule, CxRoutingModule, NotificationModule, QrModule, AutomationModule, NevModule, CliModule, ReportModule, EmailModule, WapisnapModule, RaisModule, AppointmentModule, AiAgentModule, OrganizationModule, ChainModule],
   providers: [TrpcRouter, TrpcService],
   exports: [TrpcService],
 })

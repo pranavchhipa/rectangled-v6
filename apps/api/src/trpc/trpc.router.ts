@@ -63,6 +63,8 @@ import { createOrganizationRouter } from '../organization/organization.router'
 import { createOrganizationMemberRouter } from '../organization/organization-member.router'
 import { OrganizationService } from '../organization/organization.service'
 import { OrganizationMemberService } from '../organization/organization-member.service'
+import { createChainRouter } from '../chain/chain.router'
+import { ChainService } from '../chain/chain.service'
 import { z } from 'zod'
 
 // Static router for type export — uses null as any for service injection
@@ -105,6 +107,7 @@ export const appRouter = router({
   aiAgent: createAiAgentRouter(null as any, null as any),
   organization: createOrganizationRouter(null as any),
   organizationMember: createOrganizationMemberRouter(null as any),
+  chain: createChainRouter(null as any),
 })
 
 export type AppRouter = typeof appRouter
@@ -146,6 +149,7 @@ export class TrpcRouter implements OnModuleInit {
     private readonly aiAgentService: AiAgentService,
     private readonly organizationService: OrganizationService,
     private readonly organizationMemberService: OrganizationMemberService,
+    private readonly chainService: ChainService,
   ) {}
 
   onModuleInit() {
@@ -188,6 +192,7 @@ export class TrpcRouter implements OnModuleInit {
       aiAgent: createAiAgentRouter(this.aiAgentService, this.emailService),
       organization: createOrganizationRouter(this.organizationService),
       organizationMember: createOrganizationMemberRouter(this.organizationMemberService),
+      chain: createChainRouter(this.chainService),
     })
 
     const app = this.httpAdapterHost.httpAdapter.getInstance()

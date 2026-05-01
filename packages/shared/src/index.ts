@@ -47,5 +47,8 @@ export * from './constants/organization-roles'
 // Phase 1 — Organization validators
 export * from './validators/organization'
 
+// Phase 2 — Chain rollup validators
+export * from './validators/chain'
+
 // Journey v2 — Adaptive metric system
 export * from './constants/journey-metrics'
