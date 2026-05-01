@@ -13,6 +13,7 @@ import { users } from './users'
 import { reviews } from './reviews'
 import { locations } from './locations'
 import { customers } from './customers'
+import { organizations } from './organizations'
 import {
   triggerTypeEnum,
   escalationPriorityEnum,
@@ -39,6 +40,34 @@ export const escalationRules = pgTable('escalation_rules', {
   slaMinutes: integer('sla_minutes'),
   isActive: boolean('is_active').default(true).notNull(),
   sortOrder: integer('sort_order').default(0).notNull(),
+  /**
+   * Phase 2 — rule inheritance scope. Same semantics as automation_rules.
+   * Default 'workspace' preserves legacy behaviour.
+   */
+  scope: varchar('scope', { length: 20 }).default('workspace').notNull(),
+  organizationId: uuid('organization_id').references(() => organizations.id, {
+    onDelete: 'cascade',
+  }),
+  locationId: uuid('location_id').references(() => locations.id, {
+    onDelete: 'cascade',
+  }),
+  overridesRuleId: uuid('overrides_rule_id'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+})
+
+/** Phase 2 — per-location aspirational targets for the chain dashboard. */
+export const locationSlaTargets = pgTable('location_sla_targets', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  locationId: uuid('location_id')
+    .notNull()
+    .unique()
+    .references(() => locations.id, { onDelete: 'cascade' }),
+  reviewResponseSlaMinutes: integer('review_response_sla_minutes'),
+  escalationResolveSlaMinutes: integer('escalation_resolve_sla_minutes'),
+  journeyResponseTargetPerWeek: integer('journey_response_target_per_week'),
+  npsTargetScore: integer('nps_target_score'),
+  csatTargetPercent: integer('csat_target_percent'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 })

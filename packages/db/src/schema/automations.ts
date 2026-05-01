@@ -14,6 +14,8 @@ import { workspaces } from './workspaces'
 import { journeys, journeyResponses } from './journeys'
 import { customers } from './customers'
 import { reviews } from './reviews'
+import { organizations } from './organizations'
+import { locations } from './locations'
 import { automationTriggerEnum, automationActionEnum, automationQueueStatusEnum } from './enums'
 
 export const automationRules = pgTable('automation_rules', {
@@ -41,6 +43,24 @@ export const automationRules = pgTable('automation_rules', {
    * migration 0005.
    */
   cooldownHours: integer('cooldown_hours'),
+  /**
+   * Phase 2 — rule inheritance scope. Engine resolves precedence
+   * `location > workspace > organization` per (triggerEvent, actionType).
+   * Default 'workspace' preserves legacy behaviour.
+   */
+  scope: varchar('scope', { length: 20 }).default('workspace').notNull(),
+  organizationId: uuid('organization_id').references(() => organizations.id, {
+    onDelete: 'cascade',
+  }),
+  locationId: uuid('location_id').references(() => locations.id, {
+    onDelete: 'cascade',
+  }),
+  /**
+   * Informational self-FK — points from a location override back to the
+   * workspace rule it overrides. Engine doesn't read this; it uses scope
+   * precedence. UI uses this to render the inheritance chain.
+   */
+  overridesRuleId: uuid('overrides_rule_id'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 })
