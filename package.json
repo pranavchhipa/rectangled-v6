@@ -16,6 +16,7 @@
     "db:migrate:status": "node scripts/migrate.mjs --status",
     "db:migrate:dry-run": "node scripts/migrate.mjs --dry-run",
     "migrate:journey-v2": "node scripts/migrate-journey-v2.mjs",
+    "backfill:surveys": "node scripts/backfill-surveys.mjs",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\"",
     "test": "vitest run",
     "test:watch": "vitest",
