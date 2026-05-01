@@ -45,6 +45,10 @@ import { useAuthStore } from '@/stores/auth-store'
 
 const navItems = [
   { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
+  // Phase 2 Stage D — multi-location chain rollup. The page detects when
+  // the user has no organization and shows a friendly empty state, so
+  // showing this link unconditionally is fine.
+  { label: 'Chain rollup', href: '/dashboard/chain', icon: Building2 },
   { label: 'Locations', href: '/dashboard/locations', icon: MapPin },
   { label: 'Inbox', href: '/dashboard/inbox', icon: Inbox },
   { label: 'Escalations', href: '/dashboard/escalations', icon: AlertTriangle },
