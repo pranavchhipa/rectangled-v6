@@ -44,6 +44,8 @@ export const createAutomationRuleSchema = z.object({
   actionConfig: z.record(z.unknown()).default({}),
   conditions: z.record(z.unknown()).optional(),
   isActive: z.boolean().optional(),
+  // Phase 0 Fix 4 — per-customer cooldown in hours. null = no cooldown.
+  cooldownHours: z.number().int().min(0).max(8760).nullable().optional(),
 })
 
 export const updateAutomationRuleSchema = z.object({
@@ -58,6 +60,7 @@ export const updateAutomationRuleSchema = z.object({
   actionConfig: z.record(z.unknown()).optional(),
   conditions: z.record(z.unknown()).optional(),
   isActive: z.boolean().optional(),
+  cooldownHours: z.number().int().min(0).max(8760).nullable().optional(),
 })
 
 export const deleteAutomationRuleSchema = z.object({

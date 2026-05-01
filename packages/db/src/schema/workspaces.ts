@@ -19,12 +19,27 @@ export const workspaces = pgTable('workspaces', {
       aiAutoRespond: boolean
       reviewResponseDelay: { min: number; max: number }
       frequencyCap: { maxSurveys: number; windowDays: number }
+      /**
+       * Phase 0 Fix 8 — per-customer outbound rate caps. Worker checks
+       * these before dispatching any send_coupon / send_message action.
+       * Default seeded by migration 0005.
+       */
+      customerRateCap?: {
+        maxMessagesPerDay?: number
+        maxCouponsPerMonth?: number
+        maxActionsPerWeek?: number
+      }
     }>()
     .default({
       defaultTimezone: 'Asia/Kolkata',
       aiAutoRespond: false,
       reviewResponseDelay: { min: 1, max: 3 },
       frequencyCap: { maxSurveys: 2, windowDays: 60 },
+      customerRateCap: {
+        maxMessagesPerDay: 3,
+        maxCouponsPerMonth: 1,
+        maxActionsPerWeek: 10,
+      },
     })
     .notNull(),
   onboardingComplete: boolean('onboarding_complete').default(false).notNull(),

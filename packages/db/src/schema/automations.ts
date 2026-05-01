@@ -34,6 +34,13 @@ export const automationRules = pgTable('automation_rules', {
     .notNull(),
   conditions: jsonb('conditions').$type<Record<string, unknown>>(),
   isActive: boolean('is_active').default(true).notNull(),
+  /**
+   * Phase 0 Fix 4 — per-customer cooldown window in hours. NULL = no cooldown.
+   * Engine skips enqueue if the same (rule, customer) was enqueued within the
+   * window. Default 2160h (90 days) is set on existing send_coupon rules via
+   * migration 0005.
+   */
+  cooldownHours: integer('cooldown_hours'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 })

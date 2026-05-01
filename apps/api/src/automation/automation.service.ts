@@ -1,10 +1,10 @@
 import { Injectable, Inject, Logger } from '@nestjs/common'
 import { TRPCError } from '@trpc/server'
-import { eq, and, lte, sql, desc, count } from 'drizzle-orm'
+import { eq, and, lte, sql, desc, count, gt, gte, inArray } from 'drizzle-orm'
 import { randomUUID } from 'crypto'
 import OpenAI from 'openai'
 import type { Database } from '@rectangled/db'
-import { automationRules, automationQueue, members, reviews, connectorInstances, workspaces } from '@rectangled/db'
+import { automationRules, automationQueue, members, reviews, connectorInstances, workspaces, customers } from '@rectangled/db'
 import { GbpAdapter } from '../connector/adapters/gbp.adapter'
 import { buildTriggerKey } from './triggerKey'
 
@@ -52,6 +52,7 @@ export class AutomationService {
       actionConfig: Record<string, unknown>
       conditions?: Record<string, unknown>
       isActive?: boolean
+      cooldownHours?: number | null
     },
     userId: string
   ) {
@@ -69,6 +70,7 @@ export class AutomationService {
         actionConfig: input.actionConfig,
         conditions: input.conditions,
         isActive: input.isActive ?? true,
+        cooldownHours: input.cooldownHours ?? null,
       })
       .returning()
 
@@ -87,6 +89,7 @@ export class AutomationService {
       actionConfig?: Record<string, unknown>
       conditions?: Record<string, unknown>
       isActive?: boolean
+      cooldownHours?: number | null
     },
     userId: string
   ) {
@@ -102,6 +105,7 @@ export class AutomationService {
     if (input.actionConfig !== undefined) setValues.actionConfig = input.actionConfig
     if (input.conditions !== undefined) setValues.conditions = input.conditions
     if (input.isActive !== undefined) setValues.isActive = input.isActive
+    if (input.cooldownHours !== undefined) setValues.cooldownHours = input.cooldownHours
 
     const [updated] = await this.db
       .update(automationRules)
@@ -159,6 +163,32 @@ export class AutomationService {
     const queueEntries: Array<typeof automationQueue.$inferSelect> = []
 
     for (const rule of filteredRules) {
+      // Phase 0 Fix 4 — per-rule cooldown. Skip enqueue if the same
+      // (rule, customer) was queued within the cooldown window (regardless
+      // of status — pending/processing/completed all count as "served
+      // recently"; only cancelled/failed don't reset the clock).
+      if (rule.cooldownHours && context.customerId) {
+        const cutoff = new Date(Date.now() - rule.cooldownHours * 60 * 60 * 1000)
+        const recent = await this.db
+          .select({ id: automationQueue.id })
+          .from(automationQueue)
+          .where(
+            and(
+              eq(automationQueue.ruleId, rule.id),
+              eq(automationQueue.customerId, context.customerId),
+              gte(automationQueue.createdAt, cutoff),
+              inArray(automationQueue.status, ['pending', 'processing', 'completed'] as any),
+            ),
+          )
+          .limit(1)
+        if (recent.length > 0) {
+          this.logger.log(
+            `Cooldown skip: rule "${rule.name}" was triggered for customer ${context.customerId} within ${rule.cooldownHours}h`,
+          )
+          continue
+        }
+      }
+
       const scheduledFor = new Date(Date.now() + rule.delayMinutes * 60 * 1000)
 
       const [entry] = await this.db
@@ -186,6 +216,89 @@ export class AutomationService {
     return { triggered: queueEntries.length, entries: queueEntries }
   }
 
+  /**
+   * Phase 0 Fix 8 — workspace-level customer rate cap check.
+   *
+   * Returns null if the action is allowed; returns a reason string if it
+   * should be cancelled. Caller (queue worker) marks the row 'cancelled'
+   * with the reason instead of dispatching.
+   */
+  private async checkCustomerRateCap(queueItem: {
+    workspaceId: string
+    customerId: string | null
+    rule: { actionType: string }
+  }): Promise<string | null> {
+    if (!queueItem.customerId) return null
+    const ws = await this.db.query.workspaces.findFirst({
+      where: eq(workspaces.id, queueItem.workspaceId),
+    })
+    const cap = (ws?.settings as any)?.customerRateCap as
+      | { maxMessagesPerDay?: number; maxCouponsPerMonth?: number; maxActionsPerWeek?: number }
+      | undefined
+    if (!cap) return null
+
+    const now = Date.now()
+
+    // maxActionsPerWeek — total completed actions of any kind for this customer
+    if (cap.maxActionsPerWeek && cap.maxActionsPerWeek > 0) {
+      const since = new Date(now - 7 * 24 * 60 * 60 * 1000)
+      const [{ c }] = await this.db
+        .select({ c: count() })
+        .from(automationQueue)
+        .where(
+          and(
+            eq(automationQueue.customerId, queueItem.customerId),
+            eq(automationQueue.status, 'completed' as any),
+            gte(automationQueue.completedAt, since),
+          ),
+        )
+      if (c >= cap.maxActionsPerWeek) {
+        return `customer_rate_cap: maxActionsPerWeek=${cap.maxActionsPerWeek} reached`
+      }
+    }
+
+    const isMessage = queueItem.rule.actionType === 'send_message' || queueItem.rule.actionType === 'send_coupon'
+    if (isMessage && cap.maxMessagesPerDay && cap.maxMessagesPerDay > 0) {
+      const since = new Date(now - 24 * 60 * 60 * 1000)
+      const [{ c }] = await this.db
+        .select({ c: count() })
+        .from(automationQueue)
+        .innerJoin(automationRules, eq(automationQueue.ruleId, automationRules.id))
+        .where(
+          and(
+            eq(automationQueue.customerId, queueItem.customerId),
+            eq(automationQueue.status, 'completed' as any),
+            gte(automationQueue.completedAt, since),
+            inArray(automationRules.actionType, ['send_message', 'send_coupon'] as any),
+          ),
+        )
+      if (c >= cap.maxMessagesPerDay) {
+        return `customer_rate_cap: maxMessagesPerDay=${cap.maxMessagesPerDay} reached`
+      }
+    }
+
+    if (queueItem.rule.actionType === 'send_coupon' && cap.maxCouponsPerMonth && cap.maxCouponsPerMonth > 0) {
+      const since = new Date(now - 30 * 24 * 60 * 60 * 1000)
+      const [{ c }] = await this.db
+        .select({ c: count() })
+        .from(automationQueue)
+        .innerJoin(automationRules, eq(automationQueue.ruleId, automationRules.id))
+        .where(
+          and(
+            eq(automationQueue.customerId, queueItem.customerId),
+            eq(automationQueue.status, 'completed' as any),
+            gte(automationQueue.completedAt, since),
+            eq(automationRules.actionType, 'send_coupon' as any),
+          ),
+        )
+      if (c >= cap.maxCouponsPerMonth) {
+        return `customer_rate_cap: maxCouponsPerMonth=${cap.maxCouponsPerMonth} reached`
+      }
+    }
+
+    return null
+  }
+
   async processQueue() {
     const now = new Date()
 
@@ -202,6 +315,27 @@ export class AutomationService {
 
     for (const item of pendingItems) {
       results.processed++
+
+      // Phase 0 Fix 8 — customer rate cap. Check BEFORE marking 'processing'
+      // so a capped row doesn't get retried by the watchdog. If capped,
+      // mark 'cancelled' with the reason in lastError.
+      const rateCapReason = await this.checkCustomerRateCap({
+        workspaceId: item.workspaceId,
+        customerId: item.customerId,
+        rule: item.rule as { actionType: string },
+      })
+      if (rateCapReason) {
+        await this.db
+          .update(automationQueue)
+          .set({
+            status: 'cancelled' as any,
+            lastError: rateCapReason,
+            updatedAt: new Date(),
+          })
+          .where(eq(automationQueue.id, item.id))
+        this.logger.log(`Cancelled queue ${item.id}: ${rateCapReason}`)
+        continue
+      }
 
       // Mark as processing
       await this.db
