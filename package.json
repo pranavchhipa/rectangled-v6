@@ -17,13 +17,16 @@
     "db:migrate:dry-run": "node scripts/migrate.mjs --dry-run",
     "migrate:journey-v2": "node scripts/migrate-journey-v2.mjs",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\"",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "clean": "turbo clean && rm -rf node_modules"
   },
   "devDependencies": {
     "eslint": "^9",
     "prettier": "^3.4",
     "turbo": "^2",
-    "typescript": "^5.7"
+    "typescript": "^5.7",
+    "vitest": "^2.1.9"
   },
   "packageManager": "npm@10.8.0",
   "engines": {

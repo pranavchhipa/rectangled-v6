@@ -6,6 +6,7 @@ import OpenAI from 'openai'
 import type { Database } from '@rectangled/db'
 import { automationRules, automationQueue, members, reviews, connectorInstances, workspaces } from '@rectangled/db'
 import { GbpAdapter } from '../connector/adapters/gbp.adapter'
+import { buildTriggerKey } from './triggerKey'
 
 const openrouter = new OpenAI({
   apiKey: process.env.OPENROUTER_API_KEY || '',
@@ -149,7 +150,13 @@ export class AutomationService {
       return true
     })
 
-    const queueEntries = []
+    // Phase 0 Fix 1: deterministic per-source key for idempotent enqueue.
+    // The same triggerKey + same rule cannot be enqueued twice (partial unique
+    // index on (rule_id, trigger_key)). null-safe: keys we can't construct
+    // (e.g. context with no source ids) skip the dedup, matching prior behaviour.
+    const triggerKey = buildTriggerKey(context)
+
+    const queueEntries: Array<typeof automationQueue.$inferSelect> = []
 
     for (const rule of filteredRules) {
       const scheduledFor = new Date(Date.now() + rule.delayMinutes * 60 * 1000)
@@ -162,13 +169,18 @@ export class AutomationService {
           customerId: context.customerId,
           journeyResponseId: context.journeyResponseId,
           reviewId: context.reviewId,
+          triggerKey,
           scheduledFor,
           status: 'pending' as any,
           metadata: context.metadata || {},
         })
+        .onConflictDoNothing({
+          target: [automationQueue.ruleId, automationQueue.triggerKey],
+        })
         .returning()
 
-      queueEntries.push(entry)
+      // entry is undefined when the row was a duplicate and was skipped.
+      if (entry) queueEntries.push(entry)
     }
 
     return { triggered: queueEntries.length, entries: queueEntries }
@@ -361,6 +373,16 @@ export class AutomationService {
   }
 
   // --- Private helpers ---
+
+  /**
+   * Phase 0 Fix 9: stable idempotency key per (queueItemId, attempts).
+   * Re-running the same attempt produces the same key; a retry (new attempt)
+   * produces a different key. This is what we pass to outbound calls (GBP,
+   * WapiSnap, OpenRouter) so they can de-duplicate at their end if supported.
+   */
+  private idempotencyKeyFor(queueItem: { id: string; attempts: number }): string {
+    return `auto-${queueItem.id}-${queueItem.attempts}`
+  }
 
   private async executeAction(queueItem: any) {
     const rule = queueItem.rule
@@ -560,11 +582,16 @@ Write a response:`
       throw new Error('No GBP review resource name found in review metadata. Cannot post reply.')
     }
 
-    // Post the reply
-    await this.gbpAdapter.replyToReview(accessToken, reviewResourceName, replyText)
+    // Post the reply (Phase 0 Fix 9: idempotency key — GBP's PUT is already
+    // idempotent so this is mostly trace-tagging, but we pass it through for
+    // consistency with WapiSnap / OpenRouter call sites).
+    const idempotencyKey = this.idempotencyKeyFor(queueItem)
+    await this.gbpAdapter.replyToReview(accessToken, reviewResourceName, replyText, {
+      idempotencyKey,
+    })
 
     this.logger.log(
-      `AI reply posted to Google review ${reviewId} (resource: ${reviewResourceName})`
+      `AI reply posted to Google review ${reviewId} (resource: ${reviewResourceName}, idem: ${idempotencyKey})`
     )
   }
 

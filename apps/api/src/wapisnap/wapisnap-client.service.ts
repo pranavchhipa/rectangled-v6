@@ -191,11 +191,22 @@ export class WapisnapClientService {
 
   // --- Private HTTP client ---
 
+  /**
+   * Phase 0 Fix 9 — accepts an optional idempotencyKey. Sent as
+   * `X-Idempotency-Key`. Whether the WapiSnap bridge honours it (returns the
+   * same response for the same key) is bridge-implementation-defined and
+   * UNVERIFIED at the time of writing. We send it as best-effort defense in
+   * depth; the primary dedup is at the queue layer (Fix 1, unique index on
+   * (rule_id, trigger_key)) plus the worker singleton guard (Fix 13a/b).
+   *
+   * If you confirm the bridge supports idempotency, document it here.
+   */
   private async request<T>(
     method: string,
     path: string,
     apiKey?: string,
-    body?: Record<string, unknown>
+    body?: Record<string, unknown>,
+    opts?: { idempotencyKey?: string },
   ): Promise<T> {
     const url = `${this.bridgeUrl}${path}`
     const timestamp = Date.now().toString()
@@ -215,6 +226,10 @@ export class WapisnapClientService {
 
     if (apiKey) {
       headers['X-Api-Key'] = apiKey
+    }
+
+    if (opts?.idempotencyKey) {
+      headers['X-Idempotency-Key'] = opts.idempotencyKey
     }
 
     try {

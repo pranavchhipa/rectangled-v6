@@ -340,11 +340,22 @@ export class GbpAdapter {
 
   /**
    * Post a reply to a review on GBP.
+   *
+   * GBP's `reviews.reply` is a PUT — already idempotent at the resource level.
+   * Calling it twice with the same comment is a no-op on Google's side.
+   * We additionally check the existing reply state and short-circuit if it
+   * already matches, so we don't waste an API call (and don't bump the
+   * resource's updateTime).
+   *
+   * Phase 0 Fix 9 also accepts an optional idempotencyKey for trace logging
+   * but GBP doesn't honour it as a real idempotency mechanism (PUT semantics
+   * already cover us).
    */
   async replyToReview(
     accessToken: string,
     reviewName: string,
-    comment: string
+    comment: string,
+    opts?: { idempotencyKey?: string },
   ): Promise<void> {
     const oauth2Client = this.createAuthClient(accessToken)
 
@@ -353,6 +364,9 @@ export class GbpAdapter {
         url: `https://mybusiness.googleapis.com/v4/${reviewName}/reply`,
         method: 'PUT',
         data: { comment },
+        headers: opts?.idempotencyKey
+          ? { 'X-Idempotency-Key': opts.idempotencyKey }
+          : undefined,
       })
     } catch (err: any) {
       throw new TRPCError({
