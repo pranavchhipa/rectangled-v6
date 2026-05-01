@@ -167,19 +167,21 @@ export default function OrganizationOverviewPage() {
           </Card>
         </Link>
 
-        {org.type === 'agency' && (
-          <Card className="opacity-60">
+        <Link href="/dashboard/organization/white-label" className="block group rounded-xl">
+          <Card className="cursor-pointer transition-shadow group-hover:shadow-md">
             <CardHeader>
               <CardTitle className="text-base flex items-center gap-2">
                 <Palette className="size-4 text-primary" />
                 White-label
               </CardTitle>
               <CardDescription>
-                Customize branding for your clients (coming soon — Phase 1 Stage F).
+                {org.type === 'agency'
+                  ? 'Customize branding for your clients — logo, colors, support contacts.'
+                  : 'Customize branding (most useful in agency mode, but available now).'}
               </CardDescription>
             </CardHeader>
           </Card>
-        )}
+        </Link>
       </div>
     </div>
   )

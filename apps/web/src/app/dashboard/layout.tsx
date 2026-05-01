@@ -8,6 +8,7 @@ import { SidebarProvider, SidebarInset } from '@/components/ui/sidebar'
 import { useAuthGuard } from '@/hooks/use-auth-guard'
 import { AiChatWidget } from '@/components/dashboard/ai-chat-widget'
 import { OrgHydrator } from '@/components/dashboard/org-hydrator'
+import { WhiteLabelTheme } from '@/components/dashboard/white-label-theme'
 import { useAuthStore } from '@/stores/auth-store'
 import { trpc } from '@/lib/trpc'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -76,13 +77,15 @@ export default function DashboardLayout({
   return (
     <SidebarProvider>
       <OrgHydrator />
-      <DashboardSidebar />
-      <SidebarInset>
-        <DashboardHeader />
-        <main className="flex-1 overflow-y-auto p-6">
-          <OnboardingGuard>{children}</OnboardingGuard>
-        </main>
-      </SidebarInset>
+      <WhiteLabelTheme>
+        <DashboardSidebar />
+        <SidebarInset>
+          <DashboardHeader />
+          <main className="flex-1 overflow-y-auto p-6">
+            <OnboardingGuard>{children}</OnboardingGuard>
+          </main>
+        </SidebarInset>
+      </WhiteLabelTheme>
       <AiChatWidget />
     </SidebarProvider>
   )
