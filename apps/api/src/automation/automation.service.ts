@@ -4,9 +4,10 @@ import { eq, and, lte, sql, desc, count, gt, gte, inArray } from 'drizzle-orm'
 import { randomUUID } from 'crypto'
 import OpenAI from 'openai'
 import type { Database } from '@rectangled/db'
-import { automationRules, automationQueue, members, reviews, reviewResponses, connectorInstances, workspaces, customers } from '@rectangled/db'
+import { automationRules, automationQueue, members, reviews, reviewResponses, connectorInstances, workspaces, customers, journeyResponses } from '@rectangled/db'
 import { GbpAdapter } from '../connector/adapters/gbp.adapter'
 import { buildTriggerKey } from './triggerKey'
+import { resolveRulesByScope, type ScopedRule } from './scope-resolution'
 
 const openrouter = new OpenAI({
   apiKey: process.env.OPENROUTER_API_KEY || '',
@@ -133,26 +134,74 @@ export class AutomationService {
     journeyResponseId?: string
     reviewId?: string
     metadata?: Record<string, unknown>
+    /** Phase 2 — derived server-side if not supplied. */
+    organizationId?: string
+    /** Phase 2 — derived server-side from reviewId / journeyResponseId if not supplied. */
+    locationId?: string | null
   }) {
-    // Find active rules matching this event
-    const conditions = [
-      eq(automationRules.workspaceId, context.workspaceId),
-      eq(automationRules.triggerEvent, context.event as any),
-      eq(automationRules.isActive, true),
-    ]
+    // Phase 2 — resolve organizationId + locationId for scope precedence.
+    // Accept them on the input for callers that already know, else derive
+    // from workspace.organizationId and the source row's locationId.
+    let organizationId = context.organizationId
+    if (!organizationId) {
+      const ws = await this.db.query.workspaces.findFirst({
+        where: eq(workspaces.id, context.workspaceId),
+      })
+      organizationId = ws?.organizationId ?? undefined
+    }
+    if (!organizationId) {
+      this.logger.warn(
+        `triggerAutomation: workspace ${context.workspaceId} has no organization_id; org-scope rules will not match.`,
+      )
+    }
 
-    // If journeyId provided, match rules for that journey or global rules (journeyId IS NULL)
-    const matchingRules = await this.db.query.automationRules.findMany({
-      where: and(...conditions),
+    let locationId: string | null = context.locationId ?? null
+    if (locationId === null) {
+      if (context.reviewId) {
+        const r = await this.db.query.reviews.findFirst({
+          where: eq(reviews.id, context.reviewId),
+        })
+        locationId = r?.locationId ?? null
+      } else if (context.journeyResponseId) {
+        const jr = await this.db.query.journeyResponses.findFirst({
+          where: eq(journeyResponses.id, context.journeyResponseId),
+        })
+        locationId = jr?.locationId ?? null
+      }
+    }
+
+    // Phase 2 — load matching rules at all 3 scopes (regardless of isActive).
+    // The resolver decides what fires; "disable at higher specificity blocks
+    // lower specificity" needs the disabled candidates to be visible.
+    const candidateRules = await this.db.query.automationRules.findMany({
+      where: and(
+        eq(automationRules.triggerEvent, context.event as any),
+        sql`(
+          (${automationRules.scope} = 'workspace' AND ${automationRules.workspaceId} = ${context.workspaceId})
+          OR (${automationRules.scope} = 'organization' AND ${automationRules.organizationId} = ${organizationId ?? null})
+          OR (${automationRules.scope} = 'location' AND ${automationRules.locationId} = ${locationId})
+        )`,
+      ),
     })
 
-    const filteredRules = matchingRules.filter((rule) => {
-      // Rule is global (no journeyId) or matches the specific journey
+    // Step 1: journeyId filter (workspace-scope rules can be journey-scoped;
+    // org/location rules don't carry a journeyId).
+    const journeyFiltered = candidateRules.filter((rule) => {
       if (rule.journeyId && context.journeyId && rule.journeyId !== context.journeyId) {
         return false
       }
       return true
     })
+
+    // Step 2: scope precedence resolution.
+    const filteredRules = resolveRulesByScope<ScopedRule & (typeof candidateRules)[number]>(
+      journeyFiltered as Array<ScopedRule & (typeof candidateRules)[number]>,
+      {
+        organizationId: organizationId ?? '',
+        workspaceId: context.workspaceId,
+        locationId,
+      },
+    )
 
     // Phase 0 Fix 1: deterministic per-source key for idempotent enqueue.
     // The same triggerKey + same rule cannot be enqueued twice (partial unique
