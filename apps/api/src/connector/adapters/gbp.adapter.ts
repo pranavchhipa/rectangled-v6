@@ -20,6 +20,10 @@ export interface GbpReview {
   createTime: string
   updateTime: string
   name: string // resource name for reply
+  reviewReply: {
+    comment: string
+    updateTime: string
+  } | null
 }
 
 export interface GbpLocalPost {
@@ -316,6 +320,13 @@ export class GbpAdapter {
           createTime: r.createTime,
           updateTime: r.updateTime,
           name: r.name,
+          // Reply state — present only if the owner has posted a reply.
+          reviewReply: r.reviewReply
+            ? {
+                comment: r.reviewReply.comment,
+                updateTime: r.reviewReply.updateTime,
+              }
+            : null,
         })),
         nextPageToken: data.nextPageToken,
       }

@@ -699,22 +699,20 @@ export default function InboxPage() {
 
                   {/* Action buttons row */}
                   <div className="flex items-center gap-2 px-4 pb-3 pt-0">
-                    {!review.responseText && !review.respondedAt && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-7 text-xs gap-1"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          setSelectedReview(review)
-                          handleGenerateAI(review.id)
-                        }}
-                        disabled={generateMutation.isPending}
-                      >
-                        <Sparkles className="size-3" />
-                        AI Generate
-                      </Button>
-                    )}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-xs gap-1"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setSelectedReview(review)
+                        handleGenerateAI(review.id)
+                      }}
+                      disabled={generateMutation.isPending}
+                    >
+                      <Sparkles className="size-3" />
+                      {review.responseText || review.respondedAt ? 'Re-reply with AI' : 'AI Generate'}
+                    </Button>
                     {!review.isEscalated && (
                       <Button
                         variant="ghost"

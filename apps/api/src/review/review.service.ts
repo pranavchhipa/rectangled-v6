@@ -212,7 +212,7 @@ export class ReviewService {
           .limit(1)
 
         if (existing.length === 0) {
-          await this.db
+          const inserted = await this.db
             .insert(reviews)
             .values({
               workspaceId: instance.workspaceId,
@@ -230,9 +230,77 @@ export class ReviewService {
             .onConflictDoNothing({
               target: [reviews.workspaceId, reviews.platform, reviews.platformReviewId],
             })
-            .catch(() => {})
+            .returning({ id: reviews.id })
+            .catch(() => [] as Array<{ id: string }>)
 
-          synced++
+          if (inserted && inserted.length > 0) synced++
+
+          // For brand new reviews with an existing GBP reply, seed a posted
+          // reviewResponses row so the inbox knows it's already replied.
+          if (inserted && inserted.length > 0 && gbpReview.reviewReply) {
+            await this.db
+              .insert(reviewResponses)
+              .values({
+                reviewId: inserted[0].id,
+                content: gbpReview.reviewReply.comment,
+                status: 'posted',
+                generatedBy: 'human',
+                postedAt: new Date(gbpReview.reviewReply.updateTime),
+              })
+              .catch(() => {})
+          }
+        } else {
+          // Review already in our DB. Reconcile reply state with GBP — if the
+          // owner deleted/updated the reply on Google directly, sync it here.
+          const reviewId = existing[0].id
+          const ourLatest = await this.db.query.reviewResponses.findFirst({
+            where: and(
+              eq(reviewResponses.reviewId, reviewId),
+              sql`${reviewResponses.status} IN ('approved', 'posted')`
+            ),
+            orderBy: desc(reviewResponses.createdAt),
+          })
+
+          if (gbpReview.reviewReply) {
+            // GBP has a reply. If our latest row's content drifted (e.g. owner
+            // edited on Google), update it. If we have no posted row at all,
+            // seed one.
+            const reply = gbpReview.reviewReply
+            if (!ourLatest) {
+              await this.db
+                .insert(reviewResponses)
+                .values({
+                  reviewId,
+                  content: reply.comment,
+                  status: 'posted',
+                  generatedBy: 'human',
+                  postedAt: new Date(reply.updateTime),
+                })
+                .catch(() => {})
+            } else if (
+              ourLatest.status === 'approved' ||
+              ourLatest.content !== reply.comment
+            ) {
+              await this.db
+                .update(reviewResponses)
+                .set({
+                  content: reply.comment,
+                  status: 'posted',
+                  postedAt: new Date(reply.updateTime),
+                  updatedAt: new Date(),
+                })
+                .where(eq(reviewResponses.id, ourLatest.id))
+            }
+          } else {
+            // GBP has no reply. If our DB still says posted, the owner must
+            // have deleted it directly on Google — flip our row to 'deleted'.
+            if (ourLatest && ourLatest.status === 'posted') {
+              await this.db
+                .update(reviewResponses)
+                .set({ status: 'deleted', updatedAt: new Date() })
+                .where(eq(reviewResponses.id, ourLatest.id))
+            }
+          }
         }
       }
 
