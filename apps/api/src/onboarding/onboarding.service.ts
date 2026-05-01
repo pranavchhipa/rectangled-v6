@@ -57,6 +57,38 @@ export class OnboardingService {
     return updated
   }
 
+  /**
+   * Phase 1 Stage G — set the onboarding flow per organization type.
+   * Idempotent; called from the wizard's flow-picker step.
+   */
+  async setFlow(
+    workspaceId: string,
+    flow: 'direct' | 'multi_location' | 'agency',
+    userId: string,
+  ) {
+    await this.requireMembership(workspaceId, userId)
+
+    let state = await this.db.query.onboardingState.findFirst({
+      where: eq(onboardingState.workspaceId, workspaceId),
+    })
+
+    if (!state) {
+      const [created] = await this.db
+        .insert(onboardingState)
+        .values({ workspaceId, flow })
+        .returning()
+      return created
+    }
+
+    const [updated] = await this.db
+      .update(onboardingState)
+      .set({ flow, updatedAt: new Date() })
+      .where(eq(onboardingState.workspaceId, workspaceId))
+      .returning()
+
+    return updated
+  }
+
   async complete(workspaceId: string, userId: string) {
     await this.requireMembership(workspaceId, userId)
 

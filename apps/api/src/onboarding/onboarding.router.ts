@@ -3,6 +3,7 @@ import {
   getOnboardingStateSchema,
   updateOnboardingStepSchema,
   completeOnboardingSchema,
+  setOnboardingFlowSchema,
 } from '@rectangled/shared'
 import { OnboardingService } from './onboarding.service'
 
@@ -16,6 +17,12 @@ export function createOnboardingRouter(service: OnboardingService) {
       .input(updateOnboardingStepSchema)
       .mutation(async ({ input, ctx }) => {
         return service.updateStep(input.workspaceId, input.step, ctx.user.sub)
+      }),
+
+    setFlow: protectedProcedure
+      .input(setOnboardingFlowSchema)
+      .mutation(async ({ input, ctx }) => {
+        return service.setFlow(input.workspaceId, input.flow, ctx.user.sub)
       }),
 
     complete: protectedProcedure.input(completeOnboardingSchema).mutation(async ({ input, ctx }) => {

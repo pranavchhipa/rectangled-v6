@@ -22,6 +22,10 @@ import {
   Sparkles,
   Rocket,
   Loader2,
+  Store,
+  Network,
+  Users,
+  MapPin,
 } from 'lucide-react'
 import { trpc } from '@/lib/trpc'
 import { useAuthStore } from '@/stores/auth-store'
@@ -49,7 +53,40 @@ const INDUSTRY_OPTIONS = [
   { value: 'other', label: 'Other', icon: HelpCircle },
 ] as const
 
-const TOTAL_STEPS = 3
+// Phase 1 Stage G — flow choice options. Each maps to onboarding_state.flow.
+type OnboardingFlow = 'direct' | 'multi_location' | 'agency'
+
+const FLOW_OPTIONS: Array<{
+  value: OnboardingFlow
+  label: string
+  description: string
+  icon: typeof Store
+}> = [
+  {
+    value: 'direct',
+    label: 'Single business',
+    description:
+      'One business, one or two locations. The simplest setup — collect reviews, run journeys, respond to feedback.',
+    icon: Store,
+  },
+  {
+    value: 'multi_location',
+    label: 'Multi-location chain',
+    description:
+      'Multiple locations under one brand. You get the chain rollup dashboard, per-location SLAs, and bulk-deploy journeys.',
+    icon: Network,
+  },
+  {
+    value: 'agency',
+    label: 'Agency / multi-tenant',
+    description:
+      'You manage reviews on behalf of clients. Each client gets their own workspace; you switch between them from the org switcher.',
+    icon: Users,
+  },
+]
+
+// Phase 1 Stage G — TOTAL_STEPS = 4 with the flow picker prepended.
+const TOTAL_STEPS = 4
 
 export default function OnboardingPage() {
   const router = useRouter()
@@ -57,6 +94,7 @@ export default function OnboardingPage() {
   const utils = trpc.useUtils()
 
   const [step, setStep] = useState(1)
+  const [flow, setFlow] = useState<OnboardingFlow>('direct')
   const [selectedIndustry, setSelectedIndustry] = useState<string | null>(null)
   const [newAspectName, setNewAspectName] = useState('')
   const [seeded, setSeeded] = useState(false)
@@ -69,11 +107,16 @@ export default function OnboardingPage() {
 
   const aspectsQuery = trpc.businessAspect.list.useQuery(
     { workspaceId: currentWorkspaceId! },
-    { enabled: !!currentWorkspaceId && step >= 2 }
+    { enabled: !!currentWorkspaceId && step >= 3 }
   )
 
   // Mutations
   const updateStep = trpc.onboarding.updateStep.useMutation()
+  const setFlowMutation = trpc.onboarding.setFlow.useMutation({
+    onError: (error) => {
+      toast.error(error.message || 'Failed to save flow choice')
+    },
+  })
 
   const seedDefaults = trpc.businessAspect.seedDefaults.useMutation({
     onSuccess: () => {
@@ -120,7 +163,7 @@ export default function OnboardingPage() {
     },
   })
 
-  // Restore step from server state
+  // Restore step + flow from server state
   useEffect(() => {
     if (onboardingQuery.data) {
       if (onboardingQuery.data.isComplete) {
@@ -130,6 +173,12 @@ export default function OnboardingPage() {
       const serverStep = onboardingQuery.data.currentStep
       if (serverStep > 0 && serverStep <= TOTAL_STEPS) {
         setStep(serverStep)
+      }
+      const serverFlow = (onboardingQuery.data as any).flow as
+        | OnboardingFlow
+        | undefined
+      if (serverFlow && (serverFlow === 'direct' || serverFlow === 'multi_location' || serverFlow === 'agency')) {
+        setFlow(serverFlow)
       }
     }
   }, [onboardingQuery.data, router])
@@ -143,6 +192,17 @@ export default function OnboardingPage() {
 
   async function handleNext() {
     if (step === 1) {
+      // Phase 1 Stage G — flow picker. Save to server before advancing
+      // so the server-side state has the right flow if the user reloads.
+      if (currentWorkspaceId) {
+        await setFlowMutation.mutateAsync({
+          workspaceId: currentWorkspaceId,
+          flow,
+        })
+        updateStep.mutate({ workspaceId: currentWorkspaceId, step: 2 })
+      }
+      setStep(2)
+    } else if (step === 2) {
       if (!selectedIndustry) {
         toast.error('Please select your industry')
         return
@@ -154,13 +214,13 @@ export default function OnboardingPage() {
           industry: selectedIndustry,
         })
       }
-      const nextStep = 2
+      const nextStep = 3
       if (currentWorkspaceId) {
         updateStep.mutate({ workspaceId: currentWorkspaceId, step: nextStep })
       }
       setStep(nextStep)
-    } else if (step === 2) {
-      const nextStep = 3
+    } else if (step === 3) {
+      const nextStep = 4
       if (currentWorkspaceId) {
         updateStep.mutate({ workspaceId: currentWorkspaceId, step: nextStep })
       }
@@ -220,7 +280,7 @@ export default function OnboardingPage() {
         <Progress value={progressPercent} className="h-2" />
       </div>
 
-      {/* Step 1: Industry Selection */}
+      {/* Phase 1 Stage G — Step 1: Flow picker */}
       {step === 1 && (
         <div className="space-y-6">
           <div className="text-center space-y-2">
@@ -229,8 +289,70 @@ export default function OnboardingPage() {
             </div>
             <h1 className="text-2xl font-bold">Welcome to Rectangled</h1>
             <p className="text-muted-foreground">
-              Let's set up your workspace. Start by selecting your industry so we can
-              configure the right review aspects for your business.
+              How are you going to use Rectangled? We'll tailor the rest of
+              setup to match.
+            </p>
+          </div>
+
+          <div className="grid gap-3">
+            {FLOW_OPTIONS.map((opt) => {
+              const Icon = opt.icon
+              const isSelected = flow === opt.value
+              return (
+                <Card
+                  key={opt.value}
+                  className={`cursor-pointer p-4 transition-all hover:shadow-md ${
+                    isSelected
+                      ? 'border-primary bg-primary/5 ring-2 ring-primary'
+                      : 'hover:border-primary/50'
+                  }`}
+                  onClick={() => setFlow(opt.value)}
+                >
+                  <div className="flex items-start gap-4">
+                    <div
+                      className={`flex size-10 shrink-0 items-center justify-center rounded-lg ${
+                        isSelected
+                          ? 'bg-primary text-primary-foreground'
+                          : 'bg-muted'
+                      }`}
+                    >
+                      <Icon className="size-5" />
+                    </div>
+                    <div className="flex-1">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-semibold">
+                          {opt.label}
+                        </span>
+                        {isSelected && (
+                          <Check className="size-4 text-primary" />
+                        )}
+                      </div>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {opt.description}
+                      </p>
+                    </div>
+                  </div>
+                </Card>
+              )
+            })}
+          </div>
+          <p className="text-center text-xs text-muted-foreground">
+            You can switch between flows later from organization settings.
+          </p>
+        </div>
+      )}
+
+      {/* Step 2: Industry Selection */}
+      {step === 2 && (
+        <div className="space-y-6">
+          <div className="text-center space-y-2">
+            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
+              <Sparkles className="h-6 w-6 text-primary" />
+            </div>
+            <h1 className="text-2xl font-bold">What's your industry?</h1>
+            <p className="text-muted-foreground">
+              We'll use this to seed sensible defaults — review aspects, NPS
+              thresholds, and journey copy. You can edit any of it later.
             </p>
           </div>
 
@@ -268,8 +390,8 @@ export default function OnboardingPage() {
         </div>
       )}
 
-      {/* Step 2: Business Aspects Configuration */}
-      {step === 2 && (
+      {/* Step 3: Business Aspects Configuration */}
+      {step === 3 && (
         <div className="space-y-6">
           <div className="text-center space-y-2">
             <h1 className="text-2xl font-bold">Configure Business Aspects</h1>
@@ -362,8 +484,8 @@ export default function OnboardingPage() {
         </div>
       )}
 
-      {/* Step 3: Completion */}
-      {step === 3 && (
+      {/* Step 4: Completion */}
+      {step === 4 && (
         <div className="space-y-6 text-center">
           <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-green-100">
             <Rocket className="h-8 w-8 text-green-600" />
@@ -371,8 +493,8 @@ export default function OnboardingPage() {
           <div className="space-y-2">
             <h1 className="text-2xl font-bold">You're all set!</h1>
             <p className="text-muted-foreground">
-              Your workspace is configured and ready to go. You can always adjust your
-              business aspects later from Settings.
+              Your workspace is configured and ready to go. You can always
+              adjust your business aspects later from Settings.
             </p>
           </div>
 
@@ -381,6 +503,12 @@ export default function OnboardingPage() {
           <div className="mx-auto max-w-sm space-y-3 text-left">
             <h3 className="font-semibold text-sm">Summary</h3>
             <div className="space-y-2">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">Setup type</span>
+                <Badge variant="outline">
+                  {FLOW_OPTIONS.find((f) => f.value === flow)?.label}
+                </Badge>
+              </div>
               <div className="flex items-center justify-between text-sm">
                 <span className="text-muted-foreground">Industry</span>
                 <Badge variant="outline">
@@ -395,6 +523,41 @@ export default function OnboardingPage() {
                 </Badge>
               </div>
             </div>
+          </div>
+
+          {/*
+            Phase 1 Stage G — flow-specific "what's next" hints. The
+            backing data is the same for every flow; this is just a
+            tailored handoff to the most relevant first action.
+          */}
+          <Separator />
+          <div className="mx-auto max-w-sm space-y-2 text-left">
+            <h3 className="font-semibold text-sm">Suggested next step</h3>
+            {flow === 'direct' && (
+              <p className="flex items-start gap-2 text-xs text-muted-foreground">
+                <MapPin className="size-4 shrink-0 mt-0.5" />
+                Connect your Google Business Profile from{' '}
+                <span className="font-medium">Connectors</span> so we can
+                start pulling in reviews.
+              </p>
+            )}
+            {flow === 'multi_location' && (
+              <p className="flex items-start gap-2 text-xs text-muted-foreground">
+                <Network className="size-4 shrink-0 mt-0.5" />
+                Add your locations from{' '}
+                <span className="font-medium">Locations</span>, then visit{' '}
+                <span className="font-medium">Chain rollup</span> to see
+                everything aggregated.
+              </p>
+            )}
+            {flow === 'agency' && (
+              <p className="flex items-start gap-2 text-xs text-muted-foreground">
+                <Users className="size-4 shrink-0 mt-0.5" />
+                Add your first client workspace from{' '}
+                <span className="font-medium">organization settings</span>,
+                then invite teammates from <span className="font-medium">Team</span>.
+              </p>
+            )}
           </div>
         </div>
       )}
@@ -411,7 +574,16 @@ export default function OnboardingPage() {
         </Button>
 
         {step < TOTAL_STEPS ? (
-          <Button onClick={handleNext} disabled={step === 1 && !selectedIndustry}>
+          <Button
+            onClick={handleNext}
+            disabled={
+              (step === 2 && !selectedIndustry) ||
+              setFlowMutation.isPending
+            }
+          >
+            {setFlowMutation.isPending && (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            )}
             Next
             <ChevronRight className="ml-1 h-4 w-4" />
           </Button>
