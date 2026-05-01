@@ -59,6 +59,10 @@ import { AppointmentService } from '../appointment/appointment.service'
 import { CalendarAdapter } from '../connector/adapters/calendar.adapter'
 import { createAiAgentRouter } from '../ai-agent/ai-agent.router'
 import { AiAgentService } from '../ai-agent/ai-agent.service'
+import { createOrganizationRouter } from '../organization/organization.router'
+import { createOrganizationMemberRouter } from '../organization/organization-member.router'
+import { OrganizationService } from '../organization/organization.service'
+import { OrganizationMemberService } from '../organization/organization-member.service'
 import { z } from 'zod'
 
 // Static router for type export — uses null as any for service injection
@@ -99,6 +103,8 @@ export const appRouter = router({
   rais: createRaisRouter(null as any),
   appointment: createAppointmentRouter(null as any),
   aiAgent: createAiAgentRouter(null as any, null as any),
+  organization: createOrganizationRouter(null as any),
+  organizationMember: createOrganizationMemberRouter(null as any),
 })
 
 export type AppRouter = typeof appRouter
@@ -138,6 +144,8 @@ export class TrpcRouter implements OnModuleInit {
     private readonly appointmentService: AppointmentService,
     private readonly calendarAdapter: CalendarAdapter,
     private readonly aiAgentService: AiAgentService,
+    private readonly organizationService: OrganizationService,
+    private readonly organizationMemberService: OrganizationMemberService,
   ) {}
 
   onModuleInit() {
@@ -178,6 +186,8 @@ export class TrpcRouter implements OnModuleInit {
       rais: createRaisRouter(this.raisService),
       appointment: createAppointmentRouter(this.appointmentService),
       aiAgent: createAiAgentRouter(this.aiAgentService, this.emailService),
+      organization: createOrganizationRouter(this.organizationService),
+      organizationMember: createOrganizationMemberRouter(this.organizationMemberService),
     })
 
     const app = this.httpAdapterHost.httpAdapter.getInstance()
