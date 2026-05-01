@@ -513,6 +513,66 @@ export class ReviewService {
   }
 
   /**
+   * Phase 0 Fix 2 — list AI-generated drafts pending owner approval.
+   * Returns the latest 'draft' response per review where generatedBy='ai',
+   * joined with the review for context. Inbox uses this to render a
+   * "pending AI approval" filter / badge.
+   */
+  async listPendingAiApprovals(
+    input: { workspaceId: string; locationId?: string; page?: number; limit?: number },
+    userId: string,
+  ) {
+    await this.requireMembership(input.workspaceId, userId)
+    const page = input.page ?? 1
+    const limit = Math.min(input.limit ?? 20, 100)
+    const offset = (page - 1) * limit
+
+    const conditions = [
+      eq(reviews.workspaceId, input.workspaceId),
+      eq(reviewResponses.status, 'draft'),
+      eq(reviewResponses.generatedBy, 'ai'),
+    ]
+    if (input.locationId) {
+      conditions.push(eq(reviews.locationId, input.locationId))
+    }
+
+    const rows = await this.db
+      .select({
+        responseId: reviewResponses.id,
+        content: reviewResponses.content,
+        aiModel: reviewResponses.aiModel,
+        responseCreatedAt: reviewResponses.createdAt,
+        reviewId: reviews.id,
+        reviewerName: reviews.reviewerName,
+        rating: reviews.rating,
+        text: reviews.text,
+        platform: reviews.platform,
+        reviewedAt: reviews.reviewedAt,
+        locationId: reviews.locationId,
+      })
+      .from(reviewResponses)
+      .innerJoin(reviews, eq(reviewResponses.reviewId, reviews.id))
+      .where(and(...conditions))
+      .orderBy(desc(reviewResponses.createdAt))
+      .limit(limit)
+      .offset(offset)
+
+    const [{ total }] = await this.db
+      .select({ total: sql<number>`count(*)::int` })
+      .from(reviewResponses)
+      .innerJoin(reviews, eq(reviewResponses.reviewId, reviews.id))
+      .where(and(...conditions))
+
+    return {
+      items: rows,
+      total: total ?? 0,
+      page,
+      limit,
+      totalPages: Math.ceil((total ?? 0) / limit),
+    }
+  }
+
+  /**
    * Get a single review by ID with all responses.
    */
   async getById(reviewId: string, userId: string) {

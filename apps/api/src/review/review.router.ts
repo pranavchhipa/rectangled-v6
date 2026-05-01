@@ -15,6 +15,7 @@ import {
   respondToReviewSchema,
   deleteReviewReplySchema,
 } from '@rectangled/shared'
+import { z } from 'zod'
 import { ReviewService } from './review.service'
 
 export function createReviewRouter(reviewService: ReviewService) {
@@ -130,6 +131,20 @@ export function createReviewRouter(reviewService: ReviewService) {
           input.reviewId,
           ctx.user.sub
         )
+      }),
+
+    // Phase 0 Fix 2 — pending AI drafts awaiting owner approval.
+    listPendingAiApprovals: protectedProcedure
+      .input(
+        z.object({
+          workspaceId: z.string().uuid(),
+          locationId: z.string().uuid().optional(),
+          page: z.number().int().min(1).optional(),
+          limit: z.number().int().min(1).max(100).optional(),
+        }),
+      )
+      .query(async ({ input, ctx }) => {
+        return reviewService.listPendingAiApprovals(input, ctx.user.sub)
       }),
   })
 }

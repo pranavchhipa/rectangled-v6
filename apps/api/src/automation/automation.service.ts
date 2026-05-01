@@ -4,7 +4,7 @@ import { eq, and, lte, sql, desc, count, gt, gte, inArray } from 'drizzle-orm'
 import { randomUUID } from 'crypto'
 import OpenAI from 'openai'
 import type { Database } from '@rectangled/db'
-import { automationRules, automationQueue, members, reviews, connectorInstances, workspaces, customers } from '@rectangled/db'
+import { automationRules, automationQueue, members, reviews, reviewResponses, connectorInstances, workspaces, customers } from '@rectangled/db'
 import { GbpAdapter } from '../connector/adapters/gbp.adapter'
 import { buildTriggerKey } from './triggerKey'
 
@@ -706,7 +706,47 @@ Write a response:`
       }
     }
 
-    // The review metadata should contain the GBP review resource name
+    // Phase 0 Fix 2 — AI reply approval gate.
+    //
+    // Default behaviour (requireApproval defaults TRUE for safety): reviews
+    // below autoApproveMinRating get inserted into reviewResponses as a draft
+    // with generatedBy='ai' and status='draft'. The owner reviews it in the
+    // inbox and approves manually. Reviews at/above the auto-approve cutoff
+    // are posted automatically.
+    //
+    // This stops one bad AI reply on a 1-star review from causing public
+    // brand damage. The cost is operator workload — the inbox UI surfaces
+    // pending AI drafts so owners can act in seconds.
+    const requireApproval = actionConfig.requireApproval !== false  // default true
+    const autoApproveMinRating = (actionConfig.autoApproveMinRating as number) ?? 5
+    const shouldAutoPost = !requireApproval || review.rating >= autoApproveMinRating
+
+    // Always insert a row in reviewResponses to track the draft. Status =
+    // 'posted' if we're about to call GBP, 'draft' if we're parking for review.
+    const draftStatus = shouldAutoPost ? ('approved' as const) : ('draft' as const)
+    const [draftRow] = await this.db
+      .insert(reviewResponses)
+      .values({
+        reviewId,
+        content: replyText,
+        status: draftStatus,
+        generatedBy: 'ai',
+        aiModel: AI_MODEL,
+        metadata: { queueItemId: queueItem.id, ratingAtGeneration: review.rating },
+      })
+      .returning()
+
+    if (!shouldAutoPost) {
+      this.logger.log(
+        `AI draft ${draftRow.id} for review ${reviewId} (rating ${review.rating}) saved as 'draft' for manual approval (requireApproval=${requireApproval}, autoApproveMinRating=${autoApproveMinRating})`,
+      )
+      // Work item complete — operator owns the next step from the inbox.
+      // No notification here yet (Phase 4 will add an event-bus notification);
+      // the inbox queries pending drafts on every list call.
+      return
+    }
+
+    // shouldAutoPost === true: continue and post to GBP.
     const reviewMetadata = (review.metadata ?? {}) as Record<string, unknown>
     const reviewResourceName = reviewMetadata.gbpReviewName as string
       || reviewMetadata.reviewName as string
@@ -723,6 +763,16 @@ Write a response:`
     await this.gbpAdapter.replyToReview(accessToken, reviewResourceName, replyText, {
       idempotencyKey,
     })
+
+    // Mark our draft row as posted now that GBP accepted it.
+    await this.db
+      .update(reviewResponses)
+      .set({
+        status: 'posted',
+        postedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(reviewResponses.id, draftRow.id))
 
     this.logger.log(
       `AI reply posted to Google review ${reviewId} (resource: ${reviewResourceName}, idem: ${idempotencyKey})`
