@@ -3,6 +3,8 @@ import { users } from './users'
 import { members } from './members'
 import { refreshTokens } from './refresh-tokens'
 import { workspaces } from './workspaces'
+import { organizations } from './organizations'
+import { organizationMembers } from './organization-members'
 import { locations } from './locations'
 import { connectorTypes, connectorInstances } from './connectors'
 import { reviews, reviewResponses } from './reviews'
@@ -61,7 +63,36 @@ export const membersRelations = relations(members, ({ one }) => ({
   }),
 }))
 
-export const workspacesRelations = relations(workspaces, ({ many }) => ({
+// Phase 1 — Organizations layer relations
+export const organizationsRelations = relations(organizations, ({ one, many }) => ({
+  owner: one(users, {
+    fields: [organizations.ownerUserId],
+    references: [users.id],
+  }),
+  workspaces: many(workspaces),
+  members: many(organizationMembers),
+}))
+
+export const organizationMembersRelations = relations(organizationMembers, ({ one }) => ({
+  organization: one(organizations, {
+    fields: [organizationMembers.organizationId],
+    references: [organizations.id],
+  }),
+  user: one(users, {
+    fields: [organizationMembers.userId],
+    references: [users.id],
+  }),
+  inviter: one(users, {
+    fields: [organizationMembers.invitedBy],
+    references: [users.id],
+  }),
+}))
+
+export const workspacesRelations = relations(workspaces, ({ one, many }) => ({
+  organization: one(organizations, {
+    fields: [workspaces.organizationId],
+    references: [organizations.id],
+  }),
   members: many(members),
   locations: many(locations),
   connectorInstances: many(connectorInstances),

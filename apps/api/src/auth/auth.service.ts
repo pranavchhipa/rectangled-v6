@@ -4,7 +4,7 @@ import * as bcrypt from 'bcryptjs'
 import * as jwt from 'jsonwebtoken'
 import { eq, isNotNull } from 'drizzle-orm'
 import type { Database } from '@rectangled/db'
-import { users, members, workspaces, refreshTokens, passwordResetTokens } from '@rectangled/db'
+import { users, members, workspaces, organizations, organizationMembers, refreshTokens, passwordResetTokens } from '@rectangled/db'
 import type { JwtPayload, AuthResponse, MeResponse } from '@rectangled/shared'
 
 @Injectable()
@@ -49,28 +49,16 @@ export class AuthService {
       })
       .returning()
 
-    // Create default workspace
-    const slug = this.generateSlug(name)
-    const [workspace] = await this.db
-      .insert(workspaces)
-      .values({
-        name: `${name.trim()}'s Business`,
-        slug,
-        settings: {
-          defaultTimezone: 'Asia/Kolkata',
-          aiAutoRespond: false,
-          reviewResponseDelay: { min: 1, max: 3 },
-          frequencyCap: { maxSurveys: 2, windowDays: 60 },
-        },
-      })
-      .returning()
-
-    // Make user the owner
-    await this.db.insert(members).values({
+    // Phase 1: every workspace lives under an organization. Create a default
+    // direct-mode org first, then the workspace, then memberships at both
+    // layers. Direct-mode keeps the legacy single-business UX — the org
+    // layer is invisible to the user until they upgrade to multi_location
+    // or agency.
+    const baseSlug = this.generateSlug(name)
+    const { workspace } = await this.createOrganizationAndWorkspace({
       userId: user.id,
-      workspaceId: workspace.id,
-      role: 'owner',
-      acceptedAt: new Date(),
+      workspaceName: `${name.trim()}'s Business`,
+      workspaceSlug: baseSlug,
     })
 
     this.logger.log(`AUTH: New registration for ${email}`)
@@ -252,26 +240,11 @@ export class AuthService {
           .returning()
         user = newUser
 
-        const slug = this.generateSlug(user.name)
-        const [workspace] = await this.db
-          .insert(workspaces)
-          .values({
-            name: `${user.name}'s Business`,
-            slug,
-            settings: {
-              defaultTimezone: 'Asia/Kolkata',
-              aiAutoRespond: false,
-              reviewResponseDelay: { min: 1, max: 3 },
-              frequencyCap: { maxSurveys: 2, windowDays: 60 },
-            },
-          })
-          .returning()
-
-        await this.db.insert(members).values({
+        const baseSlug = this.generateSlug(user.name)
+        await this.createOrganizationAndWorkspace({
           userId: user.id,
-          workspaceId: workspace.id,
-          role: 'owner',
-          acceptedAt: new Date(),
+          workspaceName: `${user.name}'s Business`,
+          workspaceSlug: baseSlug,
         })
       }
     } else {
@@ -435,5 +408,79 @@ export class AuthService {
       .replace(/^-|-$/g, '')
     const suffix = Math.random().toString(36).slice(2, 6)
     return `${base}-${suffix}`
+  }
+
+  /**
+   * Phase 1 — atomic org + workspace + memberships creation.
+   *
+   * Every workspace lives under an organization. For a fresh user
+   * registration we always create a 'direct' org and treat the workspace as
+   * its sole child. The user is org_owner at the org layer AND owner at
+   * the workspace layer; the two membership tables coexist (Phase 1
+   * intentionally — Phase 2 will start migrating reads onto the org layer).
+   *
+   * The function is non-transactional because the underlying postgres-js
+   * driver in this codebase doesn't expose easy transactions on the
+   * Drizzle wrapper. A failure halfway through could leave a stranded
+   * org row; that's a known minor risk and we accept it for now (Phase 4
+   * event bus will move this to a saga).
+   */
+  protected async createOrganizationAndWorkspace(input: {
+    userId: string
+    workspaceName: string
+    workspaceSlug: string
+  }): Promise<{
+    organization: typeof organizations.$inferSelect
+    workspace: typeof workspaces.$inferSelect
+  }> {
+    // Org slug = workspace slug + '-org', truncated to fit the 100-char column.
+    const orgSlug = `${input.workspaceSlug}-org`.slice(0, 100)
+    const [organization] = await this.db
+      .insert(organizations)
+      .values({
+        name: input.workspaceName,
+        slug: orgSlug,
+        type: 'direct',
+        ownerUserId: input.userId,
+      })
+      .returning()
+
+    const [workspace] = await this.db
+      .insert(workspaces)
+      .values({
+        organizationId: organization.id,
+        name: input.workspaceName,
+        slug: input.workspaceSlug,
+        settings: {
+          defaultTimezone: 'Asia/Kolkata',
+          aiAutoRespond: false,
+          reviewResponseDelay: { min: 1, max: 3 },
+          frequencyCap: { maxSurveys: 2, windowDays: 60 },
+          customerRateCap: {
+            maxMessagesPerDay: 3,
+            maxCouponsPerMonth: 1,
+            maxActionsPerWeek: 10,
+          },
+        },
+      })
+      .returning()
+
+    // Workspace-level membership (legacy + still required for existing flows).
+    await this.db.insert(members).values({
+      userId: input.userId,
+      workspaceId: workspace.id,
+      role: 'owner',
+      acceptedAt: new Date(),
+    })
+
+    // Org-level membership (Phase 1 layer).
+    await this.db.insert(organizationMembers).values({
+      organizationId: organization.id,
+      userId: input.userId,
+      role: 'org_owner',
+      acceptedAt: new Date(),
+    })
+
+    return { organization, workspace }
   }
 }

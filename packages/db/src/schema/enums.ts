@@ -2,6 +2,20 @@ import { pgEnum } from 'drizzle-orm/pg-core'
 
 export const roleEnum = pgEnum('role', ['owner', 'manager', 'staff', 'viewer'])
 
+// Phase 1 — Organizations layer
+export const organizationTypeEnum = pgEnum('organization_type', [
+  'direct',
+  'multi_location',
+  'agency',
+])
+
+export const organizationRoleEnum = pgEnum('organization_role', [
+  'org_owner',
+  'org_admin',
+  'org_manager',
+  'org_member',
+])
+
 export const connectorStatusEnum = pgEnum('connector_status', [
   'connected',
   'disconnected',

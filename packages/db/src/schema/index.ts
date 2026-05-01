@@ -1,4 +1,6 @@
 export * from './enums'
+export * from './organizations'
+export * from './organization-members'
 export * from './workspaces'
 export * from './locations'
 export * from './users'

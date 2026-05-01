@@ -2,7 +2,7 @@ import { Injectable, Inject } from '@nestjs/common'
 import { TRPCError } from '@trpc/server'
 import { eq, and, count, isNotNull, or, like, sql } from 'drizzle-orm'
 import type { Database } from '@rectangled/db'
-import { workspaces, members, locations, customers, reviews, couponTemplates } from '@rectangled/db'
+import { workspaces, members, locations, customers, reviews, couponTemplates, organizations, organizationMembers } from '@rectangled/db'
 import type { CreateWorkspaceInput, UpdateWorkspaceInput } from '@rectangled/shared'
 import { hasPermission } from '@rectangled/shared'
 import type { Role } from '@rectangled/shared'
@@ -13,6 +13,11 @@ export class WorkspaceService {
 
   /**
    * Create a new workspace and make the creator the owner.
+   *
+   * Phase 1 — every workspace lives under an organization. Direct mode
+   * default: create a fresh `direct` organization for this workspace so
+   * the legacy single-business UX continues to work. Phase 1 Stage C
+   * adds `createInOrganization()` for multi-location and agency flows.
    */
   async create(input: CreateWorkspaceInput, userId: string) {
     // Check slug uniqueness
@@ -23,9 +28,22 @@ export class WorkspaceService {
       throw new TRPCError({ code: 'CONFLICT', message: 'A workspace with this slug already exists' })
     }
 
+    // Create the direct-mode org first so the workspace's organizationId is set.
+    const orgSlug = `${input.slug}-org`.slice(0, 100)
+    const [organization] = await this.db
+      .insert(organizations)
+      .values({
+        name: input.name.trim(),
+        slug: orgSlug,
+        type: 'direct',
+        ownerUserId: userId,
+      })
+      .returning()
+
     const [workspace] = await this.db
       .insert(workspaces)
       .values({
+        organizationId: organization.id,
         name: input.name.trim(),
         slug: input.slug,
         industry: input.industry,
@@ -34,15 +52,28 @@ export class WorkspaceService {
           aiAutoRespond: false,
           reviewResponseDelay: { min: 1, max: 3 },
           frequencyCap: { maxSurveys: 2, windowDays: 60 },
+          customerRateCap: {
+            maxMessagesPerDay: 3,
+            maxCouponsPerMonth: 1,
+            maxActionsPerWeek: 10,
+          },
         },
       })
       .returning()
 
-    // Make creator the owner
+    // Workspace-level membership (legacy).
     await this.db.insert(members).values({
       userId,
       workspaceId: workspace.id,
       role: 'owner',
+      acceptedAt: new Date(),
+    })
+
+    // Org-level membership (Phase 1 layer).
+    await this.db.insert(organizationMembers).values({
+      organizationId: organization.id,
+      userId,
+      role: 'org_owner',
       acceptedAt: new Date(),
     })
 

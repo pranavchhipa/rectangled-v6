@@ -1,8 +1,18 @@
 import { pgTable, uuid, varchar, text, boolean, jsonb, timestamp } from 'drizzle-orm/pg-core'
 import { tonePresetEnum } from './enums'
+import { organizations } from './organizations'
 
 export const workspaces = pgTable('workspaces', {
   id: uuid('id').primaryKey().defaultRandom(),
+  /**
+   * Phase 1 — every workspace belongs to an organization. Backfilled in
+   * migration 0008; tightened to NOT NULL in 0009. Cascade delete keeps
+   * the workspace cleanup story unchanged from before (delete an org →
+   * everything beneath cascades).
+   */
+  organizationId: uuid('organization_id')
+    .notNull()
+    .references(() => organizations.id, { onDelete: 'cascade' }),
   name: varchar('name', { length: 255 }).notNull(),
   slug: varchar('slug', { length: 100 }).notNull().unique(),
   industry: varchar('industry', { length: 100 }),
@@ -43,6 +53,19 @@ export const workspaces = pgTable('workspaces', {
     })
     .notNull(),
   onboardingComplete: boolean('onboarding_complete').default(false).notNull(),
+  /**
+   * Phase 1 — agency-mode metadata about the client this workspace
+   * represents. Empty `{}` for direct and multi_location orgs. Schema:
+   *   {
+   *     clientCompanyName, clientBillingContact,
+   *     clientStatus: 'active' | 'trial' | 'paused',
+   *     onboardedAt, monthlyFee, commissionPercent
+   *   }
+   */
+  clientMetadata: jsonb('client_metadata')
+    .$type<Record<string, unknown>>()
+    .default({})
+    .notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 })
