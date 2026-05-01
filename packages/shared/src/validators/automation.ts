@@ -33,6 +33,10 @@ export const listAutomationRulesSchema = z.object({
   journeyId: z.string().uuid().optional(),
 })
 
+// Phase 2 — rule scope. Default 'workspace' preserves existing behaviour.
+const ruleScopes = ['organization', 'workspace', 'location'] as const
+export const ruleScopeSchema = z.enum(ruleScopes)
+
 export const createAutomationRuleSchema = z.object({
   workspaceId: z.string().uuid(),
   membershipId: z.string().uuid(),
@@ -46,6 +50,14 @@ export const createAutomationRuleSchema = z.object({
   isActive: z.boolean().optional(),
   // Phase 0 Fix 4 — per-customer cooldown in hours. null = no cooldown.
   cooldownHours: z.number().int().min(0).max(8760).nullable().optional(),
+  // Phase 2 — rule inheritance. The engine resolves precedence as
+  // location > workspace > organization, so a 'location' rule overrides
+  // the workspace one for matching contexts. organizationId is required
+  // when scope='organization'; locationId is required when scope='location'.
+  scope: ruleScopeSchema.optional(),
+  organizationId: z.string().uuid().nullable().optional(),
+  locationId: z.string().uuid().nullable().optional(),
+  overridesRuleId: z.string().uuid().nullable().optional(),
 })
 
 export const updateAutomationRuleSchema = z.object({
@@ -61,6 +73,10 @@ export const updateAutomationRuleSchema = z.object({
   conditions: z.record(z.unknown()).optional(),
   isActive: z.boolean().optional(),
   cooldownHours: z.number().int().min(0).max(8760).nullable().optional(),
+  scope: ruleScopeSchema.optional(),
+  organizationId: z.string().uuid().nullable().optional(),
+  locationId: z.string().uuid().nullable().optional(),
+  overridesRuleId: z.string().uuid().nullable().optional(),
 })
 
 export const deleteAutomationRuleSchema = z.object({

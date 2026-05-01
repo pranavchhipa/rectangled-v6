@@ -7,6 +7,10 @@ export const listEscalationRulesSchema = z.object({
   membershipId: z.string().uuid().optional(),
 })
 
+// Phase 2 — escalation rule scope, mirrors automation rule scope.
+const escalationRuleScopes = ['organization', 'workspace', 'location'] as const
+export const escalationRuleScopeSchema = z.enum(escalationRuleScopes)
+
 export const createEscalationRuleSchema = z.object({
   workspaceId: z.string().uuid(),
   membershipId: z.string().uuid().optional(),
@@ -18,6 +22,11 @@ export const createEscalationRuleSchema = z.object({
   priority: z.enum(['low', 'medium', 'high', 'critical']).default('medium'),
   slaMinutes: z.number().int().positive().optional(),
   isActive: z.boolean().optional(),
+  // Phase 2 — rule inheritance.
+  scope: escalationRuleScopeSchema.optional(),
+  organizationId: z.string().uuid().nullable().optional(),
+  locationId: z.string().uuid().nullable().optional(),
+  overridesRuleId: z.string().uuid().nullable().optional(),
 })
 
 export const updateEscalationRuleSchema = z.object({
@@ -33,6 +42,10 @@ export const updateEscalationRuleSchema = z.object({
   slaMinutes: z.number().int().positive().nullable().optional(),
   isActive: z.boolean().optional(),
   sortOrder: z.number().int().optional(),
+  scope: escalationRuleScopeSchema.optional(),
+  organizationId: z.string().uuid().nullable().optional(),
+  locationId: z.string().uuid().nullable().optional(),
+  overridesRuleId: z.string().uuid().nullable().optional(),
 })
 
 export const deleteEscalationRuleSchema = z.object({

@@ -10,6 +10,7 @@ import {
   customers,
   locations,
   notifications,
+  workspaces,
 } from '@rectangled/db'
 
 const ACTIVE_STATUSES = ['open', 'in_progress', 'paused'] as const
@@ -41,10 +42,36 @@ export class CxRoutingService {
       priority?: 'low' | 'medium' | 'high' | 'critical'
       slaMinutes?: number
       isActive?: boolean
+      // Phase 2 Stage E — rule inheritance.
+      scope?: 'organization' | 'workspace' | 'location'
+      organizationId?: string | null
+      locationId?: string | null
+      overridesRuleId?: string | null
     },
     userId: string,
   ) {
     await this.requireMembership(input.workspaceId, userId)
+
+    const scope = input.scope ?? 'workspace'
+    let resolvedOrgId = input.organizationId ?? null
+    if (scope === 'organization' && !resolvedOrgId) {
+      const ws = await this.db.query.workspaces.findFirst({
+        where: eq(workspaces.id, input.workspaceId),
+      })
+      resolvedOrgId = ws?.organizationId ?? null
+      if (!resolvedOrgId) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'Cannot create org-scope rule: workspace has no organization.',
+        })
+      }
+    }
+    if (scope === 'location' && !input.locationId) {
+      throw new TRPCError({
+        code: 'BAD_REQUEST',
+        message: 'locationId is required for location-scope rules.',
+      })
+    }
 
     const [rule] = await this.db
       .insert(escalationRules)
@@ -58,6 +85,10 @@ export class CxRoutingService {
         priority: input.priority ?? 'medium',
         slaMinutes: input.slaMinutes ?? null,
         isActive: input.isActive ?? true,
+        scope: scope as any,
+        organizationId: scope === 'organization' ? resolvedOrgId : null,
+        locationId: scope === 'location' ? input.locationId ?? null : null,
+        overridesRuleId: input.overridesRuleId ?? null,
       })
       .returning()
 
@@ -77,6 +108,10 @@ export class CxRoutingService {
       slaMinutes?: number | null
       isActive?: boolean
       sortOrder?: number
+      scope?: 'organization' | 'workspace' | 'location'
+      organizationId?: string | null
+      locationId?: string | null
+      overridesRuleId?: string | null
     },
     userId: string,
   ) {
@@ -103,6 +138,44 @@ export class CxRoutingService {
     if (input.slaMinutes !== undefined) updates.slaMinutes = input.slaMinutes
     if (input.isActive !== undefined) updates.isActive = input.isActive
     if (input.sortOrder !== undefined) updates.sortOrder = input.sortOrder
+
+    if (input.scope !== undefined) {
+      updates.scope = input.scope
+      if (input.scope === 'organization') {
+        let orgId = input.organizationId ?? existing.organizationId
+        if (!orgId) {
+          const ws = await this.db.query.workspaces.findFirst({
+            where: eq(workspaces.id, input.workspaceId),
+          })
+          orgId = ws?.organizationId ?? null
+        }
+        if (!orgId) {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: 'Cannot set rule to org scope: workspace has no organization.',
+          })
+        }
+        updates.organizationId = orgId
+        updates.locationId = null
+      } else if (input.scope === 'location') {
+        const locId = input.locationId ?? existing.locationId
+        if (!locId) {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: 'locationId is required for location-scope rules.',
+          })
+        }
+        updates.locationId = locId
+        updates.organizationId = null
+      } else {
+        updates.organizationId = null
+        updates.locationId = null
+      }
+    } else {
+      if (input.organizationId !== undefined) updates.organizationId = input.organizationId
+      if (input.locationId !== undefined) updates.locationId = input.locationId
+    }
+    if (input.overridesRuleId !== undefined) updates.overridesRuleId = input.overridesRuleId
 
     const [updated] = await this.db
       .update(escalationRules)

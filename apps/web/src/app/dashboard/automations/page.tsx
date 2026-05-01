@@ -21,6 +21,9 @@ import {
   ListChecks,
   Loader2,
   Sparkles,
+  Building,
+  Building2,
+  MapPin,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { trpc } from '@/lib/trpc'
@@ -104,6 +107,9 @@ export default function AutomationsPage() {
   const [createOpen, setCreateOpen] = useState(false)
   const [editingRule, setEditingRule] = useState<any>(null)
 
+  // Phase 2 Stage E — top-level scope filter for the rules list.
+  const [scopeFilter, setScopeFilter] = useState<'all' | 'organization' | 'workspace' | 'location'>('all')
+
   // Form state
   const [name, setName] = useState('')
   const [triggerEvent, setTriggerEvent] = useState<string>('review_posted')
@@ -111,6 +117,9 @@ export default function AutomationsPage() {
   const [delayMinutes, setDelayMinutes] = useState('0')
   const [delayUnit, setDelayUnit] = useState<'minutes' | 'hours' | 'days'>('minutes')
   const [isActive, setIsActive] = useState(true)
+  // Phase 2 Stage E — scope on the rule being edited.
+  const [scope, setScope] = useState<'organization' | 'workspace' | 'location'>('workspace')
+  const [scopeLocationId, setScopeLocationId] = useState<string>('')
   // Action config fields
   const [templateName, setTemplateName] = useState('')
   const [messageContent, setMessageContent] = useState('')
@@ -128,6 +137,17 @@ export default function AutomationsPage() {
     },
     { enabled: !!currentWorkspaceId }
   )
+
+  // Phase 2 Stage E — locations needed for the per-location scope picker
+  // and for showing "Override at: <location>" labels on rule cards.
+  const locationsQuery = trpc.location.list.useQuery(
+    { workspaceId: currentWorkspaceId! },
+    { enabled: !!currentWorkspaceId },
+  )
+  const locations = (locationsQuery.data ?? []) as Array<{
+    id: string
+    name: string
+  }>
 
   const statsQuery = trpc.automation.getStats.useQuery(
     {
@@ -189,6 +209,8 @@ export default function AutomationsPage() {
     setDelayMinutes('0')
     setDelayUnit('minutes')
     setIsActive(true)
+    setScope('workspace')
+    setScopeLocationId('')
     setTemplateName('')
     setMessageContent('')
     setTagName('')
@@ -216,6 +238,8 @@ export default function AutomationsPage() {
       setDelayUnit('minutes')
     }
     setIsActive(rule.isActive ?? true)
+    setScope((rule.scope as any) ?? 'workspace')
+    setScopeLocationId(rule.locationId ?? '')
     setTemplateName(rule.actionConfig?.templateName ?? '')
     setMessageContent(rule.actionConfig?.message ?? '')
     setTagName(rule.actionConfig?.tagName ?? '')
@@ -255,6 +279,12 @@ export default function AutomationsPage() {
 
   function handleSave() {
     if (!name.trim() || !currentWorkspaceId) return
+
+    if (scope === 'location' && !scopeLocationId) {
+      toast.error('Pick a location for this rule.')
+      return
+    }
+
     const payload = {
       workspaceId: currentWorkspaceId,
       membershipId: currentWorkspaceId,
@@ -264,6 +294,10 @@ export default function AutomationsPage() {
       delayMinutes: getDelayInMinutes(),
       actionConfig: buildActionConfig(),
       isActive,
+      // Phase 2 Stage E — scope. Server fills organizationId from the
+      // workspace when scope='organization', so we only send locationId.
+      scope,
+      locationId: scope === 'location' ? scopeLocationId : null,
     }
 
     if (editingRule) {
@@ -497,6 +531,70 @@ export default function AutomationsPage() {
                 </div>
               </div>
 
+              {/* Phase 2 Stage E — scope picker */}
+              <div className="space-y-2 rounded-lg border bg-muted/30 p-3">
+                <div>
+                  <Label>Where this rule applies</Label>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    Location rules override workspace; workspace rules override
+                    organization. Disabling at a higher scope blocks lower
+                    scopes.
+                  </p>
+                </div>
+                <Select
+                  value={scope}
+                  onValueChange={(v) => setScope(v as typeof scope)}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="organization">
+                      <span className="flex items-center gap-2">
+                        <Building2 className="size-4" />
+                        Organization (all workspaces)
+                      </span>
+                    </SelectItem>
+                    <SelectItem value="workspace">
+                      <span className="flex items-center gap-2">
+                        <Building className="size-4" />
+                        Workspace (default)
+                      </span>
+                    </SelectItem>
+                    <SelectItem value="location">
+                      <span className="flex items-center gap-2">
+                        <MapPin className="size-4" />
+                        Specific location
+                      </span>
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+
+                {scope === 'location' && (
+                  <Select
+                    value={scopeLocationId}
+                    onValueChange={setScopeLocationId}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Pick a location…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {locations.length === 0 ? (
+                        <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                          No locations in this workspace.
+                        </div>
+                      ) : (
+                        locations.map((loc) => (
+                          <SelectItem key={loc.id} value={loc.id}>
+                            {loc.name}
+                          </SelectItem>
+                        ))
+                      )}
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
+
               {/* Active toggle */}
               <div className="flex items-center justify-between rounded-lg border p-3">
                 <Label htmlFor="rule-active" className="text-sm">
@@ -578,6 +676,43 @@ export default function AutomationsPage() {
         </div>
       )}
 
+      {/*
+        Phase 2 Stage E — scope filter tabs.
+        Counts shown in parentheses for each scope.
+      */}
+      {Array.isArray(rules) && rules.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1 rounded-lg border bg-muted/30 p-1 text-sm">
+          {([
+            { value: 'all', label: 'All scopes' },
+            { value: 'organization', label: 'Organization' },
+            { value: 'workspace', label: 'Workspace' },
+            { value: 'location', label: 'Per-location' },
+          ] as const).map((tab) => {
+            const count =
+              tab.value === 'all'
+                ? rules.length
+                : rules.filter(
+                    (r: any) => (r.scope ?? 'workspace') === tab.value,
+                  ).length
+            return (
+              <button
+                key={tab.value}
+                type="button"
+                onClick={() => setScopeFilter(tab.value)}
+                className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+                  scopeFilter === tab.value
+                    ? 'bg-background shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                {tab.label}
+                <span className="ml-1.5 text-muted-foreground">({count})</span>
+              </button>
+            )
+          })}
+        </div>
+      )}
+
       {/* Rules list */}
       {rulesQuery.isLoading ? (
         <RulesSkeleton />
@@ -599,11 +734,25 @@ export default function AutomationsPage() {
         </div>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2">
-          {(Array.isArray(rules) ? rules : []).map((rule: any) => {
+          {(Array.isArray(rules) ? rules : [])
+            .filter((rule: any) =>
+              scopeFilter === 'all'
+                ? true
+                : (rule.scope ?? 'workspace') === scopeFilter,
+            )
+            .map((rule: any) => {
             const trigger = triggerMap[rule.triggerEvent]
             const action = actionMap[rule.actionType]
             const TriggerIcon = trigger?.icon ?? Zap
             const ActionIcon = action?.icon ?? Zap
+            const ruleScope = (rule.scope ?? 'workspace') as
+              | 'organization'
+              | 'workspace'
+              | 'location'
+            const scopeLocationName =
+              ruleScope === 'location'
+                ? locations.find((l) => l.id === rule.locationId)?.name
+                : null
             return (
               <Card
                 key={rule.id}
@@ -619,6 +768,28 @@ export default function AutomationsPage() {
                       onCheckedChange={() => handleToggle(rule)}
                       aria-label="Toggle rule"
                     />
+                  </div>
+                  {/* Phase 2 Stage E — scope badge */}
+                  <div className="mt-1 flex items-center gap-1.5">
+                    {ruleScope === 'organization' && (
+                      <Badge variant="outline" className="gap-1 text-[10px]">
+                        <Building2 className="size-3" /> Organization
+                      </Badge>
+                    )}
+                    {ruleScope === 'workspace' && (
+                      <Badge variant="outline" className="gap-1 text-[10px]">
+                        <Building className="size-3" /> Workspace
+                      </Badge>
+                    )}
+                    {ruleScope === 'location' && (
+                      <Badge
+                        variant="outline"
+                        className="gap-1 text-[10px] text-amber-700 border-amber-300 bg-amber-50 dark:bg-amber-950/30"
+                      >
+                        <MapPin className="size-3" />
+                        {scopeLocationName ?? 'Location override'}
+                      </Badge>
+                    )}
                   </div>
                 </CardHeader>
                 <CardContent>

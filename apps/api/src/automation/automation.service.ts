@@ -54,10 +54,39 @@ export class AutomationService {
       conditions?: Record<string, unknown>
       isActive?: boolean
       cooldownHours?: number | null
+      // Phase 2 Stage E — rule inheritance.
+      scope?: 'organization' | 'workspace' | 'location'
+      organizationId?: string | null
+      locationId?: string | null
+      overridesRuleId?: string | null
     },
     userId: string
   ) {
     await this.requireMembership(input.workspaceId, userId)
+
+    const scope = input.scope ?? 'workspace'
+    // For org-scope rules, default organizationId to the workspace's parent
+    // so the caller doesn't have to repeat themselves; explicit override
+    // still wins.
+    let resolvedOrgId = input.organizationId ?? null
+    if (scope === 'organization' && !resolvedOrgId) {
+      const ws = await this.db.query.workspaces.findFirst({
+        where: eq(workspaces.id, input.workspaceId),
+      })
+      resolvedOrgId = ws?.organizationId ?? null
+      if (!resolvedOrgId) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'Cannot create org-scope rule: workspace has no organization.',
+        })
+      }
+    }
+    if (scope === 'location' && !input.locationId) {
+      throw new TRPCError({
+        code: 'BAD_REQUEST',
+        message: 'locationId is required for location-scope rules.',
+      })
+    }
 
     const [rule] = await this.db
       .insert(automationRules)
@@ -72,6 +101,10 @@ export class AutomationService {
         conditions: input.conditions,
         isActive: input.isActive ?? true,
         cooldownHours: input.cooldownHours ?? null,
+        scope: scope as any,
+        organizationId: scope === 'organization' ? resolvedOrgId : null,
+        locationId: scope === 'location' ? input.locationId ?? null : null,
+        overridesRuleId: input.overridesRuleId ?? null,
       })
       .returning()
 
@@ -91,6 +124,10 @@ export class AutomationService {
       conditions?: Record<string, unknown>
       isActive?: boolean
       cooldownHours?: number | null
+      scope?: 'organization' | 'workspace' | 'location'
+      organizationId?: string | null
+      locationId?: string | null
+      overridesRuleId?: string | null
     },
     userId: string
   ) {
@@ -107,6 +144,47 @@ export class AutomationService {
     if (input.conditions !== undefined) setValues.conditions = input.conditions
     if (input.isActive !== undefined) setValues.isActive = input.isActive
     if (input.cooldownHours !== undefined) setValues.cooldownHours = input.cooldownHours
+
+    // Phase 2 Stage E — scope changes. Validate the same way create does.
+    if (input.scope !== undefined) {
+      setValues.scope = input.scope
+      if (input.scope === 'organization') {
+        let orgId = input.organizationId ?? rule.organizationId
+        if (!orgId) {
+          const ws = await this.db.query.workspaces.findFirst({
+            where: eq(workspaces.id, input.workspaceId),
+          })
+          orgId = ws?.organizationId ?? null
+        }
+        if (!orgId) {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: 'Cannot set rule to org scope: workspace has no organization.',
+          })
+        }
+        setValues.organizationId = orgId
+        setValues.locationId = null
+      } else if (input.scope === 'location') {
+        const locId = input.locationId ?? rule.locationId
+        if (!locId) {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: 'locationId is required for location-scope rules.',
+          })
+        }
+        setValues.locationId = locId
+        setValues.organizationId = null
+      } else {
+        // workspace
+        setValues.organizationId = null
+        setValues.locationId = null
+      }
+    } else {
+      // Scope unchanged but the caller may have edited org/location ids.
+      if (input.organizationId !== undefined) setValues.organizationId = input.organizationId
+      if (input.locationId !== undefined) setValues.locationId = input.locationId
+    }
+    if (input.overridesRuleId !== undefined) setValues.overridesRuleId = input.overridesRuleId
 
     const [updated] = await this.db
       .update(automationRules)
