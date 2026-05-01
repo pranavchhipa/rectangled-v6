@@ -52,3 +52,8 @@ export * from './validators/chain'
 
 // Journey v2 — Adaptive metric system
 export * from './constants/journey-metrics'
+
+// Phase 3 — Survey step types + helpers
+export * from './types/survey-steps'
+export * from './constants/survey-step-builders'
+export * from './constants/survey-branch-eval'
