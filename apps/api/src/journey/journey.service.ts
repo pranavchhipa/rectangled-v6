@@ -1,6 +1,6 @@
 import { Injectable, Inject } from '@nestjs/common'
 import { TRPCError } from '@trpc/server'
-import { eq, and, asc, desc, isNull } from 'drizzle-orm'
+import { eq, and, asc, desc, isNull, sql, inArray } from 'drizzle-orm'
 import { randomUUID } from 'crypto'
 import type { Database } from '@rectangled/db'
 import {
@@ -606,6 +606,187 @@ export class JourneyService {
     })
 
     return journey
+  }
+
+  // ─── Phase 2 Stage F: bulk operations ───────────────────────
+
+  /**
+   * Clone a source journey to N target locations. Each clone gets a fresh
+   * slug, fresh screen rows (copying the source's `metric_question` config),
+   * and is scoped to its target location.
+   *
+   * Permission model: caller must be a member of the source journey's
+   * workspace AND of every target location's workspace. The org membership
+   * gate (Phase 1) is the simplest way to enforce this — the caller must
+   * have access to all involved locations through a single org.
+   */
+  async bulkDeploy(
+    input: {
+      sourceJourneyId: string
+      targetLocationIds: string[]
+      customizePerLocation?: Array<{
+        locationId: string
+        name?: string
+        settings?: Partial<JourneySettings>
+      }>
+    },
+    userId: string,
+  ) {
+    if (input.targetLocationIds.length === 0) {
+      throw new TRPCError({
+        code: 'BAD_REQUEST',
+        message: 'targetLocationIds must include at least one location',
+      })
+    }
+    if (input.targetLocationIds.length > 100) {
+      throw new TRPCError({
+        code: 'BAD_REQUEST',
+        message: 'Max 100 locations per bulk deploy',
+      })
+    }
+
+    // Load source journey + verify access via its workspace.
+    const source = await this.findOrThrow(input.sourceJourneyId)
+    await this.requireMembership(source.workspaceId, userId)
+
+    // Load source's metric_question screen.
+    const sourceScreen = await this.db.query.journeyScreens.findFirst({
+      where: and(
+        eq(journeyScreens.journeyId, source.id),
+        eq(journeyScreens.screenType, 'metric_question' as any),
+      ),
+    })
+
+    // Load every target location with its workspaceId so we can verify
+    // membership and create the journey under the correct workspace.
+    const wantedLocs = await this.db
+      .select({
+        id: locations.id,
+        workspaceId: locations.workspaceId,
+      })
+      .from(locations)
+      .where(inArray(locations.id, input.targetLocationIds))
+    if (wantedLocs.length !== input.targetLocationIds.length) {
+      const missing = input.targetLocationIds.filter(
+        (id) => !wantedLocs.some((l) => l.id === id),
+      )
+      throw new TRPCError({
+        code: 'NOT_FOUND',
+        message: `Some target locations not found: ${missing.join(', ')}`,
+      })
+    }
+
+    // Verify caller has membership in every target workspace.
+    const uniqueWorkspaceIds = [...new Set(wantedLocs.map((l) => l.workspaceId))]
+    for (const wsId of uniqueWorkspaceIds) {
+      await this.requireMembership(wsId, userId)
+    }
+
+    const customMap = new Map(
+      (input.customizePerLocation ?? []).map((c) => [c.locationId, c]),
+    )
+
+    const deployedJourneys: Array<{
+      locationId: string
+      journeyId: string
+      slug: string
+    }> = []
+
+    for (const loc of wantedLocs) {
+      const custom = customMap.get(loc.id)
+      const slug = `j-${randomUUID().slice(0, 10)}`
+
+      const settings: JourneySettings = {
+        ...DEFAULT_JOURNEY_SETTINGS_V2,
+        ...(source.settings as JourneySettings),
+        ...(custom?.settings ?? {}),
+        thresholds: {
+          ...DEFAULT_JOURNEY_SETTINGS_V2.thresholds,
+          ...((source.settings as JourneySettings)?.thresholds ?? {}),
+          ...(custom?.settings?.thresholds ?? {}),
+        },
+      }
+
+      const [journey] = await this.db
+        .insert(journeys)
+        .values({
+          workspaceId: loc.workspaceId,
+          locationId: loc.id,
+          name: custom?.name ?? source.name,
+          slug,
+          settings,
+        })
+        .returning()
+
+      // Copy the source's metric_question screen, but auto-fill the per-location
+      // GBP review URL (each location has its own).
+      const sourceConfig = (sourceScreen?.config ?? {}) as Record<string, any>
+      const config = {
+        ...this.buildDefaultMetricQuestionConfig(),
+        ...sourceConfig,
+        // Per-location overrides go in here.
+      }
+      const url = await this.lookupGoogleReviewUrl(loc.workspaceId, loc.id)
+      if (url) {
+        config.redirectLinks = {
+          ...(config.redirectLinks ?? {}),
+          google: url,
+        }
+      }
+
+      await this.db.insert(journeyScreens).values({
+        journeyId: journey.id,
+        order: 0,
+        screenType: 'metric_question' as any,
+        title: sourceScreen?.title ?? 'How was your experience?',
+        subtitle: sourceScreen?.subtitle ?? null,
+        config: config as Record<string, unknown>,
+        branchConditions: [],
+      })
+
+      deployedJourneys.push({
+        locationId: loc.id,
+        journeyId: journey.id,
+        slug,
+      })
+    }
+
+    return { deployedJourneys }
+  }
+
+  /**
+   * Look up a set of journeys' slugs in one round-trip. Frontend uses this
+   * with the QR-generation API to build a print pack.
+   */
+  async getBulkSlugs(input: { journeyIds: string[] }, userId: string) {
+    if (input.journeyIds.length === 0) return []
+    if (input.journeyIds.length > 200) {
+      throw new TRPCError({ code: 'BAD_REQUEST', message: 'Max 200 journey IDs per call' })
+    }
+
+    const wanted = await this.db
+      .select({
+        id: journeys.id,
+        slug: journeys.slug,
+        name: journeys.name,
+        workspaceId: journeys.workspaceId,
+        locationId: journeys.locationId,
+      })
+      .from(journeys)
+      .where(inArray(journeys.id, input.journeyIds))
+
+    // Verify membership for every distinct workspace involved.
+    const distinctWs = [...new Set(wanted.map((r) => r.workspaceId))]
+    for (const wsId of distinctWs) {
+      await this.requireMembership(wsId, userId)
+    }
+
+    return wanted.map((r) => ({
+      journeyId: r.id,
+      slug: r.slug,
+      name: r.name,
+      locationId: r.locationId,
+    }))
   }
 
   private async requireMembership(workspaceId: string, userId: string) {
