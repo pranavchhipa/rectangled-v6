@@ -222,6 +222,10 @@ export class TrpcRouter implements OnModuleInit {
       if (req.headers.authorization) {
         headers.set('authorization', req.headers.authorization)
       }
+      // Phase 1 — forward Cookie so context can read current_organization_id.
+      if (req.headers.cookie) {
+        headers.set('cookie', req.headers.cookie)
+      }
 
       const request = new Request(fullUrl, {
         method: req.method,
@@ -229,17 +233,50 @@ export class TrpcRouter implements OnModuleInit {
         body,
       })
 
+      // Capture the context so we can read any procedure-queued cookies
+      // (organization.switch, etc.) after the response resolves.
+      let capturedCtx: ReturnType<typeof createTrpcContext> | undefined
       const response = await fetchRequestHandler({
         endpoint: '/trpc',
         req: request,
         router: runtimeRouter,
-        createContext: () => createTrpcContext(request),
+        createContext: () => {
+          capturedCtx = createTrpcContext(request)
+          return capturedCtx
+        },
       })
 
       res.status(response.status)
       response.headers.forEach((value: string, key: string) => {
         res.setHeader(key, value)
       })
+
+      // Phase 1 — flush queued Set-Cookie headers from procedures.
+      const queuedCookies = capturedCtx?.responseCookies ?? []
+      if (queuedCookies.length > 0) {
+        const formatted = queuedCookies.map((c) => {
+          if (c.clear) {
+            return `${c.name}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`
+          }
+          const parts = [
+            `${c.name}=${encodeURIComponent(c.value)}`,
+            'Path=/',
+            'HttpOnly',
+            'SameSite=Lax',
+          ]
+          if (process.env.NODE_ENV === 'production') parts.push('Secure')
+          if (c.maxAge != null) parts.push(`Max-Age=${c.maxAge}`)
+          return parts.join('; ')
+        })
+        // express's res.setHeader('Set-Cookie', ...) accepts string[] and merges.
+        const existing = res.getHeader('Set-Cookie')
+        const combined = ([] as string[]).concat(
+          Array.isArray(existing) ? existing : existing ? [String(existing)] : [],
+          formatted,
+        )
+        res.setHeader('Set-Cookie', combined)
+      }
+
       const text = await response.text()
       res.send(text)
     })
