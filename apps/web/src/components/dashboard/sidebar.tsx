@@ -20,6 +20,7 @@ import {
   AlertTriangle,
   Zap,
   Sparkles,
+  ClipboardList,
 } from 'lucide-react'
 import {
   Sidebar,
@@ -54,8 +55,12 @@ const navItems = [
   { label: 'Escalations', href: '/dashboard/escalations', icon: AlertTriangle },
   { label: 'Analytics & Reports', href: '/dashboard/analytics', icon: BarChart3 },
   { label: 'AI Studio', href: '/dashboard/rais', icon: Sparkles },
-  { label: 'Journeys', href: '/dashboard/journeys', icon: Route },
+  // Phase 3 Stage F — unified surveys list (replaces Journeys + TruForms).
+  { label: 'Surveys', href: '/dashboard/surveys', icon: ClipboardList },
   { label: 'Post-Review Actions', href: '/dashboard/automations', icon: Zap },
+  // Legacy entries kept for now — the underlying Phase 5 cleanup left
+  // those pages broken, but removing the links is its own UX call.
+  { label: 'Journeys', href: '/dashboard/journeys', icon: Route },
   { label: 'TruForms', href: '/dashboard/truforms', icon: FileText },
   { label: 'Coupons', href: '/dashboard/coupons', icon: Ticket },
 
