@@ -1,4 +1,4 @@
-import { Injectable, Inject } from '@nestjs/common'
+import { Injectable, Inject, Logger } from '@nestjs/common'
 import { TRPCError } from '@trpc/server'
 import { eq, and, gte, lte, like, or, sql, desc, isNotNull } from 'drizzle-orm'
 import type { Database } from '@rectangled/db'
@@ -16,15 +16,20 @@ import { GbpAdapter, gbpStarRatingToNumber } from '../connector/adapters/gbp.ada
 import { ZomatoAdapter } from '../connector/adapters/zomato.adapter'
 import { AIResponseService } from './ai-response.service'
 import { ConnectorService } from '../connector/connector.service'
+import { InternalJobsService } from '../internal-jobs/internal-jobs.service'
+import { AutomationService } from '../automation/automation.service'
 
 @Injectable()
 export class ReviewService {
+  private readonly logger = new Logger(ReviewService.name)
   constructor(
     @Inject('DATABASE') private readonly db: Database,
     private readonly gbpAdapter: GbpAdapter,
     private readonly zomatoAdapter: ZomatoAdapter,
     private readonly aiResponseService: AIResponseService,
-    private readonly connectorService: ConnectorService
+    private readonly connectorService: ConnectorService,
+    private readonly internalJobs: InternalJobsService,
+    private readonly automation: AutomationService,
   ) {}
 
   /**
@@ -233,7 +238,49 @@ export class ReviewService {
             .returning({ id: reviews.id })
             .catch(() => [] as Array<{ id: string }>)
 
-          if (inserted && inserted.length > 0) synced++
+          if (inserted && inserted.length > 0) {
+            synced++
+
+            // Phase 0 Fix 3: enqueue async escalation evaluation. This used
+            // to run inline (or rather, didn't run at all because the call
+            // site was missing). Pushing it onto internal_jobs decouples
+            // review ingestion from escalation engine bugs and gives us
+            // retry semantics for free.
+            try {
+              await this.internalJobs.enqueue('escalation.evaluate', {
+                reviewId: inserted[0].id,
+              })
+            } catch (jobErr) {
+              // Never fail the sync because of a queue insert failure.
+              this.logger.warn?.(
+                `Failed to enqueue escalation.evaluate for review ${inserted[0].id}: ${
+                  jobErr instanceof Error ? jobErr.message : 'unknown'
+                }`,
+              )
+            }
+
+            // Phase 0 Fix 13a wired up the automation worker; here we emit
+            // the matching trigger event so any rules listening for newly
+            // posted reviews actually fire.
+            try {
+              await this.automation.triggerAutomation({
+                workspaceId: instance.workspaceId,
+                event: 'review_posted',
+                reviewId: inserted[0].id,
+              })
+              await this.automation.triggerAutomation({
+                workspaceId: instance.workspaceId,
+                event: 'review_posted_google',
+                reviewId: inserted[0].id,
+              })
+            } catch (autoErr) {
+              this.logger.warn?.(
+                `Failed to fire automation triggers for review ${inserted[0].id}: ${
+                  autoErr instanceof Error ? autoErr.message : 'unknown'
+                }`,
+              )
+            }
+          }
 
           // For brand new reviews with an existing GBP reply, seed a posted
           // reviewResponses row so the inbox knows it's already replied.

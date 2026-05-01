@@ -1,6 +1,6 @@
-import { Injectable, Inject } from '@nestjs/common'
+import { Injectable, Inject, Logger } from '@nestjs/common'
 import { TRPCError } from '@trpc/server'
-import { eq, and, desc, sql, lte, gte, isNotNull } from 'drizzle-orm'
+import { eq, and, desc, sql, lte, gte, isNotNull, inArray, isNull } from 'drizzle-orm'
 import type { Database } from '@rectangled/db'
 import {
   escalationRules,
@@ -9,10 +9,14 @@ import {
   members,
   customers,
   locations,
+  notifications,
 } from '@rectangled/db'
+
+const ACTIVE_STATUSES = ['open', 'in_progress', 'paused'] as const
 
 @Injectable()
 export class CxRoutingService {
+  private readonly logger = new Logger(CxRoutingService.name)
   constructor(@Inject('DATABASE') private readonly db: Database) {}
 
   // ─── Escalation Rules ──────────────────────────────────
@@ -129,6 +133,19 @@ export class CxRoutingService {
 
   // ─── Review Evaluation ─────────────────────────────────
 
+  /**
+   * Phase 0 Fix 3 — entry point for the internal-jobs handler. Loads the
+   * review by id and delegates to evaluateReview(). If the review has been
+   * deleted between enqueue and execution, no-ops silently.
+   */
+  async evaluateReviewById(reviewId: string) {
+    const review = await this.db.query.reviews.findFirst({
+      where: eq(reviews.id, reviewId),
+    })
+    if (!review) return null
+    return this.evaluateReview(review)
+  }
+
   async evaluateReview(review: typeof reviews.$inferSelect) {
     const activeRules = await this.db
       .select()
@@ -175,12 +192,33 @@ export class CxRoutingService {
       if (matched) {
         // Determine assignee — specific user or round-robin by role
         let assignToUserId = rule.assignToUserId
+        let routingFallbackTriggered = false
 
         if (!assignToUserId && rule.assignToRole) {
           assignToUserId = await this.pickRoundRobinUser(
             review.workspaceId,
             rule.assignToRole,
           )
+
+          // Phase 0 Fix 11: routing fallback. If the configured role has no
+          // available members, route to the workspace owner so the case
+          // doesn't sit unassigned and breach silently. Emit a notification
+          // so the team knows the routing rule needs attention.
+          if (!assignToUserId) {
+            const owner = await this.db
+              .select({ userId: members.userId })
+              .from(members)
+              .where(
+                and(
+                  eq(members.workspaceId, review.workspaceId),
+                  sql`${members.role} = 'owner'`,
+                  isNotNull(members.acceptedAt),
+                ),
+              )
+              .limit(1)
+            assignToUserId = owner[0]?.userId ?? null
+            routingFallbackTriggered = true
+          }
         }
 
         const slaDeadline = rule.slaMinutes
@@ -202,9 +240,42 @@ export class CxRoutingService {
             priority: rule.priority,
             slaDeadline,
             ticketNumber,
-            activityLog: [{ text: 'Ticket created via escalation rule', authorId: 'system', authorName: 'System', timestamp: new Date().toISOString() }],
+            activityLog: [
+              {
+                text: routingFallbackTriggered
+                  ? `Ticket created via rule "${rule.name}". Routing fallback: role "${rule.assignToRole}" has no members; routed to workspace owner.`
+                  : 'Ticket created via escalation rule',
+                authorId: 'system',
+                authorName: 'System',
+                timestamp: new Date().toISOString(),
+              },
+            ],
           })
           .returning()
+
+        if (routingFallbackTriggered && esc && assignToUserId) {
+          // Notify the owner so they know the rule's role configuration is broken.
+          await this.db
+            .insert(notifications)
+            .values({
+              workspaceId: review.workspaceId,
+              userId: assignToUserId,
+              type: 'routing_failed' as any,
+              title: 'Escalation routing fallback triggered',
+              message: `Rule "${rule.name}" routes to role "${rule.assignToRole}" but no members hold that role. Ticket #${ticketNumber} routed to you.`,
+              metadata: {
+                escalationId: esc.id,
+                ticketNumber,
+                ruleId: rule.id,
+                originalRole: rule.assignToRole,
+              },
+            })
+            .catch((err) => {
+              this.logger.warn(
+                `Failed to insert routing_failed notification: ${err instanceof Error ? err.message : 'unknown'}`,
+              )
+            })
+        }
 
         return esc
       }
@@ -451,6 +522,12 @@ export class CxRoutingService {
 
   // ─── SLA Breach Check (for cron) ──────────────────────
 
+  /**
+   * Phase 0 Fix 5 — SLA breach check now considers paused time.
+   * Effective deadline = sla_deadline + total_pause_seconds. Cases currently
+   * paused are excluded — pause time is recorded only after resume so we
+   * don't double-count.
+   */
   async checkSlaBreaches() {
     const now = new Date()
 
@@ -461,13 +538,302 @@ export class CxRoutingService {
         and(
           eq(escalations.slaBreached, false),
           isNotNull(escalations.slaDeadline),
-          lte(escalations.slaDeadline, now),
+          // effective deadline = slaDeadline + totalPauseSeconds
+          sql`(${escalations.slaDeadline} + (${escalations.totalPauseSeconds} || ' seconds')::interval) <= ${now}`,
           sql`${escalations.status} IN ('open', 'in_progress')`,
         ),
       )
       .returning()
 
     return { breachedCount: breached.length, escalationIds: breached.map((e) => e.id) }
+  }
+
+  // ─── Phase 0 Fix 5: SLA pause / resume ────────────────
+
+  async pauseEscalation(
+    input: { workspaceId: string; escalationId: string; reason?: string },
+    userId: string,
+    userName: string,
+  ) {
+    await this.requireMembership(input.workspaceId, userId)
+    const existing = await this.db.query.escalations.findFirst({
+      where: and(
+        eq(escalations.id, input.escalationId),
+        eq(escalations.workspaceId, input.workspaceId),
+      ),
+    })
+    if (!existing) {
+      throw new TRPCError({ code: 'NOT_FOUND', message: 'Escalation not found' })
+    }
+    if (existing.status === 'paused') {
+      throw new TRPCError({ code: 'BAD_REQUEST', message: 'Already paused' })
+    }
+    if (existing.status === 'resolved' || existing.status === 'closed' || existing.status === 'expired') {
+      throw new TRPCError({ code: 'BAD_REQUEST', message: 'Cannot pause a terminal-state case' })
+    }
+
+    const now = new Date()
+    const log = ((existing.activityLog ?? []) as Array<{ text: string; authorId: string; authorName: string; timestamp: string }>)
+    const reason = input.reason?.trim() || 'no reason given'
+    log.push({
+      text: `Paused: ${reason}`,
+      authorId: userId,
+      authorName: userName,
+      timestamp: now.toISOString(),
+    })
+
+    const [updated] = await this.db
+      .update(escalations)
+      .set({
+        status: 'paused',
+        pausedAt: now,
+        pausedReason: reason.slice(0, 255),
+        activityLog: log,
+        updatedAt: now,
+      })
+      .where(eq(escalations.id, input.escalationId))
+      .returning()
+    return updated
+  }
+
+  async resumeEscalation(
+    input: { workspaceId: string; escalationId: string },
+    userId: string,
+    userName: string,
+  ) {
+    await this.requireMembership(input.workspaceId, userId)
+    const existing = await this.db.query.escalations.findFirst({
+      where: and(
+        eq(escalations.id, input.escalationId),
+        eq(escalations.workspaceId, input.workspaceId),
+      ),
+    })
+    if (!existing) {
+      throw new TRPCError({ code: 'NOT_FOUND', message: 'Escalation not found' })
+    }
+    if (existing.status !== 'paused') {
+      throw new TRPCError({ code: 'BAD_REQUEST', message: 'Not paused' })
+    }
+
+    const now = new Date()
+    const pausedAt = existing.pausedAt ?? now
+    const elapsedSeconds = Math.max(0, Math.floor((now.getTime() - pausedAt.getTime()) / 1000))
+    const newTotal = (existing.totalPauseSeconds ?? 0) + elapsedSeconds
+
+    const log = ((existing.activityLog ?? []) as Array<{ text: string; authorId: string; authorName: string; timestamp: string }>)
+    log.push({
+      text: `Resumed (paused ${formatDuration(elapsedSeconds)})`,
+      authorId: userId,
+      authorName: userName,
+      timestamp: now.toISOString(),
+    })
+
+    const [updated] = await this.db
+      .update(escalations)
+      .set({
+        status: 'in_progress',
+        pausedAt: null,
+        pausedReason: null,
+        totalPauseSeconds: newTotal,
+        activityLog: log,
+        updatedAt: now,
+      })
+      .where(eq(escalations.id, input.escalationId))
+      .returning()
+    return updated
+  }
+
+  // ─── Phase 0 Fix 6: manual escalation with dedupe ─────
+
+  /**
+   * Create a manual escalation (no rule). Idempotent — returns the existing
+   * open case if one already exists for the same source. Combined with the
+   * partial unique index in migration 0004, the dashboard's "Escalate"
+   * button cannot spawn duplicates.
+   */
+  async escalateManual(
+    input: {
+      workspaceId: string
+      reviewId?: string
+      customerId?: string
+      locationId?: string
+      priority?: 'low' | 'medium' | 'high' | 'critical'
+      assignToUserId?: string
+      slaMinutes?: number
+      notes?: string
+    },
+    userId: string,
+    userName: string,
+  ) {
+    await this.requireMembership(input.workspaceId, userId)
+
+    if (!input.reviewId && !input.customerId) {
+      throw new TRPCError({
+        code: 'BAD_REQUEST',
+        message: 'Manual escalation requires either reviewId or customerId',
+      })
+    }
+
+    // Dedupe: look up an existing open manual case for this source.
+    const existing = await this.db
+      .select()
+      .from(escalations)
+      .where(
+        and(
+          eq(escalations.workspaceId, input.workspaceId),
+          isNull(escalations.ruleId),
+          inArray(escalations.status, [...ACTIVE_STATUSES]),
+          input.reviewId
+            ? eq(escalations.reviewId, input.reviewId)
+            : isNull(escalations.reviewId),
+          input.reviewId
+            ? sql`true`
+            : input.customerId
+              ? eq(escalations.customerId, input.customerId)
+              : sql`false`,
+        ),
+      )
+      .limit(1)
+
+    if (existing.length > 0) {
+      return { escalation: existing[0]!, created: false }
+    }
+
+    const ticketNumber = await this.generateTicketNumber(input.workspaceId)
+    const slaDeadline = input.slaMinutes
+      ? new Date(Date.now() + input.slaMinutes * 60 * 1000)
+      : null
+
+    const [esc] = await this.db
+      .insert(escalations)
+      .values({
+        workspaceId: input.workspaceId,
+        ruleId: null,
+        reviewId: input.reviewId ?? null,
+        customerId: input.customerId ?? null,
+        locationId: input.locationId ?? null,
+        assignedToUserId: input.assignToUserId ?? null,
+        status: 'open',
+        priority: input.priority ?? 'medium',
+        slaDeadline,
+        ticketNumber,
+        notes: input.notes ?? null,
+        activityLog: [
+          {
+            text: `Manually escalated by ${userName}${input.notes ? `: ${input.notes}` : ''}`,
+            authorId: userId,
+            authorName: userName,
+            timestamp: new Date().toISOString(),
+          },
+        ],
+      })
+      .returning()
+
+    return { escalation: esc!, created: true }
+  }
+
+  // ─── Phase 0 Fix 12: bulk operations ──────────────────
+
+  async bulkAssign(
+    input: { workspaceId: string; ids: string[]; assignedToUserId: string | null },
+    userId: string,
+  ) {
+    await this.requireMembership(input.workspaceId, userId)
+    if (input.ids.length === 0) return { updated: 0 }
+    if (input.ids.length > 100) {
+      throw new TRPCError({ code: 'BAD_REQUEST', message: 'Max 100 IDs per bulk call' })
+    }
+    const updated = await this.db
+      .update(escalations)
+      .set({ assignedToUserId: input.assignedToUserId, updatedAt: new Date() })
+      .where(
+        and(
+          eq(escalations.workspaceId, input.workspaceId),
+          inArray(escalations.id, input.ids),
+        ),
+      )
+      .returning({ id: escalations.id })
+    return { updated: updated.length }
+  }
+
+  async bulkResolve(
+    input: { workspaceId: string; ids: string[]; note?: string },
+    userId: string,
+  ) {
+    await this.requireMembership(input.workspaceId, userId)
+    if (input.ids.length === 0) return { updated: 0 }
+    if (input.ids.length > 100) {
+      throw new TRPCError({ code: 'BAD_REQUEST', message: 'Max 100 IDs per bulk call' })
+    }
+    const updated = await this.db
+      .update(escalations)
+      .set({
+        status: 'resolved',
+        resolvedAt: new Date(),
+        resolvedByUserId: userId,
+        notes: input.note ?? sql`${escalations.notes}`,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(escalations.workspaceId, input.workspaceId),
+          inArray(escalations.id, input.ids),
+        ),
+      )
+      .returning({ id: escalations.id })
+    return { updated: updated.length }
+  }
+
+  async bulkClose(
+    input: { workspaceId: string; ids: string[]; note?: string },
+    userId: string,
+  ) {
+    await this.requireMembership(input.workspaceId, userId)
+    if (input.ids.length === 0) return { updated: 0 }
+    if (input.ids.length > 100) {
+      throw new TRPCError({ code: 'BAD_REQUEST', message: 'Max 100 IDs per bulk call' })
+    }
+    const updated = await this.db
+      .update(escalations)
+      .set({
+        status: 'closed',
+        notes: input.note ?? sql`${escalations.notes}`,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(escalations.workspaceId, input.workspaceId),
+          inArray(escalations.id, input.ids),
+        ),
+      )
+      .returning({ id: escalations.id })
+    return { updated: updated.length }
+  }
+
+  async bulkUpdatePriority(
+    input: {
+      workspaceId: string
+      ids: string[]
+      priority: 'low' | 'medium' | 'high' | 'critical'
+    },
+    userId: string,
+  ) {
+    await this.requireMembership(input.workspaceId, userId)
+    if (input.ids.length === 0) return { updated: 0 }
+    if (input.ids.length > 100) {
+      throw new TRPCError({ code: 'BAD_REQUEST', message: 'Max 100 IDs per bulk call' })
+    }
+    const updated = await this.db
+      .update(escalations)
+      .set({ priority: input.priority, updatedAt: new Date() })
+      .where(
+        and(
+          eq(escalations.workspaceId, input.workspaceId),
+          inArray(escalations.id, input.ids),
+        ),
+      )
+      .returning({ id: escalations.id })
+    return { updated: updated.length }
   }
 
   // ─── Helpers ───────────────────────────────────────────
@@ -585,4 +951,15 @@ export class CxRoutingService {
 
     return membership
   }
+}
+
+/** Render a number of seconds as "Xh Ym" / "Xm Ys" / "Xs" — used in pause/resume activity log lines. */
+function formatDuration(totalSeconds: number): string {
+  if (totalSeconds < 60) return `${totalSeconds}s`
+  const hours = Math.floor(totalSeconds / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  if (hours > 0) return `${hours}h ${minutes}m`
+  const seconds = totalSeconds % 60
+  if (minutes > 0 && seconds > 0) return `${minutes}m ${seconds}s`
+  return `${minutes}m`
 }

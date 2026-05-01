@@ -93,7 +93,14 @@ export const triggerTypeEnum = pgEnum('trigger_type', [
   'manual',
 ])
 export const escalationPriorityEnum = pgEnum('escalation_priority', ['low', 'medium', 'high', 'critical'])
-export const escalationStatusEnum = pgEnum('escalation_status', ['open', 'in_progress', 'resolved', 'expired', 'closed'])
+export const escalationStatusEnum = pgEnum('escalation_status', [
+  'open',
+  'in_progress',
+  'resolved',
+  'expired',
+  'closed',
+  'paused', // Phase 0 Fix 5
+])
 
 // Appointment enums
 export const appointmentStatusEnum = pgEnum('appointment_status', ['scheduled', 'completed', 'cancelled', 'no_show'])
@@ -110,6 +117,7 @@ export const notificationTypeEnum = pgEnum('notification_type', [
   'team_invite',
   'journey_response',
   'system',
+  'routing_failed', // Phase 0 Fix 11
 ])
 
 // Report enums

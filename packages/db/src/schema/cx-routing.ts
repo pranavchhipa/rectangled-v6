@@ -68,6 +68,12 @@ export const escalations = pgTable('escalations', {
   priority: escalationPriorityEnum('priority').default('medium').notNull(),
   slaDeadline: timestamp('sla_deadline'),
   slaBreached: boolean('sla_breached').default(false).notNull(),
+  // Phase 0 Fix 5 — SLA pause tracking. paused_at is set on every
+  // open→paused transition, cleared on paused→open. total_pause_seconds
+  // accumulates and is added to slaDeadline for effective-deadline checks.
+  pausedAt: timestamp('paused_at'),
+  pausedReason: varchar('paused_reason', { length: 255 }),
+  totalPauseSeconds: integer('total_pause_seconds').default(0).notNull(),
   notes: text('notes'),
   ticketNumber: integer('ticket_number'),
   activityLog: jsonb('activity_log').$type<Array<{ text: string; authorId: string; authorName: string; timestamp: string }>>().default([]).notNull(),

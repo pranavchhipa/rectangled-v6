@@ -82,5 +82,96 @@ export function createCxRoutingRouter(service: CxRoutingService) {
       .query(async ({ input, ctx }) => {
         return service.getStats(input, ctx.user.sub)
       }),
+
+    // ─── Phase 0 Fix 5: SLA pause/resume ─────
+    pauseEscalation: protectedProcedure
+      .input(
+        z.object({
+          workspaceId: z.string().uuid(),
+          escalationId: z.string().uuid(),
+          reason: z.string().max(255).optional(),
+        }),
+      )
+      .mutation(async ({ input, ctx }) => {
+        return service.pauseEscalation(input, ctx.user.sub, ctx.user.email ?? 'Unknown')
+      }),
+
+    resumeEscalation: protectedProcedure
+      .input(
+        z.object({
+          workspaceId: z.string().uuid(),
+          escalationId: z.string().uuid(),
+        }),
+      )
+      .mutation(async ({ input, ctx }) => {
+        return service.resumeEscalation(input, ctx.user.sub, ctx.user.email ?? 'Unknown')
+      }),
+
+    // ─── Phase 0 Fix 6: manual escalation ────
+    escalateManual: protectedProcedure
+      .input(
+        z.object({
+          workspaceId: z.string().uuid(),
+          reviewId: z.string().uuid().optional(),
+          customerId: z.string().uuid().optional(),
+          locationId: z.string().uuid().optional(),
+          priority: z.enum(['low', 'medium', 'high', 'critical']).optional(),
+          assignToUserId: z.string().uuid().optional(),
+          slaMinutes: z.number().int().min(0).optional(),
+          notes: z.string().max(2000).optional(),
+        }),
+      )
+      .mutation(async ({ input, ctx }) => {
+        return service.escalateManual(input, ctx.user.sub, ctx.user.email ?? 'Unknown')
+      }),
+
+    // ─── Phase 0 Fix 12: bulk operations ─────
+    bulkAssign: protectedProcedure
+      .input(
+        z.object({
+          workspaceId: z.string().uuid(),
+          ids: z.array(z.string().uuid()).max(100),
+          assignedToUserId: z.string().uuid().nullable(),
+        }),
+      )
+      .mutation(async ({ input, ctx }) => {
+        return service.bulkAssign(input, ctx.user.sub)
+      }),
+
+    bulkResolve: protectedProcedure
+      .input(
+        z.object({
+          workspaceId: z.string().uuid(),
+          ids: z.array(z.string().uuid()).max(100),
+          note: z.string().max(2000).optional(),
+        }),
+      )
+      .mutation(async ({ input, ctx }) => {
+        return service.bulkResolve(input, ctx.user.sub)
+      }),
+
+    bulkClose: protectedProcedure
+      .input(
+        z.object({
+          workspaceId: z.string().uuid(),
+          ids: z.array(z.string().uuid()).max(100),
+          note: z.string().max(2000).optional(),
+        }),
+      )
+      .mutation(async ({ input, ctx }) => {
+        return service.bulkClose(input, ctx.user.sub)
+      }),
+
+    bulkUpdatePriority: protectedProcedure
+      .input(
+        z.object({
+          workspaceId: z.string().uuid(),
+          ids: z.array(z.string().uuid()).max(100),
+          priority: z.enum(['low', 'medium', 'high', 'critical']),
+        }),
+      )
+      .mutation(async ({ input, ctx }) => {
+        return service.bulkUpdatePriority(input, ctx.user.sub)
+      }),
   })
 }
