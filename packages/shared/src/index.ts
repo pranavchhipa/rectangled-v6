@@ -4,6 +4,9 @@ export * from './types/user'
 export * from './types/connector'
 export * from './types/auth'
 
+// Hotfix §4 — public-page branding shape
+export * from './types/branding'
+
 // Constants
 export * from './constants/roles'
 export * from './constants/industries'

@@ -10,6 +10,8 @@ import { Input } from '@/components/ui/input'
 import { Card } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Label } from '@/components/ui/label'
+import { BrandedPublicLayout } from '@/components/public/branded-layout'
+import type { PublicBranding } from '@rectangled/shared'
 
 function FormSkeleton() {
   return (
@@ -241,28 +243,31 @@ export default function PublicFormPage() {
     )
   }
 
-  const form = formQuery.data
-  const brandColor = form.config?.brandColor ?? '#6366f1'
+  const form = formQuery.data as typeof formQuery.data & {
+    branding: PublicBranding
+  }
+  // Hotfix §4 — location-level branding takes precedence over the
+  // legacy per-survey form.config.brandColor. The latter is preserved
+  // server-side for back-compat but ignored at render.
+  const branding = form.branding
+  const brandColor = branding.brandColor
   const thankYouMessage =
     form.config?.thankYouMessage ?? 'Thank you for your feedback!'
 
   if (submitted) {
     return (
-      <div className="flex min-h-screen items-center justify-center p-4">
-        <Card className="w-full max-w-md p-8 text-center">
+      <BrandedPublicLayout branding={branding}>
+        <Card className="p-8 text-center">
           <div
             className="mx-auto flex size-16 items-center justify-center rounded-full"
             style={{ backgroundColor: brandColor + '20' }}
           >
-            <CheckCircle2
-              className="size-8"
-              style={{ color: brandColor }}
-            />
+            <CheckCircle2 className="size-8" style={{ color: brandColor }} />
           </div>
           <h2 className="mt-6 text-2xl font-semibold">Thank You!</h2>
           <p className="mt-2 text-muted-foreground">{thankYouMessage}</p>
         </Card>
-      </div>
+      </BrandedPublicLayout>
     )
   }
 
@@ -281,14 +286,11 @@ export default function PublicFormPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center p-4">
-      <Card className="w-full max-w-md p-6 sm:p-8">
-        {/* Brand bar */}
-        <div
-          className="mb-6 h-1.5 w-12 rounded-full"
-          style={{ backgroundColor: brandColor }}
-        />
-
+    <BrandedPublicLayout branding={branding}>
+      <Card className="p-6 sm:p-8">
+        {/* Form name still surfaces here — the branded header above
+            shows the BUSINESS name (location → workspace), this shows
+            the SURVEY name (e.g. "NPS Q4 2025"). Different concepts. */}
         <h1 className="mb-2 text-xl font-bold sm:text-2xl">{form.name}</h1>
         <p className="mb-6 text-sm text-muted-foreground">
           We value your feedback. It only takes a moment.
@@ -388,10 +390,7 @@ export default function PublicFormPage() {
           )}
         </Button>
 
-        <p className="mt-4 text-center text-[11px] text-muted-foreground">
-          Powered by rectangled.io
-        </p>
       </Card>
-    </div>
+    </BrandedPublicLayout>
   )
 }

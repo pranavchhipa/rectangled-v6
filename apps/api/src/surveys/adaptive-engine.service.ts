@@ -14,11 +14,13 @@ import {
 } from '@rectangled/db'
 import {
   type SurveyMetric,
+  type PublicBranding,
   isPositive as isPositiveScore,
   isScoreInRange,
   pickRandomMetric,
   METRIC_DEFAULT_THRESHOLDS,
 } from '@rectangled/shared'
+import { resolvePublicBranding } from './branding.helper'
 
 /**
  * Hotfix PRD §2 — Adaptive Customer Journey engine.
@@ -86,10 +88,16 @@ export class AdaptiveEngineService {
       .values({ surveyId: survey.id, sessionId, metadata: {} })
       .onConflictDoNothing()
 
-    const businessName = await this.resolveBusinessName(
+    // Hotfix §4 — branding resolution (location → workspace → defaults).
+    // The previous `resolveBusinessName` is subsumed by branding;
+    // workspaceName from the resolved object plays the same role for
+    // the {businessName} interpolation token below.
+    const branding = await resolvePublicBranding(
+      this.db,
       survey.workspaceId,
       survey.locationId,
     )
+    const businessName = branding.workspaceName
 
     const platform =
       (settings.reviewPlatform as 'google' | 'zomato' | 'swiggy') ?? 'google'
@@ -99,6 +107,7 @@ export class AdaptiveEngineService {
       sessionId,
       template: 'adaptive',
       businessName,
+      branding,
       // The threshold is intentionally absent. Do not add it.
       question: this.questionFor(metricShown, settings),
       scaleLabels: this.scaleLabelsFor(metricShown, settings),
@@ -522,7 +531,16 @@ export interface AdaptiveInitialState {
   surveyId: string
   sessionId: string
   template: 'adaptive'
+  /** Workspace name. Used for `{businessName}` interpolation in copy. Same as `branding.workspaceName`. */
   businessName: string
+  /**
+   * Hotfix §4 — full branding payload (location → workspace → defaults
+   * + white-label tagline). The `/j/{slug}` renderer renders the
+   * branded header from this; the legacy shape returned by
+   * `SurveyEngineService.getPublicLegacyJourney` also includes branding
+   * via the same helper.
+   */
+  branding: PublicBranding
   metricShown: SurveyMetric
   question: string
   scaleLabels: { low: string; high: string }

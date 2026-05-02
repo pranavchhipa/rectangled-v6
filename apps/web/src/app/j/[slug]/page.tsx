@@ -6,6 +6,8 @@ import { Loader2, CheckCircle2, MessageSquare, Send, Copy, ExternalLink, Eye } f
 import { trpc } from '@/lib/trpc'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
+import { BrandedPublicLayout } from '@/components/public/branded-layout'
+import type { PublicBranding } from '@rectangled/shared'
 
 type Metric = 'csat' | 'nps' | 'ces' | 'nev' | 'cli'
 type FlowState =
@@ -74,6 +76,9 @@ export default function PublicJourneyPage() {
         name: string
         locationId: string | null
         settings: { reviewPlatform: 'google' | 'zomato' | 'swiggy' | string }
+        // Hotfix §4 — server-resolved branding (location → workspace
+        // → defaults). Renderer holds across the whole flow.
+        branding: PublicBranding
         screen: {
           id: string
           metricShown: Metric
@@ -256,76 +261,75 @@ export default function PublicJourneyPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white flex flex-col">
-      {isPreview && (
-        <div className="bg-amber-100 border-b border-amber-200 px-4 py-2 text-center text-xs text-amber-900">
-          <Eye className="mr-1 inline-block size-3.5" />
-          <strong>Preview mode</strong> · responses are NOT saved · close this
-          tab to exit
-        </div>
-      )}
-      <div className="flex-1 flex items-center justify-center p-4">
-        <div className="w-full max-w-md space-y-6">
-          {flowState === 'asking_metric' && (
-            <MetricInput
-              metric={screen.metricShown}
-              question={screen.question}
-              scaleLabels={screen.scaleLabels}
-              range={metricRange!}
-              isSubmitting={isSubmitting}
-              onSubmit={submitMetric}
-            />
-          )}
+    <BrandedPublicLayout
+      branding={journey.branding}
+      topSlot={
+        isPreview ? (
+          <div className="border-b border-amber-200 bg-amber-100 px-4 py-2 text-center text-xs text-amber-900">
+            <Eye className="mr-1 inline-block size-3.5" />
+            <strong>Preview mode</strong> · responses are NOT saved · close
+            this tab to exit
+          </div>
+        ) : undefined
+      }
+    >
+      <div className="space-y-6">
+        {flowState === 'asking_metric' && (
+          <MetricInput
+            metric={screen.metricShown}
+            question={screen.question}
+            scaleLabels={screen.scaleLabels}
+            range={metricRange!}
+            isSubmitting={isSubmitting}
+            onSubmit={submitMetric}
+          />
+        )}
 
-          {flowState === 'happy_review_prompt' && (
-            <HappyPrompt
-              copy={screen.reviewPromptCopy}
-              isSubmitting={isSubmitting}
-              onYes={handleHappyYes}
-              onNo={handleHappyNo}
-              reviewTemplate={screen.reviewTemplate}
-              redirectUrl={redirectUrl}
-            />
-          )}
+        {flowState === 'happy_review_prompt' && (
+          <HappyPrompt
+            copy={screen.reviewPromptCopy}
+            isSubmitting={isSubmitting}
+            onYes={handleHappyYes}
+            onNo={handleHappyNo}
+            reviewTemplate={screen.reviewTemplate}
+            redirectUrl={redirectUrl}
+          />
+        )}
 
-          {flowState === 'unhappy_feedback' && (
-            <UnhappyFeedback
-              aspectTags={screen.aspectTags}
-              selectedAspects={selectedAspects}
-              onToggleAspect={(tag) =>
-                setSelectedAspects((prev) =>
-                  prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag],
-                )
-              }
-              feedbackText={feedbackText}
-              onFeedbackChange={setFeedbackText}
-              feedbackPlaceholder={screen.feedbackPlaceholder}
-              name={name}
-              phone={phone}
-              email={email}
-              onNameChange={setName}
-              onPhoneChange={setPhone}
-              onEmailChange={setEmail}
-              isSubmitting={isSubmitting}
-              onSubmit={submitUnhappy}
-            />
-          )}
+        {flowState === 'unhappy_feedback' && (
+          <UnhappyFeedback
+            aspectTags={screen.aspectTags}
+            selectedAspects={selectedAspects}
+            onToggleAspect={(tag) =>
+              setSelectedAspects((prev) =>
+                prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag],
+              )
+            }
+            feedbackText={feedbackText}
+            onFeedbackChange={setFeedbackText}
+            feedbackPlaceholder={screen.feedbackPlaceholder}
+            name={name}
+            phone={phone}
+            email={email}
+            onNameChange={setName}
+            onPhoneChange={setPhone}
+            onEmailChange={setEmail}
+            isSubmitting={isSubmitting}
+            onSubmit={submitUnhappy}
+          />
+        )}
 
-          {flowState === 'thank_you' && (
-            <div className="text-center space-y-4">
-              <div className="mx-auto flex size-20 items-center justify-center rounded-full bg-emerald-100">
-                <CheckCircle2 className="size-10 text-emerald-600" />
-              </div>
-              <h1 className="text-2xl font-bold text-slate-800">Thank You!</h1>
-              <p className="text-slate-500">{thankYouText}</p>
+        {flowState === 'thank_you' && (
+          <div className="space-y-4 text-center">
+            <div className="mx-auto flex size-20 items-center justify-center rounded-full bg-emerald-100">
+              <CheckCircle2 className="size-10 text-emerald-600" />
             </div>
-          )}
-        </div>
+            <h1 className="text-2xl font-bold text-slate-800">Thank You!</h1>
+            <p className="text-slate-500">{thankYouText}</p>
+          </div>
+        )}
       </div>
-      <div className="text-center pb-6">
-        <p className="text-xs text-slate-300">Powered by rectangled.io</p>
-      </div>
-    </div>
+    </BrandedPublicLayout>
   )
 }
 

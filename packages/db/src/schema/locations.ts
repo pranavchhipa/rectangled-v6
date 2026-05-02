@@ -17,6 +17,13 @@ export const locations = pgTable('locations', {
   timezone: varchar('timezone', { length: 50 }).default('Asia/Kolkata').notNull(),
   isActive: boolean('is_active').default(true).notNull(),
   settings: jsonb('settings').$type<Record<string, unknown>>().default({}).notNull(),
+  // Hotfix PRD §4 — per-location branding for public QR pages. All
+  // optional; renderer falls back to workspace.logo_url / brand_colors
+  // / name when these are unset (see resolvePublicBranding helper in
+  // apps/api/src/surveys/branding.helper.ts).
+  logoUrl: text('logo_url'),
+  brandColor: varchar('brand_color', { length: 7 }),
+  displayName: varchar('display_name', { length: 255 }),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 })

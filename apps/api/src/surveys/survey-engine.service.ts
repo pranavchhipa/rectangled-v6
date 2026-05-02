@@ -13,9 +13,11 @@ import {
   reviews,
 } from '@rectangled/db'
 import { AdaptiveEngineService } from './adaptive-engine.service'
+import { resolvePublicBranding } from './branding.helper'
 import {
   type SurveyStep,
   type SurveyMetric,
+  type PublicBranding,
   type AskMetricStep,
   type BranchByScoreStep,
   type BranchByAnswerStep,
@@ -938,6 +940,7 @@ export class SurveyEngineService {
   private async legacyShapeFromAdaptive(
     survey: typeof surveys.$inferSelect,
     slug: string,
+    branding: PublicBranding,
   ): Promise<LegacyJourneyShape> {
     const initial = await this.adaptiveEngine.getInitialState({ slug })
 
@@ -951,6 +954,7 @@ export class SurveyEngineService {
       name: survey.name,
       locationId: survey.locationId,
       settings: { reviewPlatform: initial.reviewPlatform },
+      branding,
       screen: {
         // Synthetic — adaptive surveys have no screen rows. Renderer
         // uses this only as journeyScreenId in submit, where it's optional.
@@ -997,11 +1001,20 @@ export class SurveyEngineService {
   async getPublicLegacyJourney(input: { slug: string }): Promise<LegacyJourneyShape> {
     const survey = await this.findActiveSurveyBySlug(input.slug)
 
+    // Hotfix §4 — resolve branding once at the top so all paths
+    // (adaptive delegation + direct quick/custom construction) include
+    // the same branding shape in the response.
+    const branding = await resolvePublicBranding(
+      this.db,
+      survey.workspaceId,
+      survey.locationId,
+    )
+
     // Hotfix §2 — adaptive surveys delegate to AdaptiveEngineService.
     // The legacy shape is reconstructed from the engine's response so the
     // /j/{slug} renderer doesn't have to change.
     if (survey.template === 'adaptive') {
-      return this.legacyShapeFromAdaptive(survey, input.slug)
+      return this.legacyShapeFromAdaptive(survey, input.slug, branding)
     }
 
     if (survey.template !== 'quick' && survey.template !== 'custom') {
@@ -1081,6 +1094,7 @@ export class SurveyEngineService {
       name: survey.name,
       locationId: survey.locationId,
       settings: { reviewPlatform: platform },
+      branding,
       screen: {
         // Synthetic — the legacy renderer uses this only as journeyScreenId
         // in submit, where it's optional. A stable per-survey id is fine.
@@ -1121,6 +1135,15 @@ export class SurveyEngineService {
         message: 'Slug resolves to a quick-template survey; use getPublicLegacyJourney instead',
       })
     }
+    // Hotfix §4 — resolve location branding (same path as journey shim).
+    // The truform's existing config.brandColor (per-survey) stays as a
+    // last-resort fallback inside the renderer, but the location-level
+    // branding now takes precedence.
+    const branding = await resolvePublicBranding(
+      this.db,
+      survey.workspaceId,
+      survey.locationId,
+    )
     const settings = (survey.settings ?? {}) as {
       type?: 'nps' | 'csat' | 'ces' | 'custom'
       branding?: { brandColor?: string }
@@ -1130,6 +1153,7 @@ export class SurveyEngineService {
       id: survey.legacyTruformId ?? survey.id,
       name: survey.name,
       type: (settings.type ?? 'csat') as 'nps' | 'csat' | 'ces' | 'custom',
+      branding,
       config: {
         brandColor: settings.branding?.brandColor ?? '#6366f1',
         thankYouMessage:
@@ -1145,6 +1169,12 @@ export interface LegacyJourneyShape {
   name: string
   locationId: string | null
   settings: { reviewPlatform: 'google' | 'zomato' | 'swiggy' }
+  /**
+   * Hotfix §4 — resolved branding (location → workspace → defaults).
+   * Renderer reads once on mount and holds in state across the whole
+   * customer flow.
+   */
+  branding: PublicBranding
   screen: {
     id: string
     metricShown: SurveyMetric
@@ -1165,6 +1195,13 @@ export interface LegacyTruformShape {
   id: string
   name: string
   type: 'nps' | 'csat' | 'ces' | 'custom'
+  /**
+   * Hotfix §4 — resolved branding (location → workspace → defaults).
+   * Takes precedence over `config.brandColor` (per-survey) at the
+   * renderer level. The legacy `config.brandColor` is preserved for
+   * pre-§4 surveys' fallback rendering.
+   */
+  branding: PublicBranding
   config: {
     brandColor: string
     thankYouMessage: string
