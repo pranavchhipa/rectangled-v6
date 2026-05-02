@@ -147,18 +147,22 @@ export default function ChainDashboardPage() {
         }
       }
 
+  // Shape returned by chain.getLocationLeaderboard:
+  //   { locationId, locationName, city, state, workspaceId,
+  //     reviews, avgRating, sentimentNet, responseRate,
+  //     openEscalations, slaBreachRate }
   const leaderboard = (leaderboardQuery.data ?? []) as Array<{
     locationId: string
     locationName: string
-    workspaceName?: string
-    city?: string | null
-    state?: string | null
-    totalReviews: number
+    workspaceId: string
+    city: string | null
+    state: string | null
+    reviews: number
     avgRating: number
+    sentimentNet: number
     responseRate: number
     openEscalations: number
-    slaBreachCount?: number
-    sentiment?: { positive: number; negative: number; neutral: number; mixed: number }
+    slaBreachRate: number
   }>
 
   function toggleSort(col: SortBy) {
@@ -402,7 +406,7 @@ export default function ChainDashboardPage() {
                       className="cursor-pointer px-3 py-2 text-right font-medium hover:text-foreground"
                       onClick={() => toggleSort('slaBreach')}
                     >
-                      SLA breaches
+                      SLA breach %
                       <SortIcon col="slaBreach" />
                     </th>
                   </tr>
@@ -421,16 +425,14 @@ export default function ChainDashboardPage() {
                       >
                         <td className="px-6 py-2.5">
                           <div className="font-medium">{row.locationName}</div>
-                          {(cityState || row.workspaceName) && (
+                          {cityState && (
                             <div className="text-xs text-muted-foreground">
                               {cityState}
-                              {cityState && row.workspaceName ? ' · ' : ''}
-                              {row.workspaceName}
                             </div>
                           )}
                         </td>
                         <td className="px-3 py-2.5 text-right tabular-nums">
-                          {row.totalReviews}
+                          {row.reviews}
                         </td>
                         <td className="px-3 py-2.5 text-right tabular-nums">
                           {fmtRating(row.avgRating)}
@@ -451,15 +453,15 @@ export default function ChainDashboardPage() {
                           )}
                         </td>
                         <td className="px-3 py-2.5 text-right tabular-nums">
-                          {row.slaBreachCount && row.slaBreachCount > 0 ? (
+                          {row.slaBreachRate > 0 ? (
                             <Badge
                               variant="outline"
                               className="border-rose-300 bg-rose-50 text-rose-700"
                             >
-                              {row.slaBreachCount}
+                              {row.slaBreachRate}%
                             </Badge>
                           ) : (
-                            <span className="text-muted-foreground">0</span>
+                            <span className="text-muted-foreground">0%</span>
                           )}
                         </td>
                       </tr>

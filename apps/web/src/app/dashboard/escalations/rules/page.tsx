@@ -4,6 +4,24 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { trpc } from '@/lib/trpc'
 import { useAuthStore } from '@/stores/auth-store'
+import { toast } from 'sonner'
+import {
+  ArrowLeft,
+  Plus,
+  Pencil,
+  Trash2,
+  AlertTriangle,
+  Settings,
+  Loader2,
+  Shield,
+  Star,
+  Clock,
+  Users,
+  Zap,
+  Building,
+  Building2,
+  MapPin,
+} from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
@@ -33,33 +51,107 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { toast } from 'sonner'
-import {
-  ArrowLeft,
-  Plus,
-  Pencil,
-  Trash2,
-  AlertTriangle,
-  Settings,
-  Loader2,
-  Shield,
-  Star,
-  Clock,
-  Users,
-  Zap,
-} from 'lucide-react'
+
+/**
+ * Phase 2 Stage E (frontend) — escalation rules editor.
+ *
+ * Rewritten to use the real cxRouting tRPC namespace (the previous
+ * version called trpc.escalation.* which never existed; the page was
+ * silently disconnected from the backend).
+ *
+ * Field shape matches the backend Zod schemas exactly:
+ *   triggerType: 'rating_threshold' | 'aspect_match' | 'keyword_match'
+ *              | 'sentiment' | 'manual'
+ *   triggerConfig: Record<string, unknown>  (shape per triggerType)
+ *   slaMinutes: integer (NOT slaHours — UI displays in hours but stores
+ *                       minutes per the schema)
+ *   priority: 'low' | 'medium' | 'high' | 'critical'
+ *   assignToUserId / assignToRole: optional
+ *   scope: 'organization' | 'workspace' | 'location' (Phase 2 Stage E)
+ *   locationId: required when scope='location'
+ */
+
+const TRIGGER_TYPES = [
+  {
+    value: 'rating_threshold',
+    label: 'Rating below threshold',
+    icon: Star,
+    description: 'Escalate when review rating is at or below a threshold.',
+    valueLabel: 'Rating threshold (1-5)',
+    valueKey: 'maxRating',
+    valueType: 'number' as const,
+    defaultValue: '3',
+  },
+  {
+    value: 'keyword_match',
+    label: 'Keyword match',
+    icon: Zap,
+    description:
+      'Escalate when the review text contains specific keywords (comma-separated).',
+    valueLabel: 'Keywords',
+    valueKey: 'keywords',
+    valueType: 'text' as const,
+    defaultValue: 'refund, complaint, terrible',
+  },
+  {
+    value: 'sentiment',
+    label: 'Negative sentiment',
+    icon: AlertTriangle,
+    description: 'Escalate on negative sentiment detection (no extra config).',
+    valueLabel: '',
+    valueKey: '',
+    valueType: 'none' as const,
+    defaultValue: '',
+  },
+  {
+    value: 'aspect_match',
+    label: 'Aspect match',
+    icon: Zap,
+    description:
+      'Escalate when the review mentions a specific business aspect.',
+    valueLabel: 'Aspect',
+    valueKey: 'aspect',
+    valueType: 'text' as const,
+    defaultValue: '',
+  },
+  {
+    value: 'manual',
+    label: 'Manual only',
+    icon: Settings,
+    description:
+      'Never auto-fires. Used to define an SLA / assignee for manual escalations.',
+    valueLabel: '',
+    valueKey: '',
+    valueType: 'none' as const,
+    defaultValue: '',
+  },
+] as const
+
+const PRIORITY_OPTIONS = [
+  { value: 'low', label: 'Low', color: 'text-green-600' },
+  { value: 'medium', label: 'Medium', color: 'text-yellow-600' },
+  { value: 'high', label: 'High', color: 'text-orange-600' },
+  { value: 'critical', label: 'Critical', color: 'text-red-600' },
+] as const
+
+type TriggerType = (typeof TRIGGER_TYPES)[number]['value']
+type Priority = (typeof PRIORITY_OPTIONS)[number]['value']
+type RuleScope = 'organization' | 'workspace' | 'location'
 
 interface EscalationRule {
   id: string
   name: string
-  triggerType: string
-  triggerValue?: string | number
-  assignedTo?: string
-  assignedToName?: string
-  priority: string
-  slaHours: number
+  triggerType: TriggerType
+  triggerConfig: Record<string, unknown>
+  assignToUserId?: string | null
+  assignToRole?: string | null
+  priority: Priority
+  slaMinutes?: number | null
   isActive: boolean
-  createdAt?: string
+  scope?: RuleScope
+  organizationId?: string | null
+  locationId?: string | null
+  sortOrder?: number
 }
 
 function RuleSkeletons() {
@@ -76,7 +168,6 @@ function RuleSkeletons() {
             <div className="flex items-center gap-2">
               <Skeleton className="h-4 w-24" />
               <Skeleton className="h-4 w-20" />
-              <Skeleton className="h-4 w-16" />
             </div>
           </CardContent>
         </Card>
@@ -84,20 +175,6 @@ function RuleSkeletons() {
     </div>
   )
 }
-
-const TRIGGER_TYPES = [
-  { value: 'rating_below', label: 'Rating Below Threshold', icon: Star, description: 'Escalate when review rating is below a value' },
-  { value: 'keyword', label: 'Keyword Match', icon: Zap, description: 'Escalate when review contains specific keywords' },
-  { value: 'no_response', label: 'No Response After', icon: Clock, description: 'Escalate if no response after a time period' },
-  { value: 'negative_sentiment', label: 'Negative Sentiment', icon: AlertTriangle, description: 'Escalate on negative sentiment detection' },
-]
-
-const PRIORITY_OPTIONS = [
-  { value: 'low', label: 'Low', color: 'text-green-600' },
-  { value: 'medium', label: 'Medium', color: 'text-yellow-600' },
-  { value: 'high', label: 'High', color: 'text-orange-600' },
-  { value: 'critical', label: 'Critical', color: 'text-red-600' },
-]
 
 export default function EscalationRulesPage() {
   const { currentWorkspaceId } = useAuthStore()
@@ -109,135 +186,199 @@ export default function EscalationRulesPage() {
 
   // Form state
   const [ruleName, setRuleName] = useState('')
-  const [triggerType, setTriggerType] = useState('rating_below')
+  const [triggerType, setTriggerType] = useState<TriggerType>('rating_threshold')
   const [triggerValue, setTriggerValue] = useState('3')
-  const [assignedTo, setAssignedTo] = useState('')
-  const [priority, setPriority] = useState('medium')
-  const [slaHours, setSlaHours] = useState('24')
+  const [assignToUserId, setAssignToUserId] = useState<string>('')
+  const [priority, setPriority] = useState<Priority>('medium')
+  const [slaHoursDisplay, setSlaHoursDisplay] = useState('24') // display unit
   const [isActive, setIsActive] = useState(true)
+  const [scope, setScope] = useState<RuleScope>('workspace')
+  const [scopeLocationId, setScopeLocationId] = useState<string>('')
 
   // Queries
-  const rulesQuery = trpc.escalation?.listRules?.useQuery?.(
+  const rulesQuery = trpc.cxRouting.listRules.useQuery(
     { workspaceId: currentWorkspaceId! },
-    { enabled: !!currentWorkspaceId }
-  ) ?? { data: [], isLoading: false }
+    { enabled: !!currentWorkspaceId },
+  )
 
   const membersQuery = trpc.member.list.useQuery(
     { workspaceId: currentWorkspaceId! },
-    { enabled: !!currentWorkspaceId }
+    { enabled: !!currentWorkspaceId },
+  )
+
+  const locationsQuery = trpc.location.list.useQuery(
+    { workspaceId: currentWorkspaceId! },
+    { enabled: !!currentWorkspaceId },
   )
 
   // Mutations
-  const createRule = trpc.escalation?.createRule?.useMutation?.({
+  const createRule = trpc.cxRouting.createRule.useMutation({
     onSuccess: () => {
       toast.success('Escalation rule created')
-      utils.escalation?.listRules?.invalidate?.()
+      utils.cxRouting.listRules.invalidate()
       resetForm()
       setShowForm(false)
     },
-    onError: (error: any) => {
-      toast.error(error?.message || 'Failed to create rule')
+    onError: (error) => {
+      toast.error(error.message || 'Failed to create rule')
     },
-  }) ?? null
+  })
 
-  const updateRule = trpc.escalation?.updateRule?.useMutation?.({
+  const updateRule = trpc.cxRouting.updateRule.useMutation({
     onSuccess: () => {
       toast.success('Escalation rule updated')
-      utils.escalation?.listRules?.invalidate?.()
+      utils.cxRouting.listRules.invalidate()
       resetForm()
       setShowForm(false)
       setEditingRule(null)
     },
-    onError: (error: any) => {
-      toast.error(error?.message || 'Failed to update rule')
+    onError: (error) => {
+      toast.error(error.message || 'Failed to update rule')
     },
-  }) ?? null
+  })
 
-  const deleteRule = trpc.escalation?.deleteRule?.useMutation?.({
+  const deleteRule = trpc.cxRouting.deleteRule.useMutation({
     onSuccess: () => {
       toast.success('Escalation rule deleted')
-      utils.escalation?.listRules?.invalidate?.()
+      utils.cxRouting.listRules.invalidate()
       setDeleteId(null)
     },
-    onError: (error: any) => {
-      toast.error(error?.message || 'Failed to delete rule')
+    onError: (error) => {
+      toast.error(error.message || 'Failed to delete rule')
     },
-  }) ?? null
+  })
 
-  const rules: EscalationRule[] = (rulesQuery as any)?.data ?? []
-  const teamMembers = membersQuery.data ?? []
+  const rules: EscalationRule[] =
+    ((rulesQuery.data ?? []) as EscalationRule[]) ?? []
+  const teamMembers = (membersQuery.data ?? []) as Array<{
+    userId?: string
+    id?: string
+    userName?: string
+    name?: string
+    email?: string
+  }>
+  const locations = (locationsQuery.data ?? []) as Array<{
+    id: string
+    name: string
+  }>
 
-  const resetForm = () => {
+  function resetForm() {
     setRuleName('')
-    setTriggerType('rating_below')
+    setTriggerType('rating_threshold')
     setTriggerValue('3')
-    setAssignedTo('')
+    setAssignToUserId('')
     setPriority('medium')
-    setSlaHours('24')
+    setSlaHoursDisplay('24')
     setIsActive(true)
+    setScope('workspace')
+    setScopeLocationId('')
     setEditingRule(null)
   }
 
-  const handleEdit = (rule: EscalationRule) => {
+  function buildTriggerConfig(): Record<string, unknown> {
+    const def = TRIGGER_TYPES.find((t) => t.value === triggerType)
+    if (!def || def.valueType === 'none' || !def.valueKey) return {}
+    if (def.valueType === 'number') {
+      const n = parseFloat(triggerValue)
+      if (Number.isFinite(n)) return { [def.valueKey]: n }
+      return {}
+    }
+    if (def.valueKey === 'keywords') {
+      const list = triggerValue
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean)
+      return { keywords: list }
+    }
+    return { [def.valueKey]: triggerValue }
+  }
+
+  function readTriggerValueFromConfig(
+    type: TriggerType,
+    config: Record<string, unknown> | undefined,
+  ): string {
+    if (!config) return ''
+    if (type === 'rating_threshold')
+      return String(config.maxRating ?? config.threshold ?? '')
+    if (type === 'keyword_match') {
+      const k = config.keywords
+      if (Array.isArray(k)) return k.join(', ')
+      return String(k ?? '')
+    }
+    if (type === 'aspect_match') return String(config.aspect ?? '')
+    return ''
+  }
+
+  function handleEdit(rule: EscalationRule) {
     setEditingRule(rule)
     setRuleName(rule.name)
     setTriggerType(rule.triggerType)
-    setTriggerValue(String(rule.triggerValue ?? ''))
-    setAssignedTo(rule.assignedTo ?? '')
+    setTriggerValue(readTriggerValueFromConfig(rule.triggerType, rule.triggerConfig))
+    setAssignToUserId(rule.assignToUserId ?? '')
     setPriority(rule.priority)
-    setSlaHours(String(rule.slaHours))
+    // Convert minutes (server) → hours (display). Keep an exact integer
+    // when possible so round-trips don't drift.
+    if (rule.slaMinutes != null) {
+      const hours = rule.slaMinutes / 60
+      setSlaHoursDisplay(
+        Number.isInteger(hours) ? String(hours) : hours.toFixed(1),
+      )
+    } else {
+      setSlaHoursDisplay('')
+    }
     setIsActive(rule.isActive)
+    setScope((rule.scope ?? 'workspace') as RuleScope)
+    setScopeLocationId(rule.locationId ?? '')
     setShowForm(true)
   }
 
-  const handleSubmit = () => {
+  function handleSubmit() {
     if (!ruleName.trim()) {
       toast.error('Rule name is required')
       return
     }
+    if (!currentWorkspaceId) return
+    if (scope === 'location' && !scopeLocationId) {
+      toast.error('Pick a location for this rule.')
+      return
+    }
+
+    const slaMinutes = slaHoursDisplay
+      ? Math.round(parseFloat(slaHoursDisplay) * 60)
+      : undefined
 
     const payload = {
-      workspaceId: currentWorkspaceId!,
+      workspaceId: currentWorkspaceId,
       name: ruleName.trim(),
       triggerType,
-      triggerValue: triggerValue || undefined,
-      assignedTo: assignedTo || undefined,
+      triggerConfig: buildTriggerConfig(),
+      assignToUserId: assignToUserId || undefined,
       priority,
-      slaHours: parseInt(slaHours) || 24,
+      slaMinutes,
       isActive,
+      scope,
+      locationId: scope === 'location' ? scopeLocationId : null,
     }
 
-    if (editingRule && updateRule) {
+    if (editingRule) {
       updateRule.mutate({ ...payload, ruleId: editingRule.id })
-    } else if (createRule) {
+    } else {
       createRule.mutate(payload)
-    } else {
-      toast.success('Rule saved (locally)')
-      resetForm()
-      setShowForm(false)
     }
   }
 
-  const handleToggleActive = (rule: EscalationRule) => {
-    if (updateRule) {
-      updateRule.mutate({
-        ruleId: rule.id,
-        workspaceId: currentWorkspaceId!,
-        isActive: !rule.isActive,
-      })
-    } else {
-      toast.info('Toggle feature coming soon')
-    }
+  function handleToggleActive(rule: EscalationRule) {
+    if (!currentWorkspaceId) return
+    updateRule.mutate({
+      ruleId: rule.id,
+      workspaceId: currentWorkspaceId,
+      isActive: !rule.isActive,
+    })
   }
 
-  const handleConfirmDelete = () => {
-    if (!deleteId) return
-    if (deleteRule) {
-      deleteRule.mutate({ ruleId: deleteId })
-    } else {
-      toast.info('Delete feature coming soon')
-      setDeleteId(null)
-    }
+  function handleConfirmDelete() {
+    if (!deleteId || !currentWorkspaceId) return
+    deleteRule.mutate({ workspaceId: currentWorkspaceId, ruleId: deleteId })
   }
 
   const triggerLabel = (type: string) =>
@@ -246,7 +387,32 @@ export default function EscalationRulesPage() {
   const priorityColor = (p: string) =>
     PRIORITY_OPTIONS.find((o) => o.value === p)?.color ?? 'text-muted-foreground'
 
+  const formatTriggerSummary = (rule: EscalationRule): string => {
+    const c = rule.triggerConfig as Record<string, unknown> | undefined
+    if (!c) return ''
+    if (rule.triggerType === 'rating_threshold')
+      return `≤ ${c.maxRating ?? c.threshold ?? '?'}`
+    if (rule.triggerType === 'keyword_match') {
+      const k = c.keywords
+      if (Array.isArray(k))
+        return k.length <= 2 ? k.join(', ') : `${k[0]}, ${k[1]} +${k.length - 2}`
+      return String(k ?? '')
+    }
+    if (rule.triggerType === 'aspect_match') return String(c.aspect ?? '')
+    return ''
+  }
+
+  const formatSla = (minutes: number | null | undefined): string => {
+    if (minutes == null) return '—'
+    if (minutes < 60) return `${minutes}m`
+    const hours = minutes / 60
+    if (Number.isInteger(hours)) return `${hours}h`
+    return `${hours.toFixed(1)}h`
+  }
+
   const deletingRule = rules.find((r) => r.id === deleteId)
+  const triggerDef = TRIGGER_TYPES.find((t) => t.value === triggerType)!
+  const isPending = createRule.isPending || updateRule.isPending
 
   return (
     <div className="space-y-6">
@@ -268,14 +434,19 @@ export default function EscalationRulesPage() {
             </p>
           </div>
         </div>
-        <Button onClick={() => { resetForm(); setShowForm(true) }}>
+        <Button
+          onClick={() => {
+            resetForm()
+            setShowForm(true)
+          }}
+        >
           <Plus className="w-4 h-4 mr-1" />
           Add Rule
         </Button>
       </div>
 
       {/* Content */}
-      {(rulesQuery as any).isLoading ? (
+      {rulesQuery.isLoading ? (
         <RuleSkeletons />
       ) : rules.length === 0 ? (
         <div className="flex flex-col items-center justify-center rounded-xl border border-dashed bg-muted/30 py-16">
@@ -286,7 +457,13 @@ export default function EscalationRulesPage() {
           <p className="mt-1 max-w-sm text-center text-sm text-muted-foreground">
             Create rules to automatically escalate reviews that need attention.
           </p>
-          <Button className="mt-4" onClick={() => { resetForm(); setShowForm(true) }}>
+          <Button
+            className="mt-4"
+            onClick={() => {
+              resetForm()
+              setShowForm(true)
+            }}
+          >
             <Plus className="w-4 h-4 mr-1" />
             Create First Rule
           </Button>
@@ -294,9 +471,22 @@ export default function EscalationRulesPage() {
       ) : (
         <div className="space-y-3">
           {rules.map((rule) => {
-            const TriggerIcon = TRIGGER_TYPES.find((t) => t.value === rule.triggerType)?.icon ?? Zap
+            const TriggerIcon =
+              TRIGGER_TYPES.find((t) => t.value === rule.triggerType)?.icon ??
+              Zap
+            const ruleScope: RuleScope = (rule.scope ?? 'workspace') as RuleScope
+            const scopeLocationName =
+              ruleScope === 'location'
+                ? locations.find((l) => l.id === rule.locationId)?.name
+                : null
+            const triggerSummary = formatTriggerSummary(rule)
             return (
-              <Card key={rule.id} className={`transition-all ${!rule.isActive ? 'opacity-60' : 'hover:shadow-md'}`}>
+              <Card
+                key={rule.id}
+                className={`transition-all ${
+                  !rule.isActive ? 'opacity-60' : 'hover:shadow-md'
+                }`}
+              >
                 <CardContent className="p-4">
                   <div className="flex items-start gap-4">
                     <div className="flex size-10 items-center justify-center rounded-lg bg-primary/10 shrink-0">
@@ -306,25 +496,52 @@ export default function EscalationRulesPage() {
                       <div className="flex items-center gap-2 mb-1">
                         <h3 className="font-semibold text-sm">{rule.name}</h3>
                         {!rule.isActive && (
-                          <Badge variant="secondary" className="text-xs">Disabled</Badge>
+                          <Badge variant="secondary" className="text-xs">
+                            Disabled
+                          </Badge>
                         )}
                       </div>
                       <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                         <Badge variant="outline" className="text-xs">
                           {triggerLabel(rule.triggerType)}
-                          {rule.triggerValue ? `: ${rule.triggerValue}` : ''}
+                          {triggerSummary ? `: ${triggerSummary}` : ''}
                         </Badge>
-                        <Badge variant="outline" className={`text-xs ${priorityColor(rule.priority)}`}>
-                          {rule.priority.charAt(0).toUpperCase() + rule.priority.slice(1)} Priority
+                        <Badge
+                          variant="outline"
+                          className={`text-xs ${priorityColor(rule.priority)}`}
+                        >
+                          {rule.priority.charAt(0).toUpperCase() +
+                            rule.priority.slice(1)}{' '}
+                          Priority
                         </Badge>
                         <Badge variant="outline" className="text-xs">
                           <Clock className="size-2.5 mr-1" />
-                          SLA: {rule.slaHours}h
+                          SLA: {formatSla(rule.slaMinutes)}
                         </Badge>
-                        {(rule.assignedToName ?? rule.assignedTo) && (
+                        {rule.assignToUserId && (
                           <Badge variant="outline" className="text-xs">
                             <Users className="size-2.5 mr-1" />
-                            {rule.assignedToName ?? rule.assignedTo}
+                            Assigned
+                          </Badge>
+                        )}
+                        {/* Phase 2 Stage E — scope badge */}
+                        {ruleScope === 'organization' && (
+                          <Badge variant="outline" className="text-xs gap-1">
+                            <Building2 className="size-2.5" /> Organization
+                          </Badge>
+                        )}
+                        {ruleScope === 'workspace' && (
+                          <Badge variant="outline" className="text-xs gap-1">
+                            <Building className="size-2.5" /> Workspace
+                          </Badge>
+                        )}
+                        {ruleScope === 'location' && (
+                          <Badge
+                            variant="outline"
+                            className="text-xs gap-1 text-amber-700 border-amber-300 bg-amber-50"
+                          >
+                            <MapPin className="size-2.5" />
+                            {scopeLocationName ?? 'Location override'}
                           </Badge>
                         )}
                       </div>
@@ -360,14 +577,22 @@ export default function EscalationRulesPage() {
       )}
 
       {/* Create/Edit Rule Sheet */}
-      <Sheet open={showForm} onOpenChange={(open) => { if (!open) { resetForm(); setShowForm(false) } }}>
+      <Sheet
+        open={showForm}
+        onOpenChange={(open) => {
+          if (!open) {
+            resetForm()
+            setShowForm(false)
+          }
+        }}
+      >
         <SheetContent className="sm:max-w-md overflow-y-auto">
           <SheetHeader>
             <SheetTitle>
               {editingRule ? 'Edit Rule' : 'Create Escalation Rule'}
             </SheetTitle>
           </SheetHeader>
-          <div className="space-y-5 mt-6">
+          <div className="space-y-5 mt-6 px-4">
             {/* Name */}
             <div className="space-y-2">
               <Label>Rule Name</Label>
@@ -381,7 +606,15 @@ export default function EscalationRulesPage() {
             {/* Trigger type */}
             <div className="space-y-2">
               <Label>Trigger Type</Label>
-              <Select value={triggerType} onValueChange={setTriggerType}>
+              <Select
+                value={triggerType}
+                onValueChange={(v) => {
+                  setTriggerType(v as TriggerType)
+                  // Reset trigger value to the default for the new type.
+                  const def = TRIGGER_TYPES.find((t) => t.value === v)
+                  setTriggerValue(def?.defaultValue ?? '')
+                }}
+              >
                 <SelectTrigger>
                   <SelectValue placeholder="Select trigger" />
                 </SelectTrigger>
@@ -394,37 +627,94 @@ export default function EscalationRulesPage() {
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">
-                {TRIGGER_TYPES.find((t) => t.value === triggerType)?.description}
+                {triggerDef.description}
               </p>
             </div>
 
-            {/* Trigger value */}
-            <div className="space-y-2">
-              <Label>
-                {triggerType === 'rating_below' ? 'Rating Threshold' :
-                 triggerType === 'keyword' ? 'Keywords (comma-separated)' :
-                 triggerType === 'no_response' ? 'Hours without response' :
-                 'Trigger Value'}
-              </Label>
-              <Input
-                value={triggerValue}
-                onChange={(e) => setTriggerValue(e.target.value)}
-                placeholder={
-                  triggerType === 'rating_below' ? '3' :
-                  triggerType === 'keyword' ? 'complaint, refund, terrible' :
-                  triggerType === 'no_response' ? '48' :
-                  'Enter value'
-                }
-                type={triggerType === 'rating_below' || triggerType === 'no_response' ? 'number' : 'text'}
-              />
-            </div>
+            {/* Trigger value (per type) */}
+            {triggerDef.valueType !== 'none' && (
+              <div className="space-y-2">
+                <Label>{triggerDef.valueLabel}</Label>
+                <Input
+                  type={triggerDef.valueType === 'number' ? 'number' : 'text'}
+                  value={triggerValue}
+                  onChange={(e) => setTriggerValue(e.target.value)}
+                  placeholder={triggerDef.defaultValue}
+                />
+              </div>
+            )}
 
             <Separator />
+
+            {/* Phase 2 Stage E — scope picker */}
+            <div className="space-y-2 rounded-lg border bg-muted/30 p-3">
+              <div>
+                <Label>Where this rule applies</Label>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  Location rules override workspace; workspace overrides
+                  organization. Disabling at a higher scope blocks lower scopes.
+                </p>
+              </div>
+              <Select
+                value={scope}
+                onValueChange={(v) => setScope(v as RuleScope)}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="organization">
+                    <span className="flex items-center gap-2">
+                      <Building2 className="size-4" />
+                      Organization (all workspaces)
+                    </span>
+                  </SelectItem>
+                  <SelectItem value="workspace">
+                    <span className="flex items-center gap-2">
+                      <Building className="size-4" />
+                      Workspace (default)
+                    </span>
+                  </SelectItem>
+                  <SelectItem value="location">
+                    <span className="flex items-center gap-2">
+                      <MapPin className="size-4" />
+                      Specific location
+                    </span>
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+              {scope === 'location' && (
+                <Select
+                  value={scopeLocationId}
+                  onValueChange={setScopeLocationId}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Pick a location…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {locations.length === 0 ? (
+                      <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                        No locations in this workspace.
+                      </div>
+                    ) : (
+                      locations.map((loc) => (
+                        <SelectItem key={loc.id} value={loc.id}>
+                          {loc.name}
+                        </SelectItem>
+                      ))
+                    )}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
 
             {/* Priority */}
             <div className="space-y-2">
               <Label>Priority</Label>
-              <Select value={priority} onValueChange={setPriority}>
+              <Select
+                value={priority}
+                onValueChange={(v) => setPriority(v as Priority)}
+              >
                 <SelectTrigger>
                   <SelectValue placeholder="Select priority" />
                 </SelectTrigger>
@@ -443,31 +733,41 @@ export default function EscalationRulesPage() {
               <Label>SLA (hours)</Label>
               <Input
                 type="number"
-                min="1"
-                max="720"
-                value={slaHours}
-                onChange={(e) => setSlaHours(e.target.value)}
+                min="0"
+                step="0.5"
+                value={slaHoursDisplay}
+                onChange={(e) => setSlaHoursDisplay(e.target.value)}
                 placeholder="24"
               />
               <p className="text-xs text-muted-foreground">
-                Time limit to resolve this escalation before it is marked as breached.
+                Time limit to resolve before SLA breach. Stored as minutes
+                on the server (24h ⇒ 1440m). Leave blank for no SLA.
               </p>
             </div>
 
             {/* Assigned to */}
             <div className="space-y-2">
-              <Label>Auto-Assign To</Label>
-              <Select value={assignedTo} onValueChange={setAssignedTo}>
+              <Label>Auto-assign to</Label>
+              <Select
+                value={assignToUserId || 'unassigned'}
+                onValueChange={(v) =>
+                  setAssignToUserId(v === 'unassigned' ? '' : v)
+                }
+              >
                 <SelectTrigger>
                   <SelectValue placeholder="Select team member (optional)" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="unassigned">Unassigned</SelectItem>
-                  {teamMembers.map((member: any) => (
-                    <SelectItem key={member.userId ?? member.id} value={member.userId ?? member.id}>
-                      {member.userName ?? member.name ?? member.email ?? 'Unknown'}
-                    </SelectItem>
-                  ))}
+                  {teamMembers.map((m) => {
+                    const id = m.userId ?? m.id
+                    if (!id) return null
+                    return (
+                      <SelectItem key={id} value={id}>
+                        {m.userName ?? m.name ?? m.email ?? 'Unknown'}
+                      </SelectItem>
+                    )
+                  })}
                 </SelectContent>
               </Select>
             </div>
@@ -476,28 +776,36 @@ export default function EscalationRulesPage() {
             <div className="flex items-center justify-between">
               <div>
                 <Label className="text-sm font-medium">Active</Label>
-                <p className="text-xs text-muted-foreground">Enable this rule immediately.</p>
+                <p className="text-xs text-muted-foreground">
+                  Enable this rule immediately.
+                </p>
               </div>
               <Switch checked={isActive} onCheckedChange={setIsActive} />
             </div>
 
-            <Button className="w-full" onClick={handleSubmit} disabled={createRule?.isPending || updateRule?.isPending}>
-              {(createRule?.isPending || updateRule?.isPending) && (
-                <Loader2 className="size-4 animate-spin mr-1" />
-              )}
+            <Button
+              className="w-full"
+              onClick={handleSubmit}
+              disabled={isPending}
+            >
+              {isPending && <Loader2 className="size-4 animate-spin mr-1" />}
               {editingRule ? 'Update Rule' : 'Create Rule'}
             </Button>
           </div>
         </SheetContent>
       </Sheet>
 
-      {/* Delete Confirmation Dialog */}
-      <Dialog open={!!deleteId} onOpenChange={(open) => !open && setDeleteId(null)}>
+      {/* Delete confirmation */}
+      <Dialog
+        open={!!deleteId}
+        onOpenChange={(open) => !open && setDeleteId(null)}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Delete Escalation Rule</DialogTitle>
             <DialogDescription>
-              Are you sure you want to delete the rule "{deletingRule?.name}"? This cannot be undone.
+              Are you sure you want to delete the rule &ldquo;{deletingRule?.name}&rdquo;?
+              This cannot be undone.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -507,9 +815,11 @@ export default function EscalationRulesPage() {
             <Button
               variant="destructive"
               onClick={handleConfirmDelete}
-              disabled={deleteRule?.isPending}
+              disabled={deleteRule.isPending}
             >
-              {deleteRule?.isPending && <Loader2 className="size-4 animate-spin mr-1" />}
+              {deleteRule.isPending && (
+                <Loader2 className="size-4 animate-spin mr-1" />
+              )}
               Delete
             </Button>
           </DialogFooter>

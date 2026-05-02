@@ -45,9 +45,10 @@ import {
 /**
  * Phase 3 Stage F — surveys list + create.
  *
- * Replaces the old /dashboard/journeys and /dashboard/truforms list pages
- * with a single unified surveys list. Filter by template (quick / deep)
- * and status. Click a row to open the editor at /dashboard/surveys/[id].
+ * The single unified surveys list (the old /dashboard/journeys and
+ * /dashboard/truforms pages were deleted in Phase 5). Filter by template
+ * (quick / deep) and status. Click a row to open the editor at
+ * /dashboard/surveys/[id].
  */
 
 type FilterTemplate = 'all' | 'quick' | 'deep'

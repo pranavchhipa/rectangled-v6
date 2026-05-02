@@ -13,8 +13,6 @@ import {
   BarChart3,
   Contact,
   Plug,
-  FileText,
-  Route,
   Building2,
   Ticket,
   AlertTriangle,
@@ -56,12 +54,10 @@ const navItems = [
   { label: 'Analytics & Reports', href: '/dashboard/analytics', icon: BarChart3 },
   { label: 'AI Studio', href: '/dashboard/rais', icon: Sparkles },
   // Phase 3 Stage F — unified surveys list (replaces Journeys + TruForms).
+  // Phase 5 dropped the legacy tables; the old /dashboard/{journeys,truforms}
+  // pages went with them in Phase 5 cleanup.
   { label: 'Surveys', href: '/dashboard/surveys', icon: ClipboardList },
   { label: 'Post-Review Actions', href: '/dashboard/automations', icon: Zap },
-  // Legacy entries kept for now — the underlying Phase 5 cleanup left
-  // those pages broken, but removing the links is its own UX call.
-  { label: 'Journeys', href: '/dashboard/journeys', icon: Route },
-  { label: 'TruForms', href: '/dashboard/truforms', icon: FileText },
   { label: 'Coupons', href: '/dashboard/coupons', icon: Ticket },
 
   { label: 'Customers', href: '/dashboard/customers', icon: Contact },
