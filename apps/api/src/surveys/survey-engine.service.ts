@@ -12,6 +12,7 @@ import {
   customers,
   reviews,
 } from '@rectangled/db'
+import { AdaptiveEngineService } from './adaptive-engine.service'
 import {
   type SurveyStep,
   type SurveyMetric,
@@ -60,7 +61,10 @@ import {
 @Injectable()
 export class SurveyEngineService {
   private readonly logger = new Logger(SurveyEngineService.name)
-  constructor(@Inject('DATABASE') private readonly db: Database) {}
+  constructor(
+    @Inject('DATABASE') private readonly db: Database,
+    private readonly adaptiveEngine: AdaptiveEngineService,
+  ) {}
 
   /**
    * Public entry point — first visit. Returns the resolved first step
@@ -478,6 +482,17 @@ export class SurveyEngineService {
         message: 'No survey backs this legacy journey id',
       })
     }
+
+    // Hotfix §2 — delegate to AdaptiveEngineService when the survey's
+    // template was migrated to 'adaptive' (migration 0019). The legacy
+    // renderer at /j/{slug} keeps calling submitLegacyJourney with the
+    // same input shape; we just route it through the dedicated engine
+    // which runs the v2 flow directly from settings instead of via the
+    // step graph.
+    if (survey.template === 'adaptive') {
+      return this.delegateToAdaptive(survey, input)
+    }
+
     if (survey.template !== 'quick') {
       throw new TRPCError({
         code: 'BAD_REQUEST',
@@ -795,6 +810,130 @@ export class SurveyEngineService {
     }
   }
 
+  /**
+   * Hotfix §2 — bridge between the legacy `/j/{slug}` renderer's input
+   * shape and the AdaptiveEngineService's typed methods. Translates
+   * PHASE 1 (no `updateResponseId`) → submitMetric, PHASE 2 (with
+   * `updateResponseId`) → submitFollowup. Output shape matches the
+   * existing submitLegacyJourney return so the renderer doesn't see
+   * the engine swap.
+   */
+  private async delegateToAdaptive(
+    survey: typeof surveys.$inferSelect,
+    input: {
+      journeyId: string
+      sessionId: string
+      responseData: Record<string, unknown>
+      locationId?: string
+      customerName?: string
+      customerEmail?: string
+      customerPhone?: string
+      updateResponseId?: string
+    },
+  ): Promise<{ success: true; responseId: string; isPositive: boolean | null }> {
+    if (input.updateResponseId) {
+      // PHASE 2 — follow-up.
+      const data = input.responseData as Record<string, unknown>
+      const res = await this.adaptiveEngine.submitFollowup({
+        surveyId: survey.id,
+        sessionId: input.sessionId,
+        responseId: input.updateResponseId,
+        patch: {
+          acceptedReviewPrompt:
+            typeof data.acceptedReviewPrompt === 'boolean'
+              ? data.acceptedReviewPrompt
+              : undefined,
+          redirectedTo:
+            data.redirectedTo === 'google' ||
+            data.redirectedTo === 'zomato' ||
+            data.redirectedTo === 'swiggy'
+              ? data.redirectedTo
+              : undefined,
+          aspectTags: Array.isArray(data.aspectTags)
+            ? (data.aspectTags as string[])
+            : undefined,
+          feedback:
+            typeof data.feedback === 'string' ? data.feedback : undefined,
+          name: input.customerName,
+          email: input.customerEmail,
+          phone: input.customerPhone,
+        },
+        locationId: input.locationId,
+      })
+      return {
+        success: true,
+        responseId: res.responseId,
+        isPositive: res.isPositive,
+      }
+    }
+
+    // PHASE 1 — first submit. Need metricShown + metricScore.
+    const data = input.responseData as Record<string, unknown>
+    const metricShown = data.metricShown as SurveyMetric | undefined
+    const metricScore = data.metricScore as number | undefined
+    if (!metricShown) {
+      throw new TRPCError({
+        code: 'BAD_REQUEST',
+        message: 'metricShown is required',
+      })
+    }
+    if (typeof metricScore !== 'number') {
+      throw new TRPCError({
+        code: 'BAD_REQUEST',
+        message: 'metricScore must be a number',
+      })
+    }
+    return this.adaptiveEngine.submitMetric({
+      surveyId: survey.id,
+      sessionId: input.sessionId,
+      metricShown,
+      metricScore,
+      locationId: input.locationId,
+    })
+  }
+
+  /**
+   * Hotfix §2 — translates the AdaptiveEngineService's typed
+   * getInitialState response into the legacy journey shape the
+   * /j/{slug} renderer expects. Crucially: NO threshold field leaks
+   * through this translation.
+   */
+  private async legacyShapeFromAdaptive(
+    survey: typeof surveys.$inferSelect,
+    slug: string,
+  ): Promise<LegacyJourneyShape> {
+    const initial = await this.adaptiveEngine.getInitialState({ slug })
+
+    return {
+      // Renderer uses this as `journeyId` for submit. We pass survey.id
+      // here (not legacy_journey_id) because submitLegacyJourney's
+      // delegation path tries legacyJourneyId first, falls back to id —
+      // either resolves to the same survey row.
+      id: survey.legacyJourneyId ?? survey.id,
+      slug: survey.slug,
+      name: survey.name,
+      locationId: survey.locationId,
+      settings: { reviewPlatform: initial.reviewPlatform },
+      screen: {
+        // Synthetic — adaptive surveys have no screen rows. Renderer
+        // uses this only as journeyScreenId in submit, where it's optional.
+        id: `${survey.id}-adaptive`,
+        metricShown: initial.metricShown,
+        question: initial.question,
+        scaleLabels: initial.scaleLabels,
+        aspectTags: initial.aspectTags,
+        feedbackPlaceholder: initial.feedbackPlaceholder,
+        reviewPromptCopy: initial.reviewPromptCopy,
+        // Only the active platform's URL surfaces here — not the full map.
+        redirectLinks: { [initial.reviewPlatform]: initial.redirectUrl },
+        reviewTemplate: initial.reviewTemplate,
+        thankYouHappyYes: initial.thankYouHappyYes,
+        thankYouHappyNo: initial.thankYouHappyNo,
+        thankYouUnhappy: initial.thankYouUnhappy,
+      },
+    }
+  }
+
   private computeLegacyIsPositive(
     survey: typeof surveys.$inferSelect,
     metric: SurveyMetric | undefined,
@@ -820,6 +959,14 @@ export class SurveyEngineService {
    */
   async getPublicLegacyJourney(input: { slug: string }): Promise<LegacyJourneyShape> {
     const survey = await this.findActiveSurveyBySlug(input.slug)
+
+    // Hotfix §2 — adaptive surveys delegate to AdaptiveEngineService.
+    // The legacy shape is reconstructed from the engine's response so the
+    // /j/{slug} renderer doesn't have to change.
+    if (survey.template === 'adaptive') {
+      return this.legacyShapeFromAdaptive(survey, input.slug)
+    }
+
     if (survey.template !== 'quick') {
       throw new TRPCError({
         code: 'BAD_REQUEST',
@@ -986,7 +1133,7 @@ export interface LegacyTruformShape {
 export interface InitialStateResponse {
   surveyId: string
   sessionId: string
-  template: 'quick' | 'deep'
+  template: 'quick' | 'deep' | 'adaptive' | 'custom'
   step: SurveyStep
   metricShown?: SurveyMetric
   businessName: string

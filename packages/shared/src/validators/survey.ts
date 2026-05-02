@@ -9,7 +9,13 @@ import { z } from 'zod'
  *   - protected CRUD (list / getById / create / update / archive)
  */
 
-export const surveyTemplateSchema = z.enum(['quick', 'deep'])
+// Hotfix §2 — adaptive (locked v2 flow) + custom (wizard-built) added.
+export const surveyTemplateSchema = z.enum([
+  'quick',
+  'deep',
+  'adaptive',
+  'custom',
+])
 export const surveyModeSchema = z.enum(['intelligent', 'builder'])
 export const surveyStatusSchema = z.enum(['draft', 'active', 'archived'])
 export const surveyMetricSchema = z.enum(['csat', 'nps', 'ces', 'nev', 'cli'])

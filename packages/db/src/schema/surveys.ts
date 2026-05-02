@@ -30,7 +30,14 @@ import { customers } from './customers'
  * legacy_journey_id / legacy_truform_id link rows back to the source so
  * we can verify migration counts and roll back per-row if needed.
  */
-export const surveyTemplateEnum = pgEnum('survey_template', ['quick', 'deep'])
+// Hotfix §2 — 'adaptive' added for the dedicated v2 Adaptive Journey
+// engine; 'custom' reserved for the §3 wizard-built manual journey.
+export const surveyTemplateEnum = pgEnum('survey_template', [
+  'quick',
+  'deep',
+  'adaptive',
+  'custom',
+])
 export const surveyModeEnum = pgEnum('survey_mode', ['intelligent', 'builder'])
 export const surveyStatusEnum = pgEnum('survey_status', ['draft', 'active', 'archived'])
 

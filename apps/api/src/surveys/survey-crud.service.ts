@@ -40,7 +40,7 @@ export class SurveyCrudService {
     workspaceId: string,
     filters: {
       locationId?: string
-      template?: 'quick' | 'deep'
+      template?: 'quick' | 'deep' | 'adaptive' | 'custom'
       status?: 'draft' | 'active' | 'archived'
       includeArchived?: boolean
     },
@@ -70,7 +70,7 @@ export class SurveyCrudService {
       workspaceId: string
       locationId?: string
       name: string
-      template: 'quick' | 'deep'
+      template: 'quick' | 'deep' | 'adaptive' | 'custom'
       mode?: 'intelligent' | 'builder'
       settings?: Record<string, unknown>
     },
@@ -88,16 +88,20 @@ export class SurveyCrudService {
       throw new TRPCError({ code: 'NOT_FOUND', message: 'Workspace not found' })
     }
 
-    const slugPrefix = input.template === 'quick' ? 'j' : 'f'
+    // Hotfix §2 — adaptive surveys reuse the /j/ slug space (same QR
+    // namespace as quick journeys), deep surveys use /f/.
+    const slugPrefix =
+      input.template === 'deep' ? 'f' : 'j'
     const slug = `${slugPrefix}-${randomUUID().slice(0, 10)}`
 
     const incomingSettings = input.settings ?? {}
     let settings: Record<string, unknown>
     let steps: SurveyStep[]
 
-    if (input.template === 'quick') {
+    if (input.template === 'quick' || input.template === 'adaptive') {
       // Merge journey-v2 defaults; respect any per-metric thresholds the
-      // caller provided so partial settings work.
+      // caller provided so partial settings work. Adaptive shares the
+      // same settings shape — engines diverge but settings are the same.
       const incomingThresholds =
         (incomingSettings as { thresholds?: Record<string, number> }).thresholds ?? {}
       settings = {
@@ -108,11 +112,21 @@ export class SurveyCrudService {
           ...incomingThresholds,
         },
       }
+      // Step graph stays populated even for adaptive — it's the rollback
+      // safety net. The adaptive engine reads settings, not steps, but
+      // if we ever flip a survey back to template='quick' the step engine
+      // needs a working graph.
       steps = buildQuickIntelligentSteps({
         enabledMetrics: (settings as { enabledMetrics?: any }).enabledMetrics,
         reviewPlatform: (settings as { reviewPlatform?: any }).reviewPlatform,
       })
+    } else if (input.template === 'custom') {
+      // Hotfix §3 wizard surfaces will populate this. For now: no defaults,
+      // empty settings + empty steps — the wizard fills both.
+      settings = { ...incomingSettings }
+      steps = []
     } else {
+      // deep
       const type =
         ((incomingSettings as { type?: string }).type as
           | 'nps'
@@ -295,7 +309,7 @@ export class SurveyCrudService {
       id: string
       surveyId: string
       surveyName: string | null
-      surveyTemplate: 'quick' | 'deep' | null
+      surveyTemplate: 'quick' | 'deep' | 'adaptive' | 'custom' | null
       customerId: string | null
       customerName: string | null
       customerEmail: string | null

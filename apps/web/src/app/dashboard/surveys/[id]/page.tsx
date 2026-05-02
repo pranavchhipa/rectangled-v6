@@ -73,6 +73,7 @@ import {
   TabsTrigger,
 } from '@/components/ui/tabs'
 import { ResponsesList } from '@/components/responses/responses-list'
+import { AdaptiveSettingsForm } from '@/components/surveys/adaptive-settings-form'
 import {
   Select,
   SelectContent,
@@ -421,10 +422,11 @@ export default function SurveyEditorPage() {
         id: string
         name: string
         slug: string
-        template: 'quick' | 'deep'
+        template: 'quick' | 'deep' | 'adaptive' | 'custom'
         mode: 'intelligent' | 'builder'
         status: 'draft' | 'active' | 'archived'
         steps: Step[]
+        settings: Record<string, unknown>
         legacyJourneyId: string | null
         legacyTruformId: string | null
       }
@@ -793,6 +795,80 @@ export default function SurveyEditorPage() {
 
         <TabsContent value="builder" className="space-y-4">
 
+      {/*
+        Hotfix §2 — adaptive surveys get a flat settings form instead of
+        the React Flow canvas. Step graph stays in the DB as rollback
+        insurance but is not editable in this view (owner switches by
+        flipping template back to 'quick' if needed — see
+        docs/HOTFIX_§2_ROLLBACK.md).
+      */}
+      {survey.template === 'adaptive' ? (
+        <>
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">Survey settings</CardTitle>
+              <CardDescription className="text-xs">
+                Renaming and status changes apply immediately. Adaptive
+                journey config is edited below.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="grid gap-3 sm:grid-cols-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="survey-name-adaptive">Name</Label>
+                <Input
+                  id="survey-name-adaptive"
+                  value={name}
+                  onChange={(e) => {
+                    setName(e.target.value)
+                    setDirty(true)
+                  }}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Status</Label>
+                <Select
+                  value={status}
+                  onValueChange={(v) => {
+                    setStatus(v as typeof status)
+                    setDirty(true)
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="draft">Draft</SelectItem>
+                    <SelectItem value="active">Active</SelectItem>
+                    <SelectItem value="archived">Archived</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex items-end">
+                <Button
+                  className="w-full"
+                  onClick={handleSaveMetadata}
+                  disabled={!dirty || updateMutation.isPending}
+                >
+                  {updateMutation.isPending ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <Save className="size-4" />
+                  )}
+                  Save settings
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          <AdaptiveSettingsForm
+            surveyId={survey.id}
+            template="adaptive"
+            initialSettings={survey.settings ?? {}}
+          />
+        </>
+      ) : (
+        <>
+
       {/* Metadata editor */}
       <Card>
         <CardHeader className="pb-3">
@@ -924,6 +1000,9 @@ export default function SurveyEditorPage() {
           </div>
         </CardContent>
       </Card>
+
+        </>
+      )}
 
         </TabsContent>
 
