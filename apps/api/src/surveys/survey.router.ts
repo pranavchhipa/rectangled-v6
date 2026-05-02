@@ -12,6 +12,8 @@ import {
   submitLegacyTruformSchema,
   getPublicLegacyJourneySchema,
   getPublicLegacyTruformSchema,
+  listSurveyResponsesSchema,
+  getSurveyResponseByIdSchema,
 } from '@rectangled/shared'
 import { SurveyCrudService } from './survey-crud.service'
 import { SurveyEngineService } from './survey-engine.service'
@@ -121,6 +123,19 @@ export function createSurveyRouter(
       .input(archiveSurveySchema)
       .mutation(async ({ input, ctx }) => {
         return crud.archive(input.id, ctx.user.sub)
+      }),
+
+    // ─── Hotfix PRD §6 — Responses listing + detail ────────────────────
+    listResponses: protectedProcedure
+      .input(listSurveyResponsesSchema)
+      .query(async ({ input, ctx }) => {
+        return crud.listResponses(input, ctx.user.sub)
+      }),
+
+    getResponseById: protectedProcedure
+      .input(getSurveyResponseByIdSchema)
+      .query(async ({ input, ctx }) => {
+        return crud.getResponseById(input.id, ctx.user.sub)
       }),
   })
 }

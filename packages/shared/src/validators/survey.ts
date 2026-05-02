@@ -133,9 +133,9 @@ export const submitLegacyTruformSchema = z.object({
   score: z.number().optional(),
   answers: z.record(z.unknown()).default({}),
   metadata: z.record(z.unknown()).default({}),
-  // The legacy renderer also passes contact fields, but the legacy
-  // submit endpoint silently dropped them — preserving that behaviour
-  // here. Future work: route these through the customer upsert.
+  // Hotfix PRD §6 — these are now wired to a real customer upsert in
+  // submitLegacyTruform (was silently dropped before). Mirrors the
+  // journey shim's customer-upsert path.
   customerName: z.string().optional(),
   customerEmail: z.string().email().optional(),
   customerPhone: z.string().optional(),
@@ -155,4 +155,24 @@ export const getPublicLegacyJourneySchema = z.object({
 
 export const getPublicLegacyTruformSchema = z.object({
   slug: z.string().min(1).max(64),
+})
+
+// ─── Hotfix PRD §6 — Responses listing + detail ─────────────────────────
+
+export const listSurveyResponsesSchema = z.object({
+  // Either workspaceId (workspace-wide) or surveyId (per-survey) MUST be set.
+  // If both are set, the surveyId takes precedence and the workspace check
+  // is used as a membership guard.
+  workspaceId: z.string().uuid().optional(),
+  surveyId: z.string().uuid().optional(),
+  filter: z.enum(['all', 'happy', 'unhappy', 'neutral']).optional(),
+  search: z.string().max(255).optional(),
+  dateFrom: z.union([z.string().datetime(), z.date()]).optional(),
+  dateTo: z.union([z.string().datetime(), z.date()]).optional(),
+  page: z.number().int().min(1).default(1),
+  limit: z.number().int().min(1).max(200).default(25),
+})
+
+export const getSurveyResponseByIdSchema = z.object({
+  id: z.string().uuid(),
 })

@@ -19,6 +19,7 @@ import {
   Zap,
   Sparkles,
   ClipboardList,
+  ListChecks,
 } from 'lucide-react'
 import {
   Sidebar,
@@ -57,6 +58,8 @@ const navItems = [
   // Phase 5 dropped the legacy tables; the old /dashboard/{journeys,truforms}
   // pages went with them in Phase 5 cleanup.
   { label: 'Surveys', href: '/dashboard/surveys', icon: ClipboardList },
+  // Hotfix PRD §6.6 — workspace-level responses view.
+  { label: 'Responses', href: '/dashboard/responses', icon: ListChecks },
   { label: 'Post-Review Actions', href: '/dashboard/automations', icon: Zap },
   { label: 'Coupons', href: '/dashboard/coupons', icon: Ticket },
 

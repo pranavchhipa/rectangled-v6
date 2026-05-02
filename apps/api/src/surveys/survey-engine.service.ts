@@ -647,7 +647,17 @@ export class SurveyEngineService {
     score?: number
     answers: Record<string, unknown>
     metadata: Record<string, unknown>
-  }): Promise<{ success: true; responseId: string }> {
+    // Hotfix PRD §6 — contact fields now wired to customer upsert.
+    // Were silently dropped pre-hotfix.
+    customerName?: string
+    customerEmail?: string
+    customerPhone?: string
+  }): Promise<{
+    success: true
+    responseId: string
+    isPositive: boolean | null
+    customerId: string | null
+  }> {
     const survey = await this.db.query.surveys.findFirst({
       where: eq(surveys.legacyTruformId, input.truformId),
     })
@@ -665,10 +675,84 @@ export class SurveyEngineService {
     }
 
     const sessionId = randomUUID()
+
+    // Idempotent start row — closes the abandonment-tracking gap
+    // (matches the journey shim's PHASE 1 behaviour).
     await this.db
       .insert(surveyStarts)
       .values({ surveyId: survey.id, sessionId, metadata: {} })
       .onConflictDoNothing()
+
+    // ─── Hotfix PRD §6 — customer upsert ─────────────────────────────
+    // Workspace-scoped lookup by phone first (more unique than email
+    // for SMB use cases in India), then by email. If found, update any
+    // missing fields. Otherwise create a fresh customer row.
+    let customerId: string | null = null
+    if (input.customerName || input.customerEmail || input.customerPhone) {
+      let existing: typeof customers.$inferSelect | undefined
+      if (input.customerPhone) {
+        existing = await this.db.query.customers.findFirst({
+          where: and(
+            eq(customers.workspaceId, survey.workspaceId),
+            eq(customers.phone, input.customerPhone),
+          ),
+        })
+      }
+      if (!existing && input.customerEmail) {
+        existing = await this.db.query.customers.findFirst({
+          where: and(
+            eq(customers.workspaceId, survey.workspaceId),
+            eq(customers.email, input.customerEmail),
+          ),
+        })
+      }
+
+      if (existing) {
+        customerId = existing.id
+        // Patch missing fields without overwriting existing values.
+        const patch: Partial<typeof customers.$inferInsert> = {}
+        if (!existing.name && input.customerName) patch.name = input.customerName
+        if (!existing.email && input.customerEmail) patch.email = input.customerEmail
+        if (!existing.phone && input.customerPhone) patch.phone = input.customerPhone
+        if (Object.keys(patch).length > 0) {
+          await this.db
+            .update(customers)
+            .set({ ...patch, lastSeenAt: new Date() })
+            .where(eq(customers.id, existing.id))
+        }
+      } else {
+        const [created] = await this.db
+          .insert(customers)
+          .values({
+            workspaceId: survey.workspaceId,
+            name: input.customerName ?? null,
+            email: input.customerEmail ?? null,
+            phone: input.customerPhone ?? null,
+          })
+          .returning()
+        customerId = created?.id ?? null
+      }
+    }
+
+    // ─── Hotfix PRD §6 — compute is_positive from settings.type ──────
+    // Truform surveys carry metric type in survey.settings.type; apply
+    // the same threshold table as METRIC_DEFAULT_THRESHOLDS.
+    const settings = (survey.settings ?? {}) as { type?: string }
+    let isPos: boolean | null = null
+    if (typeof input.score === 'number') {
+      switch (settings.type) {
+        case 'csat':
+          isPos = input.score >= 4
+          break
+        case 'nps':
+          isPos = input.score >= 9
+          break
+        case 'ces':
+          isPos = input.score <= 3 // inverted
+          break
+        // 'custom' has no canonical threshold — leave null.
+      }
+    }
 
     const [response] = await this.db
       .insert(surveyResponses)
@@ -676,16 +760,39 @@ export class SurveyEngineService {
         surveyId: survey.id,
         workspaceId: survey.workspaceId,
         locationId: survey.locationId ?? null,
+        customerId,
         sessionId,
         responseData: input.answers,
         score: input.score ?? null,
         answers: input.answers,
+        // Mirror score into metric_shown / metric_score / is_positive
+        // hot-path columns so the Responses tab can filter on them
+        // without parsing the parent survey's settings.
+        metricShown: (settings.type ?? null) as any,
+        metricScore: input.score ?? null,
+        isPositive: isPos,
         completedAt: new Date(),
         metadata: input.metadata ?? {},
       })
       .returning()
 
-    return { success: true, responseId: response.id }
+    // Mark the start row complete so the funnel analytics work.
+    await this.db
+      .update(surveyStarts)
+      .set({ completedAt: new Date() })
+      .where(
+        and(
+          eq(surveyStarts.surveyId, survey.id),
+          eq(surveyStarts.sessionId, sessionId),
+        ),
+      )
+
+    return {
+      success: true,
+      responseId: response.id,
+      isPositive: isPos,
+      customerId,
+    }
   }
 
   private computeLegacyIsPositive(

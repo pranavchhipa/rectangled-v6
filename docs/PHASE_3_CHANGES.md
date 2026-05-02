@@ -160,6 +160,19 @@ The schema and engine already support `mode='builder'` end-to-end: `survey.updat
 
 ---
 
+## Lessons learned (added post-hotfix)
+
+**The backfill script (`scripts/backfill-surveys.mjs`) copied `metric_shown` + `metric_score` from `journey_responses` but did not compute `is_positive`.** This left every backfilled row with `is_positive = NULL` even when the metric data was sufficient to derive it. Patched in the hotfix PRD §6 via two one-time UPDATE migrations:
+
+- `0016_backfill_is_positive.sql` — covers v2-shape rows where `metric_shown` + `metric_score` columns are populated.
+- `0017_backfill_is_positive_legacy_shapes.sql` — covers older shapes: pre-v2 journey responses (read `response_data->>'rating'` as CSAT 1-5) and truform responses (look up parent `surveys.settings->>'type'` and apply that metric's threshold).
+
+Combined coverage: 337 / 375 rows resolved. The 38 residual NULLs are deep `custom`-type surveys (no canonical threshold) plus journey rows where `rating` is missing or non-numeric.
+
+**Future backfills must compute derived columns at backfill time.** When copying rows from one table shape to another, anything the new shape derives from raw inputs (`is_positive` from `metric_shown` + `metric_score`, or any other `CASE WHEN` style column) needs to be computed during the copy — not left as NULL with a "we'll fix it later" expectation. Otherwise downstream analytics treat those rows as uncategorizable.
+
+The Phase 3 backfill specifically should have included an `is_positive` CASE expression in the INSERT — the threshold table is small and the lookup is purely from `metric_shown`. Adding it then would have been five lines.
+
 ## Verification
 
 - `npx tsc --noEmit` (apps/api) — clean.

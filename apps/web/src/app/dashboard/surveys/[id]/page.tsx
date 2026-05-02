@@ -67,6 +67,13 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from '@/components/ui/tabs'
+import { ResponsesList } from '@/components/responses/responses-list'
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -774,6 +781,18 @@ export default function SurveyEditorPage() {
         </div>
       </div>
 
+      {/*
+        Hotfix PRD §6 — wrap the editor in a Tabs container so a
+        "Responses" tab can sit alongside the builder.
+      */}
+      <Tabs defaultValue="builder" className="space-y-4">
+        <TabsList>
+          <TabsTrigger value="builder">Builder</TabsTrigger>
+          <TabsTrigger value="responses">Responses</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="builder" className="space-y-4">
+
       {/* Metadata editor */}
       <Card>
         <CardHeader className="pb-3">
@@ -905,6 +924,24 @@ export default function SurveyEditorPage() {
           </div>
         </CardContent>
       </Card>
+
+        </TabsContent>
+
+        <TabsContent value="responses" className="space-y-4">
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">Responses</CardTitle>
+              <CardDescription className="text-xs">
+                Every customer who completed this journey. Click a row for
+                full detail. Search hits the customer name, email, and phone.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ResponsesList surveyId={survey.id} />
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
 
       {/* Step editor sheet */}
       <Sheet
