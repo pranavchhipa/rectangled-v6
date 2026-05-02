@@ -25,6 +25,12 @@ interface LocationData {
   isActive: boolean
   ownerName?: string | null
   connectedPlatforms?: string[]
+  // Hotfix §4 follow-up — per-location branding overrides. Used to
+  // surface a small thumbnail next to the location name in the card
+  // and pre-populate the edit form.
+  displayName?: string | null
+  logoUrl?: string | null
+  brandColor?: string | null
 }
 
 interface LocationCardProps {
@@ -81,7 +87,26 @@ export function LocationCard({ location }: LocationCardProps) {
       <Card className="relative">
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
-            {location.name}
+            {/* Hotfix §4 follow-up — logo thumbnail when set, with a
+                tiny brand-color dot fallback so owners can see at a
+                glance which locations override branding. */}
+            {location.logoUrl ? (
+              <img
+                src={location.logoUrl}
+                alt=""
+                className="size-7 shrink-0 rounded border bg-white object-contain p-0.5"
+                onError={(e) => {
+                  ;(e.currentTarget as HTMLImageElement).style.display = 'none'
+                }}
+              />
+            ) : location.brandColor ? (
+              <span
+                aria-hidden
+                className="inline-block size-3 shrink-0 rounded-full border border-border"
+                style={{ backgroundColor: location.brandColor }}
+              />
+            ) : null}
+            <span className="min-w-0 truncate">{location.name}</span>
           </CardTitle>
           <CardAction>
             <Badge

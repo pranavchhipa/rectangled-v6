@@ -29,6 +29,12 @@ interface LocationData {
   email: string | null
   isActive: boolean
   ownerName?: string | null
+  // Hotfix §4 follow-up — per-location branding overrides for public
+  // QR pages. All optional; empty/null means "fall back to workspace
+  // defaults" (resolved server-side in branding.helper.ts).
+  displayName?: string | null
+  logoUrl?: string | null
+  brandColor?: string | null
 }
 
 interface LocationFormSheetProps {
@@ -47,6 +53,10 @@ interface FormState {
   timezone: string
   phone: string
   email: string
+  // Branding (Hotfix §4 follow-up)
+  displayName: string
+  logoUrl: string
+  brandColor: string
 }
 
 /**
@@ -73,7 +83,12 @@ const defaultFormState: FormState = {
   timezone: 'Asia/Kolkata',
   phone: '',
   email: '',
+  displayName: '',
+  logoUrl: '',
+  brandColor: '',
 }
+
+const DEFAULT_BRAND_COLOR_PLACEHOLDER = '#2D5BFF'
 
 const defaultSlaState: SlaTargetState = {
   reviewResponseSlaMinutes: '',
@@ -132,6 +147,9 @@ export function LocationFormSheet({
           timezone: location.timezone,
           phone: location.phone ?? '',
           email: location.email ?? '',
+          displayName: location.displayName ?? '',
+          logoUrl: location.logoUrl ?? '',
+          brandColor: location.brandColor ?? '',
         })
       } else {
         setForm(defaultFormState)
@@ -262,6 +280,11 @@ export function LocationFormSheet({
             phone: form.phone || undefined,
             email: form.email || undefined,
             timezone: form.timezone || undefined,
+            // Hotfix §4 follow-up — pass branding fields. Empty string
+            // is meaningful here (it clears the override server-side).
+            displayName: form.displayName,
+            logoUrl: form.logoUrl,
+            brandColor: form.brandColor,
           }),
           setSlaTargetMutation.mutateAsync({
             locationId: location.id,
@@ -294,6 +317,12 @@ export function LocationFormSheet({
         phone: form.phone || undefined,
         email: form.email || undefined,
         timezone: form.timezone || undefined,
+        // Hotfix §4 follow-up — branding overrides at create time.
+        // Empty/whitespace → server stores null, renderer falls back to
+        // workspace defaults.
+        displayName: form.displayName || undefined,
+        logoUrl: form.logoUrl || undefined,
+        brandColor: form.brandColor || undefined,
       })
     }
   }
@@ -419,6 +448,112 @@ export function LocationFormSheet({
               value={form.email}
               onChange={(e) => updateField('email', e.target.value)}
             />
+          </div>
+
+          {/*
+            Hotfix §4 follow-up — branding for the public QR pages.
+            All three fields are optional; the server-side resolver
+            falls back to workspace defaults (logo_url, brand_colors.
+            primary) and then system defaults when these are blank.
+            See branding.helper.ts for the full cascade.
+          */}
+          <div className="space-y-4 rounded-lg border bg-muted/30 p-4">
+            <div>
+              <h3 className="text-sm font-semibold">
+                Branding (shown to customers)
+              </h3>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                Optional. Leave blank to inherit your workspace logo,
+                color, and name on the QR feedback page.
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="location-display-name" className="text-xs font-normal">
+                Display name
+              </Label>
+              <Input
+                id="location-display-name"
+                placeholder="e.g. Cafe Madras — Bandra"
+                value={form.displayName}
+                onChange={(e) => updateField('displayName', e.target.value)}
+              />
+              <p className="text-[11px] text-muted-foreground">
+                Shown at the top of the public QR page. Defaults to{' '}
+                <code className="rounded bg-background px-1">
+                  Workspace — {form.name || 'Location'}
+                </code>{' '}
+                when blank.
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="location-logo-url" className="text-xs font-normal">
+                Logo URL
+              </Label>
+              <Input
+                id="location-logo-url"
+                type="url"
+                inputMode="url"
+                placeholder="https://cdn.example.com/logo.png"
+                value={form.logoUrl}
+                onChange={(e) => updateField('logoUrl', e.target.value)}
+              />
+              <p className="text-[11px] text-muted-foreground">
+                Public image URL (https). Square images render best.
+                File upload coming soon — for now, host via your own
+                CDN or any public link.
+              </p>
+              {form.logoUrl && /^https?:\/\//.test(form.logoUrl) && (
+                <div className="mt-1 flex items-center gap-2">
+                  <img
+                    src={form.logoUrl}
+                    alt="Logo preview"
+                    className="size-12 rounded-md border bg-white object-contain p-0.5"
+                    onError={(e) => {
+                      ;(e.currentTarget as HTMLImageElement).style.opacity = '0.3'
+                    }}
+                  />
+                  <span className="text-[11px] text-muted-foreground">
+                    Preview
+                  </span>
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="location-brand-color" className="text-xs font-normal">
+                Brand color
+              </Label>
+              <div className="flex items-center gap-2">
+                {/* Native color picker — paired with the hex text input
+                    so power users can paste exact values from a brand
+                    guide without fighting the picker. */}
+                <input
+                  type="color"
+                  className="h-9 w-12 cursor-pointer rounded border bg-background"
+                  aria-label="Brand color picker"
+                  value={
+                    form.brandColor && /^#[0-9a-fA-F]{6}$/.test(form.brandColor)
+                      ? form.brandColor
+                      : DEFAULT_BRAND_COLOR_PLACEHOLDER
+                  }
+                  onChange={(e) => updateField('brandColor', e.target.value)}
+                />
+                <Input
+                  id="location-brand-color"
+                  placeholder={DEFAULT_BRAND_COLOR_PLACEHOLDER}
+                  value={form.brandColor}
+                  onChange={(e) => updateField('brandColor', e.target.value)}
+                  className="flex-1 font-mono uppercase"
+                  maxLength={7}
+                />
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                6-digit hex (e.g. <code className="rounded bg-background px-1">#2D5BFF</code>).
+                Used as the QR page header background.
+              </p>
+            </div>
           </div>
 
           {/*

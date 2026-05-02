@@ -5,6 +5,18 @@ import type { Database } from '@rectangled/db'
 import { locations, members, locationSlaTargets } from '@rectangled/db'
 import { hasPermission, type Role, type CreateLocationInput, type UpdateLocationInput } from '@rectangled/shared'
 
+/**
+ * Hotfix §4 follow-up — empty strings from the form are stored as
+ * NULL so the branding resolver falls back to workspace defaults.
+ * "" in the column would render as a 0-width header, which isn't
+ * what the owner means when they leave a field blank.
+ */
+function emptyToNull(value: string | undefined): string | null | undefined {
+  if (value === undefined) return undefined
+  const trimmed = value.trim()
+  return trimmed === '' ? null : trimmed
+}
+
 @Injectable()
 export class LocationService {
   constructor(@Inject('DATABASE') private readonly db: Database) {}
@@ -31,6 +43,12 @@ export class LocationService {
         phone: input.phone,
         email: input.email,
         timezone: input.timezone,
+        // Hotfix §4 follow-up — branding overrides. Empty strings → null
+        // so the resolver falls back to workspace defaults rather than
+        // rendering an empty header.
+        displayName: emptyToNull(input.displayName),
+        logoUrl: emptyToNull(input.logoUrl),
+        brandColor: emptyToNull(input.brandColor),
       })
       .returning()
 
@@ -75,6 +93,15 @@ export class LocationService {
     if (updateData.phone !== undefined) setValues.phone = updateData.phone
     if (updateData.email !== undefined) setValues.email = updateData.email
     if (updateData.timezone !== undefined) setValues.timezone = updateData.timezone
+    // Hotfix §4 follow-up — branding overrides. Empty string → null so
+    // the renderer's fallback chain (location → workspace → defaults)
+    // kicks in. Undefined leaves the column untouched.
+    if (updateData.displayName !== undefined)
+      setValues.displayName = emptyToNull(updateData.displayName)
+    if (updateData.logoUrl !== undefined)
+      setValues.logoUrl = emptyToNull(updateData.logoUrl)
+    if (updateData.brandColor !== undefined)
+      setValues.brandColor = emptyToNull(updateData.brandColor)
 
     const [updated] = await this.db
       .update(locations)
