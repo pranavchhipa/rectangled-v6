@@ -188,14 +188,15 @@ export function CreateCustomJourneyWizard({
       toast.success(
         metric === 'random'
           ? 'Adaptive journey created'
-          : 'Custom journey created',
+          : 'Custom journey created — opening editor',
       )
       utils.survey.list.invalidate()
       onOpenChange(false)
-      // PR 1: redirect to surveys list — the decision-tree editor for
-      // template='custom' lands in PR 2. Adaptive surveys go straight to
-      // their existing AdaptiveSettingsForm editor.
-      if (created?.id && metric === 'random') {
+      // Custom journeys → decision-tree editor (PR 2).
+      // Adaptive journeys → AdaptiveSettingsForm (§2).
+      // Both live at /dashboard/surveys/{id}; the editor branches by
+      // template internally.
+      if (created?.id) {
         router.push(`/dashboard/surveys/${created.id}`)
       } else {
         router.push('/dashboard/surveys')

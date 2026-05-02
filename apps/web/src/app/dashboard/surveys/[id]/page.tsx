@@ -74,6 +74,7 @@ import {
 } from '@/components/ui/tabs'
 import { ResponsesList } from '@/components/responses/responses-list'
 import { AdaptiveSettingsForm } from '@/components/surveys/adaptive-settings-form'
+import { DecisionTreeEditor } from '@/components/surveys/decision-tree-editor'
 import type { SurveyStep, SurveyStepType } from '@rectangled/shared'
 import { STEP_TYPE_LABELS, getStepTypeLabel } from '@rectangled/shared'
 import {
@@ -863,6 +864,19 @@ export default function SurveyEditorPage() {
             initialSettings={survey.settings ?? {}}
           />
         </>
+      ) : survey.template === 'custom' ? (
+        // Hotfix PRD §3.4 — decision-tree editor for custom journeys.
+        // Replaces the React Flow canvas with a pre-rendered tree of
+        // clickable boxes + per-step content panel + "+Insert step here"
+        // buttons on the negative chain. The wizard's structure
+        // (rating → branch → positive/negative paths → terminal) is
+        // wizard-locked; only content edits + chain insertions are
+        // allowed here.
+        <DecisionTreeEditor
+          surveyId={survey.id}
+          initialSteps={survey.steps as unknown as SurveyStep[]}
+          workspaceId={currentWorkspaceId ?? ''}
+        />
       ) : (
         <>
 
