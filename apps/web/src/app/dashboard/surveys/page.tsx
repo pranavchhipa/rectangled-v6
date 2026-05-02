@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import {
   ClipboardList,
@@ -9,6 +9,9 @@ import {
   Archive,
   ExternalLink,
   Loader2,
+  QrCode,
+  Download,
+  Copy,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { trpc } from '@/lib/trpc'
@@ -64,6 +67,15 @@ export default function SurveysListPage() {
   const [newName, setNewName] = useState('')
   const [newTemplate, setNewTemplate] = useState<'quick' | 'deep'>('quick')
   const [newDeepType, setNewDeepType] = useState<'csat' | 'nps' | 'ces' | 'custom'>('csat')
+
+  // QR dialog — restored from the deleted /dashboard/journeys page.
+  const [qrSurvey, setQrSurvey] = useState<{
+    id: string
+    name: string
+    slug: string
+    template: 'quick' | 'deep'
+    legacyId: string | null
+  } | null>(null)
 
   const surveysQuery = trpc.survey.list.useQuery(
     {
@@ -351,6 +363,26 @@ export default function SurveysListPage() {
                     </Link>
                   </Button>
                   <div className="flex gap-1">
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      onClick={() =>
+                        setQrSurvey({
+                          id: s.id,
+                          name: s.name,
+                          slug: s.slug,
+                          template: s.template,
+                          legacyId:
+                            s.template === 'quick'
+                              ? s.legacyJourneyId
+                              : s.legacyTruformId,
+                        })
+                      }
+                      aria-label="Get QR code"
+                      title="Get QR code"
+                    >
+                      <QrCode className="size-3.5" />
+                    </Button>
                     {s.status === 'active' && (
                       <Button asChild variant="ghost" size="icon-sm">
                         <a
@@ -381,6 +413,156 @@ export default function SurveysListPage() {
           })}
         </div>
       )}
+
+      {/* QR dialog — restored from the deleted /dashboard/journeys page. */}
+      <QrCodeDialog
+        survey={qrSurvey}
+        onClose={() => setQrSurvey(null)}
+        currentWorkspaceId={currentWorkspaceId}
+      />
     </div>
+  )
+}
+
+function QrCodeDialog({
+  survey,
+  onClose,
+  currentWorkspaceId,
+}: {
+  survey: {
+    id: string
+    name: string
+    slug: string
+    template: 'quick' | 'deep'
+    legacyId: string | null
+  } | null
+  onClose: () => void
+  currentWorkspaceId: string | null
+}) {
+  // The QR backend's lookupJourneySlug / lookupFormSlug accepts either
+  // the new surveys.id or the legacy_*_id, so we always pass surveys.id.
+  // It returns the slug + a data URL.
+  const qrQuery = trpc.qr.generateJourneyQr.useQuery(
+    {
+      journeyId: survey?.id ?? '',
+      workspaceId: currentWorkspaceId ?? undefined,
+      size: 300,
+      format: 'png',
+    },
+    { enabled: !!survey && survey.template === 'quick' && !!currentWorkspaceId },
+  )
+
+  const formQrMutation = trpc.qr.generateFormQr.useMutation()
+
+  const [deepDataUrl, setDeepDataUrl] = useState<string | null>(null)
+  const [deepLoading, setDeepLoading] = useState(false)
+
+  // For deep (form) surveys, the backend exposes generateFormQr as a
+  // mutation rather than a query — fire it once when the dialog opens.
+  useEffect(() => {
+    if (!survey || survey.template !== 'deep' || !currentWorkspaceId) {
+      setDeepDataUrl(null)
+      return
+    }
+    setDeepLoading(true)
+    formQrMutation.mutate(
+      {
+        formId: survey.id,
+        workspaceId: currentWorkspaceId,
+        size: 300,
+        format: 'png',
+      },
+      {
+        onSuccess: (data: any) => {
+          setDeepDataUrl(typeof data === 'string' ? data : data?.qrDataUrl ?? null)
+          setDeepLoading(false)
+        },
+        onError: (err) => {
+          toast.error(err.message || 'Failed to generate QR')
+          setDeepLoading(false)
+        },
+      },
+    )
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [survey?.id])
+
+  const dataUrl =
+    survey?.template === 'quick' ? qrQuery.data?.qrDataUrl : deepDataUrl
+  const isLoading =
+    survey?.template === 'quick' ? qrQuery.isLoading : deepLoading
+  const publicUrl = survey
+    ? `${typeof window !== 'undefined' ? window.location.origin : ''}/${
+        survey.template === 'quick' ? 'j' : 'f'
+      }/${survey.slug}`
+    : ''
+
+  function handleDownload() {
+    if (!dataUrl || !survey) return
+    const link = document.createElement('a')
+    link.href = dataUrl
+    link.download = `${survey.slug}-qr.png`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+  }
+
+  function handleCopyUrl() {
+    if (!publicUrl) return
+    navigator.clipboard.writeText(publicUrl).then(
+      () => toast.success('Public URL copied'),
+      () => toast.error('Failed to copy'),
+    )
+  }
+
+  return (
+    <Dialog open={!!survey} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>QR code for {survey?.name}</DialogTitle>
+          <DialogDescription>
+            Scanning this opens{' '}
+            <code className="rounded bg-muted px-1 text-xs">{publicUrl}</code>.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="flex flex-col items-center gap-3 py-3">
+          {isLoading ? (
+            <Skeleton className="h-[280px] w-[280px] rounded-md" />
+          ) : dataUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={dataUrl}
+              alt={`QR code for ${survey?.name}`}
+              className="rounded-md border"
+              width={280}
+              height={280}
+            />
+          ) : (
+            <div className="flex h-[280px] w-[280px] items-center justify-center rounded-md border border-dashed text-xs text-muted-foreground">
+              No QR available.
+            </div>
+          )}
+        </div>
+        <DialogFooter className="sm:flex-col sm:items-stretch sm:gap-2">
+          <div className="flex w-full items-center gap-2">
+            <Button
+              variant="outline"
+              className="flex-1"
+              onClick={handleCopyUrl}
+            >
+              <Copy className="size-4" />
+              Copy URL
+            </Button>
+            <Button
+              className="flex-1"
+              onClick={handleDownload}
+              disabled={!dataUrl}
+            >
+              <Download className="size-4" />
+              Download PNG
+            </Button>
+          </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }

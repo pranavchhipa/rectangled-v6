@@ -12,6 +12,7 @@ import {
   type Node,
   type NodeChange,
   type Edge,
+  type Connection,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import {
@@ -27,9 +28,15 @@ import {
   ExternalLink as RedirectIcon,
   Flag,
   Info,
+  Plus,
+  Trash2,
+  QrCode,
+  Download,
+  Copy,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { trpc } from '@/lib/trpc'
+import { useAuthStore } from '@/stores/auth-store'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -51,6 +58,14 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import {
   Select,
   SelectContent,
@@ -222,6 +237,117 @@ function buildNodes(steps: Step[], onPick: (step: Step) => void): Node[] {
   })
 }
 
+/**
+ * Phase 3 Stage F follow-up — pure helpers for the manual builder.
+ */
+
+/**
+ * Set the "next" pointer on a step's config to `targetId` for step
+ * kinds that have a single outgoing edge. Returns null when the step
+ * has multiple (or zero) outgoing edges — caller opens the editor
+ * sheet in that case so the user picks explicitly.
+ */
+function setNextPointer(step: Step, targetId: string): StepConfig | null {
+  const c = step.config as any
+  switch (step.type) {
+    case 'ask_metric':
+    case 'ask_question':
+      return {
+        ...c,
+        onComplete: { ...(c.onComplete ?? {}), nextStepId: targetId },
+      }
+    case 'show_message':
+    case 'collect_contact':
+      return { ...c, nextStepId: targetId }
+    case 'branch_by_score':
+    case 'branch_by_answer':
+    case 'redirect':
+    case 'end_journey':
+      // Multiple / zero outgoing — needs explicit routing.
+      return null
+    default:
+      return null
+  }
+}
+
+/**
+ * Walk a step's config and null-out any pointer that targets `removedId`.
+ * Used after a step is deleted so dangling pointers go to red-dashed
+ * dead-ends instead of pointing at a step that no longer exists.
+ */
+function clearPointersTo(step: Step, removedId: string): Step {
+  const c = step.config as any
+  let changed = false
+  let next: any = c
+  const nuke = (path: (cfg: any) => unknown, set: (cfg: any) => any) => {
+    if (path(next) === removedId) {
+      next = set(next)
+      changed = true
+    }
+  }
+  switch (step.type) {
+    case 'ask_metric':
+    case 'ask_question':
+      nuke(
+        (cfg) => cfg?.onComplete?.nextStepId,
+        (cfg) => ({
+          ...cfg,
+          onComplete: { ...(cfg.onComplete ?? {}), nextStepId: null },
+        }),
+      )
+      break
+    case 'show_message':
+    case 'collect_contact':
+      nuke(
+        (cfg) => cfg?.nextStepId,
+        (cfg) => ({ ...cfg, nextStepId: null }),
+      )
+      break
+    case 'redirect':
+      nuke(
+        (cfg) => cfg?.onYesNextStepId,
+        (cfg) => ({ ...cfg, onYesNextStepId: null }),
+      )
+      nuke(
+        (cfg) => cfg?.onNoNextStepId,
+        (cfg) => ({ ...cfg, onNoNextStepId: null }),
+      )
+      break
+    case 'branch_by_score':
+    case 'branch_by_answer':
+      if (Array.isArray(c.branches)) {
+        const nb = (c.branches as Array<{ nextStepId: string }>).map((b) =>
+          b.nextStepId === removedId ? { ...b, nextStepId: null as any } : b,
+        )
+        if (nb.some((b: any, i) => b !== c.branches[i])) {
+          next = { ...next, branches: nb }
+          changed = true
+        }
+      }
+      nuke(
+        (cfg) => cfg?.defaultNextStepId,
+        (cfg) => ({ ...cfg, defaultNextStepId: null }),
+      )
+      break
+  }
+  return changed ? { ...step, config: next } : step
+}
+
+const STEP_TYPES_FOR_PALETTE: Array<{
+  value: string
+  label: string
+  description: string
+}> = [
+  { value: 'ask_metric', label: 'Ask metric', description: 'CSAT / NPS / CES rating.' },
+  { value: 'ask_question', label: 'Ask question', description: 'Free text or multi-select.' },
+  { value: 'branch_by_score', label: 'Branch by score', description: 'Route based on a metric.' },
+  { value: 'branch_by_answer', label: 'Branch by answer', description: 'Route based on a question.' },
+  { value: 'show_message', label: 'Show message', description: 'Info screen.' },
+  { value: 'collect_contact', label: 'Collect contact', description: 'Name / email / phone.' },
+  { value: 'redirect', label: 'Redirect', description: 'Send to Google review with Yes/No.' },
+  { value: 'end_journey', label: 'End', description: 'Terminal — thank-you message.' },
+]
+
 export default function SurveyEditorPage() {
   const params = useParams()
   const router = useRouter()
@@ -233,6 +359,31 @@ export default function SurveyEditorPage() {
   const [name, setName] = useState('')
   const [status, setStatus] = useState<'draft' | 'active' | 'archived'>('draft')
   const [dirty, setDirty] = useState(false)
+  const [qrOpen, setQrOpen] = useState(false)
+  const currentWorkspaceId = useAuthStore((s) => s.currentWorkspaceId)
+  // Phase 3 Stage F follow-up — friendly "Easy edit" panel state.
+  // Mirrors a flattened view of the user-facing fields buried in the
+  // step graph. Saving walks the steps and patches each step's config.
+  const [easy, setEasy] = useState<{
+    question: string
+    thankYouMessage: string
+    followupQuestion: string // deep template only
+    reviewPlatform: string // quick template
+    redirectUrl: string // quick
+    reviewTemplate: string // quick
+    aspectTagsCsv: string // quick
+    brandColor: string // deep
+  }>({
+    question: '',
+    thankYouMessage: '',
+    followupQuestion: '',
+    reviewPlatform: 'google',
+    redirectUrl: '',
+    reviewTemplate: '',
+    aspectTagsCsv: '',
+    brandColor: '',
+  })
+  const [easyDirty, setEasyDirty] = useState(false)
   // Phase 3 Stage F follow-up — local node state so the user can drag
   // nodes around. Positions are persisted via "Save layout" which calls
   // survey.update with the new steps array (each step's `position`
@@ -276,6 +427,60 @@ export default function SurveyEditorPage() {
     if (survey) {
       setName(survey.name)
       setStatus(survey.status)
+
+      // Phase 3 Stage F follow-up — flatten the step graph into the
+      // friendly settings panel. We pick well-known step ids first
+      // (the intelligent builders use stable ids) and fall back to
+      // step-type heuristics so backfilled / hand-edited surveys also
+      // populate sensibly.
+      const steps = (survey.steps as Step[]) ?? []
+      const stepsById = new Map(steps.map((s) => [s.id, s]))
+      const firstAskMetric =
+        stepsById.get('s1_metric') ??
+        stepsById.get('s1_csat') ??
+        stepsById.get('s1_nps') ??
+        stepsById.get('s1_ces') ??
+        steps.find((s) => s.type === 'ask_metric')
+      const followupAsk =
+        stepsById.get('s2_followup') ??
+        steps.find(
+          (s) =>
+            s.type === 'ask_question' &&
+            !Array.isArray((s.config as any).options),
+        )
+      const aspectAsk =
+        stepsById.get('s3_unhappy') ??
+        steps.find(
+          (s) =>
+            s.type === 'ask_question' &&
+            Array.isArray((s.config as any).options),
+        )
+      const redirect = steps.find((s) => s.type === 'redirect')
+      const endStep =
+        stepsById.get('s4_thanks_yes') ??
+        stepsById.get('s4_end') ??
+        stepsById.get('s5_end') ??
+        steps.find((s) => s.type === 'end_journey')
+
+      const settings = (survey.settings ?? {}) as {
+        reviewPlatform?: string
+        branding?: { brandColor?: string }
+      }
+
+      setEasy({
+        question:
+          (firstAskMetric?.config as any)?.question ?? '',
+        thankYouMessage: (endStep?.config as any)?.message ?? '',
+        followupQuestion: (followupAsk?.config as any)?.question ?? '',
+        reviewPlatform: settings.reviewPlatform ?? 'google',
+        redirectUrl: (redirect?.config as any)?.url ?? '',
+        reviewTemplate: (redirect?.config as any)?.reviewTemplate ?? '',
+        aspectTagsCsv: Array.isArray((aspectAsk?.config as any)?.options)
+          ? ((aspectAsk!.config as any).options as string[]).join(', ')
+          : '',
+        brandColor: settings.branding?.brandColor ?? '',
+      })
+      setEasyDirty(false)
     }
   }, [survey])
 
@@ -345,6 +550,154 @@ export default function SurveyEditorPage() {
     setDirty(true)
   }
 
+  // ─── Phase 3 Stage F follow-up — manual builder ─────────────────────
+  //
+  // Add / delete / connect operations on the step graph. Saved
+  // immediately via survey.update(steps).
+
+  /**
+   * Generate a fresh step id of the form `step_<n>` not colliding with
+   * any existing step.
+   */
+  function nextStepId(): string {
+    const taken = new Set(steps.map((s) => s.id))
+    let n = steps.length + 1
+    while (taken.has(`step_${n}`)) n++
+    return `step_${n}`
+  }
+
+  /**
+   * Default config per step type. Mirrors what the intelligent builders
+   * produce, minimised to the essentials so the user can fill in copy.
+   */
+  function defaultConfigFor(type: string): StepConfig {
+    switch (type) {
+      case 'ask_metric':
+        return {
+          metric: 'csat',
+          question: 'How was your experience?',
+          onComplete: { nextStepId: null },
+        }
+      case 'ask_question':
+        return {
+          fieldType: 'textarea',
+          question: 'Tell us more',
+          required: false,
+          onComplete: { nextStepId: null },
+        }
+      case 'show_message':
+        return {
+          title: 'Heads up',
+          body: 'Some helpful copy here.',
+          nextStepId: null,
+        }
+      case 'collect_contact':
+        return {
+          fields: [
+            { key: 'name', required: false },
+            { key: 'email', required: false },
+            { key: 'phone', required: false },
+          ],
+          privacyNote: '',
+          nextStepId: null,
+        }
+      case 'redirect':
+        return {
+          platform: 'google',
+          url: '',
+          reviewTemplate: '',
+          yesLabel: 'Sure',
+          noLabel: 'Maybe later',
+          onYesNextStepId: null,
+          onNoNextStepId: null,
+        }
+      case 'branch_by_score':
+        return {
+          metricFromStepId: '',
+          branches: [],
+          defaultNextStepId: null,
+        }
+      case 'branch_by_answer':
+        return {
+          fromStepId: '',
+          branches: [],
+          defaultNextStepId: null,
+        }
+      case 'end_journey':
+        return { message: 'Thank you!' }
+      default:
+        return {}
+    }
+  }
+
+  /**
+   * Add a new step to the graph at a position not overlapping existing
+   * nodes. Save immediately so the user sees it land on the canvas.
+   */
+  function handleAddStep(type: string) {
+    if (!survey) return
+    const id = nextStepId()
+    const occupied = steps.map((s) => s.position ?? { x: 0, y: 0 })
+    // Drop the new step below the lowest existing node.
+    const maxY = occupied.length
+      ? Math.max(...occupied.map((p) => p.y))
+      : 0
+    const newStep: Step = {
+      id,
+      type,
+      position: { x: 0, y: maxY + 200 },
+      config: defaultConfigFor(type),
+    }
+    updateMutation.mutate({
+      id: survey.id,
+      steps: [...steps, newStep],
+    })
+  }
+
+  /**
+   * Remove a step. Also clear any pointers that were aiming at it (so
+   * the saved graph stays consistent — pointers become null, surfacing
+   * as red dashed dead-ends until the user re-routes them).
+   */
+  function handleDeleteStep(stepId: string) {
+    if (!survey) return
+    const remaining = steps.filter((s) => s.id !== stepId)
+    const cleaned = remaining.map((s) => clearPointersTo(s, stepId))
+    updateMutation.mutate({
+      id: survey.id,
+      steps: cleaned,
+    })
+    setEditingStep(null)
+  }
+
+  // Drag-edge handler — wires the source step's "next" pointer to the
+  // target. For ask_metric, ask_question, show_message, collect_contact
+  // we set the obvious single next pointer. branch_by_score,
+  // branch_by_answer, redirect, end_journey have multiple (or zero)
+  // outgoing pointers and need explicit routing — for those we open the
+  // source step in the editor so the user can pick.
+  function handleConnect(c: Connection) {
+    if (!survey || !c.source || !c.target) return
+    const sourceStep = steps.find((s) => s.id === c.source)
+    if (!sourceStep) return
+    const newConfig = setNextPointer(sourceStep, c.target)
+    if (!newConfig) {
+      toast.message(
+        'This step has multiple outgoing routes — open it to pick which one.',
+      )
+      const fresh = steps.find((s) => s.id === c.source)
+      if (fresh) {
+        setEditingStep(fresh)
+        setStepDraft(JSON.parse(JSON.stringify(fresh.config)))
+      }
+      return
+    }
+    const newSteps = steps.map((s) =>
+      s.id === sourceStep.id ? { ...s, config: newConfig } : s,
+    )
+    updateMutation.mutate({ id: survey.id, steps: newSteps })
+  }
+
   if (surveyQuery.isLoading) {
     return (
       <div className="space-y-4">
@@ -397,6 +750,15 @@ export default function SurveyEditorPage() {
         </div>
 
         <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setQrOpen(true)}
+            title="Show QR code"
+          >
+            <QrCode className="size-3.5" />
+            QR code
+          </Button>
           {survey.status === 'active' && (
             <Button asChild variant="outline" size="sm">
               <a
@@ -476,9 +838,11 @@ export default function SurveyEditorPage() {
             <div>
               <CardTitle className="text-base">Step graph</CardTitle>
               <CardDescription className="text-xs">
-                Drag a step to re-arrange. Click any step to edit its
-                config. Dashed red edges point at steps that don't exist
-                (typo in a config).
+                <strong>Add</strong> a step from the palette below.{' '}
+                <strong>Drag</strong> to re-arrange.{' '}
+                <strong>Click</strong> a step to edit / delete it.{' '}
+                <strong>Drag a handle</strong> from one step to another
+                to wire them up. Red dashed edges point at missing steps.
               </CardDescription>
             </div>
             <Button
@@ -496,15 +860,41 @@ export default function SurveyEditorPage() {
             </Button>
           </div>
         </CardHeader>
+
+        {/*
+          Phase 3 Stage F follow-up — palette of step types.
+          Click a chip to add a new step. The new step is appended to
+          the canvas (positioned below the lowest existing node) and
+          saved immediately.
+        */}
+        <div className="flex flex-wrap items-center gap-2 border-t bg-muted/30 px-4 py-2.5 text-xs">
+          <span className="font-medium text-muted-foreground">Add step:</span>
+          {STEP_TYPES_FOR_PALETTE.map((t) => (
+            <Button
+              key={t.value}
+              size="sm"
+              variant="outline"
+              className="h-7 gap-1 text-xs"
+              onClick={() => handleAddStep(t.value)}
+              disabled={updateMutation.isPending}
+              title={t.description}
+            >
+              <Plus className="size-3" />
+              {t.label}
+            </Button>
+          ))}
+        </div>
+
         <CardContent className="p-0">
           <div className="h-[600px] w-full border-t bg-muted/10">
             <ReactFlow
               nodes={nodes}
               edges={edges}
               onNodesChange={onNodesChange}
+              onConnect={handleConnect}
               fitView
               nodesDraggable={true}
-              nodesConnectable={false}
+              nodesConnectable={true}
               elementsSelectable={true}
               proOptions={{ hideAttribution: true }}
             >
@@ -680,26 +1070,205 @@ export default function SurveyEditorPage() {
             </div>
           )}
 
-          <SheetFooter className="px-4">
+          <SheetFooter className="px-4 sm:flex-col sm:items-stretch sm:gap-2">
+            <div className="flex w-full items-center gap-2">
+              <Button
+                variant="outline"
+                className="flex-1"
+                onClick={() => setEditingStep(null)}
+                disabled={updateMutation.isPending}
+              >
+                Cancel
+              </Button>
+              <Button
+                className="flex-1"
+                onClick={handleSaveStep}
+                disabled={updateMutation.isPending}
+              >
+                {updateMutation.isPending && (
+                  <Loader2 className="size-4 animate-spin" />
+                )}
+                Save step
+              </Button>
+            </div>
+            {/* Phase 3 Stage F follow-up — delete this step.
+                Sits below the save row so it's not the primary action. */}
             <Button
-              variant="outline"
-              onClick={() => setEditingStep(null)}
+              variant="ghost"
+              className="w-full text-destructive hover:bg-destructive/10 hover:text-destructive"
+              onClick={() => {
+                if (!editingStep) return
+                if (
+                  window.confirm(
+                    `Delete step "${editingStep.id}"? Pointers from other steps that aimed at this one will become red dashed dead-ends.`,
+                  )
+                ) {
+                  handleDeleteStep(editingStep.id)
+                }
+              }}
               disabled={updateMutation.isPending}
             >
-              Cancel
-            </Button>
-            <Button
-              onClick={handleSaveStep}
-              disabled={updateMutation.isPending}
-            >
-              {updateMutation.isPending && (
-                <Loader2 className="size-4 animate-spin" />
-              )}
-              Save step
+              <Trash2 className="size-4" />
+              Delete step
             </Button>
           </SheetFooter>
         </SheetContent>
       </Sheet>
+
+      {/* QR code dialog — restored from the deleted journeys page. */}
+      <SurveyQrDialog
+        open={qrOpen}
+        onOpenChange={setQrOpen}
+        survey={survey}
+        currentWorkspaceId={currentWorkspaceId}
+      />
     </div>
+  )
+}
+
+function SurveyQrDialog({
+  open,
+  onOpenChange,
+  survey,
+  currentWorkspaceId,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  survey:
+    | {
+        id: string
+        name: string
+        slug: string
+        template: 'quick' | 'deep'
+      }
+    | undefined
+  currentWorkspaceId: string | null
+}) {
+  const qrQuery = trpc.qr.generateJourneyQr.useQuery(
+    {
+      journeyId: survey?.id ?? '',
+      workspaceId: currentWorkspaceId ?? undefined,
+      size: 300,
+      format: 'png',
+    },
+    {
+      enabled:
+        open &&
+        !!survey &&
+        survey.template === 'quick' &&
+        !!currentWorkspaceId,
+    },
+  )
+
+  const formQrMutation = trpc.qr.generateFormQr.useMutation()
+  const [deepUrl, setDeepUrl] = useState<string | null>(null)
+  const [deepLoading, setDeepLoading] = useState(false)
+
+  useEffect(() => {
+    if (
+      !open ||
+      !survey ||
+      survey.template !== 'deep' ||
+      !currentWorkspaceId
+    ) {
+      return
+    }
+    setDeepLoading(true)
+    formQrMutation.mutate(
+      {
+        formId: survey.id,
+        workspaceId: currentWorkspaceId,
+        size: 300,
+        format: 'png',
+      },
+      {
+        onSuccess: (data: any) => {
+          setDeepUrl(typeof data === 'string' ? data : data?.qrDataUrl ?? null)
+          setDeepLoading(false)
+        },
+        onError: (err) => {
+          toast.error(err.message || 'Failed to generate QR')
+          setDeepLoading(false)
+        },
+      },
+    )
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, survey?.id])
+
+  const dataUrl =
+    survey?.template === 'quick' ? qrQuery.data?.qrDataUrl : deepUrl
+  const isLoading =
+    survey?.template === 'quick' ? qrQuery.isLoading : deepLoading
+  const publicUrl = survey
+    ? `${typeof window !== 'undefined' ? window.location.origin : ''}/${
+        survey.template === 'quick' ? 'j' : 'f'
+      }/${survey.slug}`
+    : ''
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>QR code for {survey?.name}</DialogTitle>
+          <DialogDescription>
+            Scanning opens{' '}
+            <code className="rounded bg-muted px-1 text-xs">{publicUrl}</code>.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="flex justify-center py-3">
+          {isLoading ? (
+            <Skeleton className="h-[280px] w-[280px] rounded-md" />
+          ) : dataUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={dataUrl}
+              alt={`QR code for ${survey?.name}`}
+              className="rounded-md border"
+              width={280}
+              height={280}
+            />
+          ) : (
+            <div className="flex h-[280px] w-[280px] items-center justify-center rounded-md border border-dashed text-xs text-muted-foreground">
+              No QR available.
+            </div>
+          )}
+        </div>
+        <DialogFooter className="sm:flex-col sm:items-stretch sm:gap-2">
+          <div className="flex w-full items-center gap-2">
+            <Button
+              variant="outline"
+              className="flex-1"
+              onClick={() => {
+                if (publicUrl) {
+                  navigator.clipboard
+                    .writeText(publicUrl)
+                    .then(() => toast.success('Public URL copied'))
+                    .catch(() => toast.error('Failed to copy'))
+                }
+              }}
+            >
+              <Copy className="size-4" />
+              Copy URL
+            </Button>
+            <Button
+              className="flex-1"
+              disabled={!dataUrl}
+              onClick={() => {
+                if (!dataUrl || !survey) return
+                const link = document.createElement('a')
+                link.href = dataUrl
+                link.download = `${survey.slug}-qr.png`
+                document.body.appendChild(link)
+                link.click()
+                document.body.removeChild(link)
+              }}
+            >
+              <Download className="size-4" />
+              Download PNG
+            </Button>
+          </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }

@@ -86,8 +86,28 @@ function fmtRating(r: number | null | undefined): string {
 }
 
 export default function ChainDashboardPage() {
-  const currentOrganizationId = useAuthStore((s) => s.currentOrganizationId)
-  const memberships = useAuthStore((s) => s.memberships)
+  const storeOrgId = useAuthStore((s) => s.currentOrganizationId)
+  const currentWorkspaceId = useAuthStore((s) => s.currentWorkspaceId)
+
+  // Fallback: if the org store is empty (still hydrating, or the user
+  // never picked an org from the switcher), derive the org from the
+  // current workspace. Single-workspace direct-mode users normally never
+  // touch the org switcher so the store stays null for them.
+  const workspacesQuery = trpc.workspace.list.useQuery(undefined, {
+    enabled: !storeOrgId,
+  })
+  const workspaceOrgId = useMemo(() => {
+    if (storeOrgId) return null
+    const list = (workspacesQuery.data ?? []) as Array<{
+      id: string
+      organizationId: string | null
+    }>
+    const ws =
+      list.find((w) => w.id === currentWorkspaceId) ?? list[0]
+    return ws?.organizationId ?? null
+  }, [storeOrgId, workspacesQuery.data, currentWorkspaceId])
+
+  const currentOrganizationId = storeOrgId ?? workspaceOrgId
 
   const [range, setRange] = useState<RangePreset>('30d')
   const [sortBy, setSortBy] = useState<SortBy>('reviews')
@@ -140,18 +160,33 @@ export default function ChainDashboardPage() {
     { enabled: !!currentOrganizationId },
   )
 
-  // No org selected — show an empty state.
+  // Resolving the org from the workspace fallback.
+  if (!currentOrganizationId && workspacesQuery.isLoading) {
+    return (
+      <div className="space-y-3">
+        <Skeleton className="h-8 w-64" />
+        <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <Skeleton key={i} className="h-24 rounded-xl" />
+          ))}
+        </div>
+      </div>
+    )
+  }
+
+  // No org found at all (truly: user has no workspace OR workspace has
+  // no org_id, which would be a Phase 1 backfill bug).
   if (!currentOrganizationId) {
     return (
       <div className="flex min-h-[60vh] flex-col items-center justify-center rounded-xl border border-dashed bg-muted/30 px-6 py-16 text-center">
         <div className="flex size-14 items-center justify-center rounded-full bg-muted">
           <Building2 className="size-7 text-muted-foreground" />
         </div>
-        <h3 className="mt-4 text-lg font-semibold">No organization selected</h3>
+        <h3 className="mt-4 text-lg font-semibold">No organization yet</h3>
         <p className="mt-1 max-w-md text-sm text-muted-foreground">
           The chain dashboard rolls up reviews, response rates, and escalations
-          across every workspace and location in an organization. Pick or
-          create an organization to see the rollup.
+          across every workspace and location in an organization. Create or
+          join an organization to see the rollup.
         </p>
         <Button asChild className="mt-6">
           <Link href="/dashboard/settings">Go to organization settings</Link>
