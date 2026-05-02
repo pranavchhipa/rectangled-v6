@@ -37,17 +37,37 @@ export async function resolvePublicBranding(
   workspaceId: string,
   locationId: string | null,
 ): Promise<PublicBranding> {
-  const [workspace, location] = await Promise.all([
-    db.query.workspaces.findFirst({ where: eq(workspaces.id, workspaceId) }),
-    locationId
-      ? db.query.locations.findFirst({ where: eq(locations.id, locationId) })
-      : Promise.resolve(undefined),
-  ])
+  const workspace = await db.query.workspaces.findFirst({
+    where: eq(workspaces.id, workspaceId),
+  })
 
   if (!workspace) {
     throw new Error(
       `resolvePublicBranding: workspace ${workspaceId} not found`,
     )
+  }
+
+  // Resolve the location:
+  //   1. If `locationId` is supplied → use that specific location.
+  //   2. If `locationId` is NULL/undefined AND the workspace has
+  //      EXACTLY ONE location → fall through to that lone location
+  //      (Hotfix-2 — most SMBs run a single shop and won't bother
+  //      binding every survey to "the only location they have"; the
+  //      public header should still compose "Workspace — Location"
+  //      instead of just "Workspace"). Multi-location workspaces keep
+  //      strict behavior — null locationId means workspace-only header.
+  let location: typeof locations.$inferSelect | undefined
+  if (locationId) {
+    location = await db.query.locations.findFirst({
+      where: eq(locations.id, locationId),
+    })
+  } else {
+    const wsLocations = await db.query.locations.findMany({
+      where: eq(locations.workspaceId, workspaceId),
+    })
+    if (wsLocations.length === 1) {
+      location = wsLocations[0]
+    }
   }
 
   const organization = workspace.organizationId

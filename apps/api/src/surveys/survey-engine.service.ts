@@ -712,9 +712,21 @@ export class SurveyEngineService {
     isPositive: boolean | null
     customerId: string | null
   }> {
-    const survey = await this.db.query.surveys.findFirst({
+    // Hotfix-2 — mirror the §3 PR 3 fallback for `submitLegacyJourney`.
+    // The renderer at /f/{slug} gets `truformId` from `getPublicLegacyTruform`
+    // which surfaces `survey.legacyTruformId ?? survey.id`. For surveys
+    // created post-Phase-3 (no legacy_truform_id), the renderer ends up
+    // sending surveys.id back here — the legacy lookup misses, then we
+    // fall through to the surveys.id lookup. Both resolve to the same
+    // row when one exists.
+    let survey = await this.db.query.surveys.findFirst({
       where: eq(surveys.legacyTruformId, input.truformId),
     })
+    if (!survey) {
+      survey = await this.db.query.surveys.findFirst({
+        where: eq(surveys.id, input.truformId),
+      })
+    }
     if (!survey) {
       throw new TRPCError({
         code: 'NOT_FOUND',
