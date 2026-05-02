@@ -74,6 +74,7 @@ import {
 } from '@/components/ui/tabs'
 import { ResponsesList } from '@/components/responses/responses-list'
 import { AdaptiveSettingsForm } from '@/components/surveys/adaptive-settings-form'
+import type { SurveyStep } from '@rectangled/shared'
 import {
   Select,
   SelectContent,
@@ -107,6 +108,25 @@ type Step = {
   type: string
   position?: { x: number; y: number }
   config: StepConfig
+}
+
+/**
+ * Cast helper for the wire boundary.
+ *
+ * The canvas editor uses a loose local `Step` type so it can manipulate
+ * `step.config` as a generic record (one set of textareas / inputs for
+ * any step kind) without per-type narrowing in every handler. The
+ * `survey.update` validator (Hotfix §3 Step A) is strict — it enforces
+ * the 8-way discriminated union from `validators/survey-steps.ts`.
+ *
+ * This cast bridges them. If the canvas editor ever produces a step
+ * shape that doesn't match the validator, the server rejects on submit
+ * (TRPCError → toast), so we don't lose the safety the validator gives
+ * us — we just defer the check to the wire instead of carrying it
+ * everywhere in the editor's local state.
+ */
+function toWireSteps(steps: Step[]): SurveyStep[] {
+  return steps as unknown as SurveyStep[]
 }
 
 const STEP_KIND_META: Record<
@@ -529,7 +549,7 @@ export default function SurveyEditorPage() {
     })
     updateMutation.mutate({
       id: survey.id,
-      steps: newSteps,
+      steps: toWireSteps(newSteps),
     })
   }
 
@@ -549,7 +569,7 @@ export default function SurveyEditorPage() {
     )
     updateMutation.mutate({
       id: survey.id,
-      steps: newSteps,
+      steps: toWireSteps(newSteps),
     })
     setEditingStep(null)
   }
@@ -659,7 +679,7 @@ export default function SurveyEditorPage() {
     }
     updateMutation.mutate({
       id: survey.id,
-      steps: [...steps, newStep],
+      steps: toWireSteps([...steps, newStep]),
     })
   }
 
@@ -674,7 +694,7 @@ export default function SurveyEditorPage() {
     const cleaned = remaining.map((s) => clearPointersTo(s, stepId))
     updateMutation.mutate({
       id: survey.id,
-      steps: cleaned,
+      steps: toWireSteps(cleaned),
     })
     setEditingStep(null)
   }
@@ -704,7 +724,7 @@ export default function SurveyEditorPage() {
     const newSteps = steps.map((s) =>
       s.id === sourceStep.id ? { ...s, config: newConfig } : s,
     )
-    updateMutation.mutate({ id: survey.id, steps: newSteps })
+    updateMutation.mutate({ id: survey.id, steps: toWireSteps(newSteps) })
   }
 
   if (surveyQuery.isLoading) {

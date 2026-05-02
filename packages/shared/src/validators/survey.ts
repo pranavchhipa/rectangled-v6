@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { surveyStepSchema } from './survey-steps'
 
 /**
  * Phase 3 Stage D — Survey validators.
@@ -68,7 +69,13 @@ export const updateSurveySchema = z.object({
   // Steps can only be patched via the builder; intelligent-mode surveys
   // re-derive their steps from `settings`. Allowing patch here lets Stage
   // F save canvas edits without a separate endpoint.
-  steps: z.array(z.record(z.unknown())).optional(),
+  //
+  // Hotfix §3 (Step A): tightened from `z.array(z.record(z.unknown()))`
+  // to the discriminated-union step schema. Catches malformed step
+  // graphs at the wire boundary instead of letting them rot in the DB
+  // until the engine can't run them. Dry-run pass against the 19 prod
+  // surveys passes 19/19 (see scripts/dry-run-step-validators.mjs).
+  steps: z.array(surveyStepSchema).optional(),
 })
 
 export const archiveSurveySchema = z.object({

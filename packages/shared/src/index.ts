@@ -60,3 +60,6 @@ export * from './constants/survey-branch-eval'
 
 // Phase 3 — Survey CRUD + engine validators
 export * from './validators/survey'
+
+// Hotfix §3 (Step A) — per-step-type Zod validators
+export * from './validators/survey-steps'
