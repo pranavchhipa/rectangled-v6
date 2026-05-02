@@ -120,8 +120,8 @@ export function ResponsesList({
           {(
             [
               { value: 'all', label: 'All' },
-              { value: 'happy', label: 'Happy' },
-              { value: 'unhappy', label: 'Unhappy' },
+              { value: 'happy', label: 'Positive' },
+              { value: 'unhappy', label: 'Negative' },
               { value: 'neutral', label: 'Other' },
             ] as Array<{ value: Filter; label: string }>
           ).map((f) => (
@@ -229,13 +229,13 @@ function sentimentBadge(isPositive: boolean | null) {
   if (isPositive === true)
     return (
       <Badge className="gap-1 border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-50">
-        <Smile className="size-3" /> Happy
+        <Smile className="size-3" /> Positive
       </Badge>
     )
   if (isPositive === false)
     return (
       <Badge className="gap-1 border-rose-300 bg-rose-50 text-rose-700 hover:bg-rose-50">
-        <Frown className="size-3" /> Unhappy
+        <Frown className="size-3" /> Negative
       </Badge>
     )
   return (
@@ -356,7 +356,7 @@ function ResponseRowCard({
                 className="text-[10px] text-amber-700 border-amber-300 bg-amber-50"
               >
                 <AlertTriangle className="size-2.5" />
-                Unhappy · no contact
+                Negative · no contact
               </Badge>
             )}
           </div>

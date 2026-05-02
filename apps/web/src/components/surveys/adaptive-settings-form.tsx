@@ -203,7 +203,7 @@ export function AdaptiveSettingsForm({
           className="border-amber-300 bg-amber-50 text-amber-900 dark:bg-amber-950/30"
         >
           <AlertTriangle className="size-4 text-amber-700" />
-          <AlertTitle>Happy-path redirect URL is missing</AlertTitle>
+          <AlertTitle>Positive-path redirect URL is missing</AlertTitle>
           <AlertDescription className="text-xs">
             Customers who give a positive rating won't be redirected to{' '}
             <strong>{platform}</strong> until you set the URL below.
@@ -260,10 +260,10 @@ export function AdaptiveSettingsForm({
         </CardContent>
       </Card>
 
-      {/* Review platform + URL */}
+      {/* Review platform + URL — positive path */}
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="text-base">Happy path</CardTitle>
+          <CardTitle className="text-base">Positive path</CardTitle>
           <CardDescription className="text-xs">
             When a customer's score crosses the threshold, they're prompted
             to leave a review on this platform.
@@ -325,10 +325,10 @@ export function AdaptiveSettingsForm({
         </CardContent>
       </Card>
 
-      {/* Unhappy path */}
+      {/* Negative path */}
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="text-base">Unhappy path</CardTitle>
+          <CardTitle className="text-base">Negative path</CardTitle>
           <CardDescription className="text-xs">
             When a score is below threshold, the customer sees aspect-tag
             pills and an optional contact form.
@@ -359,7 +359,7 @@ export function AdaptiveSettingsForm({
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="space-y-1.5">
-            <Label>Happy → tapped Yes (redirected to review)</Label>
+            <Label>Positive → tapped Yes (redirected to review)</Label>
             <Input
               value={thankYouHappyYes}
               onChange={(e) => {
@@ -369,7 +369,7 @@ export function AdaptiveSettingsForm({
             />
           </div>
           <div className="space-y-1.5">
-            <Label>Happy → tapped No (declined to review)</Label>
+            <Label>Positive → tapped No (declined to review)</Label>
             <Input
               value={thankYouHappyNo}
               onChange={(e) => {
@@ -379,7 +379,7 @@ export function AdaptiveSettingsForm({
             />
           </div>
           <div className="space-y-1.5">
-            <Label>Unhappy (after aspect feedback)</Label>
+            <Label>Negative (after aspect feedback)</Label>
             <Input
               value={thankYouUnhappy}
               onChange={(e) => {
