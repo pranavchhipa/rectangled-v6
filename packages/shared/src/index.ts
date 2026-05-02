@@ -58,6 +58,9 @@ export * from './types/survey-steps'
 export * from './constants/survey-step-builders'
 export * from './constants/survey-branch-eval'
 
+// Hotfix §3 — owner-facing step type labels (label/description/icon)
+export * from './constants/step-type-labels'
+
 // Phase 3 — Survey CRUD + engine validators
 export * from './validators/survey'
 

@@ -74,7 +74,8 @@ import {
 } from '@/components/ui/tabs'
 import { ResponsesList } from '@/components/responses/responses-list'
 import { AdaptiveSettingsForm } from '@/components/surveys/adaptive-settings-form'
-import type { SurveyStep } from '@rectangled/shared'
+import type { SurveyStep, SurveyStepType } from '@rectangled/shared'
+import { STEP_TYPE_LABELS, getStepTypeLabel } from '@rectangled/shared'
 import {
   Select,
   SelectContent,
@@ -129,50 +130,25 @@ function toWireSteps(steps: Step[]): SurveyStep[] {
   return steps as unknown as SurveyStep[]
 }
 
-const STEP_KIND_META: Record<
+/**
+ * Canvas-only visual map: Tailwind color classes + Lucide icon component
+ * per step kind. The owner-facing label/description/emoji icon lives
+ * separately in `STEP_TYPE_LABELS` (`@rectangled/shared`); this map
+ * stays here because the Lucide icon component refs and Tailwind class
+ * strings are canvas-specific implementation details.
+ */
+const STEP_KIND_VISUAL: Record<
   string,
-  { label: string; color: string; icon: typeof Sparkles }
+  { color: string; icon: typeof Sparkles }
 > = {
-  ask_metric: {
-    label: 'Ask metric',
-    color: 'border-blue-400 bg-blue-50',
-    icon: Sparkles,
-  },
-  ask_question: {
-    label: 'Ask question',
-    color: 'border-violet-400 bg-violet-50',
-    icon: HelpCircle,
-  },
-  branch_by_score: {
-    label: 'Branch by score',
-    color: 'border-amber-400 bg-amber-50',
-    icon: GitBranch,
-  },
-  branch_by_answer: {
-    label: 'Branch by answer',
-    color: 'border-amber-400 bg-amber-50',
-    icon: GitBranch,
-  },
-  show_message: {
-    label: 'Show message',
-    color: 'border-slate-300 bg-slate-50',
-    icon: MessageSquare,
-  },
-  collect_contact: {
-    label: 'Collect contact',
-    color: 'border-emerald-300 bg-emerald-50',
-    icon: UserPlus,
-  },
-  redirect: {
-    label: 'Redirect',
-    color: 'border-cyan-300 bg-cyan-50',
-    icon: RedirectIcon,
-  },
-  end_journey: {
-    label: 'End',
-    color: 'border-rose-300 bg-rose-50',
-    icon: Flag,
-  },
+  ask_metric: { color: 'border-blue-400 bg-blue-50', icon: Sparkles },
+  ask_question: { color: 'border-violet-400 bg-violet-50', icon: HelpCircle },
+  branch_by_score: { color: 'border-amber-400 bg-amber-50', icon: GitBranch },
+  branch_by_answer: { color: 'border-amber-400 bg-amber-50', icon: GitBranch },
+  show_message: { color: 'border-slate-300 bg-slate-50', icon: MessageSquare },
+  collect_contact: { color: 'border-emerald-300 bg-emerald-50', icon: UserPlus },
+  redirect: { color: 'border-cyan-300 bg-cyan-50', icon: RedirectIcon },
+  end_journey: { color: 'border-rose-300 bg-rose-50', icon: Flag },
 }
 
 /**
@@ -236,12 +212,12 @@ function buildEdges(steps: Step[]): Edge[] {
 
 function buildNodes(steps: Step[], onPick: (step: Step) => void): Node[] {
   return steps.map((s, i) => {
-    const meta = STEP_KIND_META[s.type] ?? {
-      label: s.type,
+    const visual = STEP_KIND_VISUAL[s.type] ?? {
       color: 'border-slate-300 bg-slate-50',
       icon: Info,
     }
-    const Icon = meta.icon
+    const Icon = visual.icon
+    const ownerLabel = getStepTypeLabel(s.type).label
     return {
       id: s.id,
       type: 'default',
@@ -249,12 +225,12 @@ function buildNodes(steps: Step[], onPick: (step: Step) => void): Node[] {
       data: {
         label: (
           <div
-            className={`min-w-[160px] cursor-pointer rounded-lg border-2 px-3 py-2 text-left shadow-sm ${meta.color}`}
+            className={`min-w-[160px] cursor-pointer rounded-lg border-2 px-3 py-2 text-left shadow-sm ${visual.color}`}
             onClick={() => onPick(s)}
           >
             <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
               <Icon className="size-3" />
-              {meta.label}
+              {ownerLabel}
             </div>
             <div className="mt-1 truncate text-sm font-medium">{s.id}</div>
           </div>
@@ -361,19 +337,20 @@ function clearPointersTo(step: Step, removedId: string): Step {
   return changed ? { ...step, config: next } : step
 }
 
-const STEP_TYPES_FOR_PALETTE: Array<{
-  value: string
-  label: string
-  description: string
-}> = [
-  { value: 'ask_metric', label: 'Ask metric', description: 'CSAT / NPS / CES rating.' },
-  { value: 'ask_question', label: 'Ask question', description: 'Free text or multi-select.' },
-  { value: 'branch_by_score', label: 'Branch by score', description: 'Route based on a metric.' },
-  { value: 'branch_by_answer', label: 'Branch by answer', description: 'Route based on a question.' },
-  { value: 'show_message', label: 'Show message', description: 'Info screen.' },
-  { value: 'collect_contact', label: 'Collect contact', description: 'Name / email / phone.' },
-  { value: 'redirect', label: 'Redirect', description: 'Send to Google review with Yes/No.' },
-  { value: 'end_journey', label: 'End', description: 'Terminal — thank-you message.' },
+/**
+ * Order surfaced in the "+ Add step" palette. Labels and descriptions
+ * are looked up from `STEP_TYPE_LABELS` at render time so this list
+ * only governs ORDER, not copy.
+ */
+const STEP_TYPES_FOR_PALETTE: SurveyStepType[] = [
+  'ask_metric',
+  'ask_question',
+  'branch_by_score',
+  'branch_by_answer',
+  'show_message',
+  'collect_contact',
+  'redirect',
+  'end_journey',
 ]
 
 export default function SurveyEditorPage() {
@@ -984,20 +961,23 @@ export default function SurveyEditorPage() {
         */}
         <div className="flex flex-wrap items-center gap-2 border-t bg-muted/30 px-4 py-2.5 text-xs">
           <span className="font-medium text-muted-foreground">Add step:</span>
-          {STEP_TYPES_FOR_PALETTE.map((t) => (
-            <Button
-              key={t.value}
-              size="sm"
-              variant="outline"
-              className="h-7 gap-1 text-xs"
-              onClick={() => handleAddStep(t.value)}
-              disabled={updateMutation.isPending}
-              title={t.description}
-            >
-              <Plus className="size-3" />
-              {t.label}
-            </Button>
-          ))}
+          {STEP_TYPES_FOR_PALETTE.map((type) => {
+            const meta = STEP_TYPE_LABELS[type]
+            return (
+              <Button
+                key={type}
+                size="sm"
+                variant="outline"
+                className="h-7 gap-1 text-xs"
+                onClick={() => handleAddStep(type)}
+                disabled={updateMutation.isPending}
+                title={meta.description}
+              >
+                <Plus className="size-3" />
+                {meta.label}
+              </Button>
+            )
+          })}
         </div>
 
         <CardContent className="p-0">
@@ -1052,16 +1032,20 @@ export default function SurveyEditorPage() {
         <SheetContent className="overflow-y-auto sm:max-w-lg">
           <SheetHeader>
             <SheetTitle>
-              Edit step{' '}
-              <code className="rounded bg-muted px-1 text-xs">
-                {editingStep?.id}
-              </code>
+              Edit{' '}
+              {editingStep
+                ? getStepTypeLabel(editingStep.type).label
+                : 'step'}
+              {editingStep && (
+                <code className="ml-2 rounded bg-muted px-1 text-xs font-normal">
+                  {editingStep.id}
+                </code>
+              )}
             </SheetTitle>
             <SheetDescription>
-              Type:{' '}
-              <code className="rounded bg-muted px-1 text-xs">
-                {editingStep?.type}
-              </code>
+              {editingStep
+                ? getStepTypeLabel(editingStep.type).description
+                : ''}
             </SheetDescription>
           </SheetHeader>
 
