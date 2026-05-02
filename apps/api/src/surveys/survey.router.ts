@@ -3,6 +3,7 @@ import {
   listSurveysSchema,
   getSurveyByIdSchema,
   createSurveySchema,
+  createSurveyFromWizardSchema,
   updateSurveySchema,
   archiveSurveySchema,
   getInitialStateSchema,
@@ -111,6 +112,16 @@ export function createSurveyRouter(
       .input(createSurveySchema)
       .mutation(async ({ input, ctx }) => {
         return crud.create(input, ctx.user.sub)
+      }),
+
+    // Hotfix PRD §3 — Wizard Custom Journey Builder.
+    // Atomic create from wizard answers. metric='random' short-circuits
+    // to template='adaptive'; concrete metrics produce template='custom'
+    // with a deterministic step graph from buildCustomStepsFromWizard.
+    createFromWizard: protectedProcedure
+      .input(createSurveyFromWizardSchema)
+      .mutation(async ({ input, ctx }) => {
+        return crud.createFromWizard(input, ctx.user.sub)
       }),
 
     update: protectedProcedure

@@ -66,3 +66,6 @@ export * from './validators/survey'
 
 // Hotfix §3 (Step A) — per-step-type Zod validators
 export * from './validators/survey-steps'
+
+// Hotfix §3 (PR 1) — wizard answer validators
+export * from './validators/survey-wizard'

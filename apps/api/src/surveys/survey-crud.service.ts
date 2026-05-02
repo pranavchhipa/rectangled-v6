@@ -10,12 +10,15 @@ import {
   surveyResponses,
   customers,
   locations,
+  couponTemplates,
 } from '@rectangled/db'
 import {
   buildQuickIntelligentSteps,
   buildDeepIntelligentSteps,
+  buildCustomStepsFromWizard,
   DEFAULT_JOURNEY_SETTINGS_V2,
   type SurveyStep,
+  type WizardAnswers,
 } from '@rectangled/shared'
 
 /**
@@ -155,6 +158,138 @@ export class SurveyCrudService {
         mode: input.mode ?? 'intelligent',
         status: 'draft',
         settings,
+        steps,
+      })
+      .returning()
+
+    return survey
+  }
+
+  /**
+   * Hotfix PRD §3 — Wizard Custom Journey Builder.
+   *
+   * Atomic create from wizard answers. Two paths:
+   *
+   *   - `metric === 'random'`: short-circuit to `template='adaptive'`
+   *     using the existing §2 flow (delegates to this.create with the
+   *     adaptive defaults). Returns a survey ready for the §2
+   *     AdaptiveEngineService.
+   *
+   *   - Concrete metric (csat | nps | ces): builds the step graph via
+   *     `buildCustomStepsFromWizard`, resolves the coupon template if
+   *     `negativeOptions.issueCoupon` is set, inserts a `template='custom'`
+   *     row with the graph in `surveys.steps`. Settings get
+   *     `{ wizardAnswers }` for re-edit / analytics; the engine doesn't
+   *     read settings for custom — routing comes from steps.
+   *
+   * Coupon template resolution (custom path only):
+   *   - If `couponTemplateId` is supplied: validate it belongs to this
+   *     workspace + is active. 4xx if not.
+   *   - Else: look up active templates. Auto-pick when there's exactly
+   *     one. 0 or 2+ active templates without explicit selection is a
+   *     400 (the wizard UI should have either disabled the checkbox or
+   *     surfaced the multi-template dropdown).
+   */
+  async createFromWizard(
+    input: {
+      workspaceId: string
+      locationId?: string
+      name: string
+      answers: WizardAnswers
+    },
+    userId: string,
+  ) {
+    await this.requireMembership(input.workspaceId, userId)
+
+    // Branch 1 — random metric → adaptive.
+    if (input.answers.metric === 'random') {
+      return this.create(
+        {
+          workspaceId: input.workspaceId,
+          locationId: input.locationId,
+          name: input.name,
+          template: 'adaptive',
+        },
+        userId,
+      )
+    }
+
+    // Branch 2 — concrete metric → custom.
+    let resolvedCouponTemplateId: string | undefined
+    if (input.answers.negativeOptions.issueCoupon) {
+      if (input.answers.couponTemplateId) {
+        const template = await this.db.query.couponTemplates.findFirst({
+          where: and(
+            eq(couponTemplates.id, input.answers.couponTemplateId),
+            eq(couponTemplates.workspaceId, input.workspaceId),
+            eq(couponTemplates.isActive, true),
+          ),
+        })
+        if (!template) {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: 'Coupon template not found or inactive in this workspace.',
+          })
+        }
+        resolvedCouponTemplateId = template.id
+      } else {
+        const templates = await this.db.query.couponTemplates.findMany({
+          where: and(
+            eq(couponTemplates.workspaceId, input.workspaceId),
+            eq(couponTemplates.isActive, true),
+          ),
+        })
+        if (templates.length === 0) {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message:
+              'No active coupon templates found. Create one in Settings → Coupons before enabling coupon issuance.',
+          })
+        }
+        if (templates.length > 1) {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message:
+              'Multiple coupon templates exist — wizard must specify couponTemplateId.',
+          })
+        }
+        resolvedCouponTemplateId = templates[0]!.id
+      }
+    }
+
+    // Workspace → organization (surveys.organization_id is NOT NULL).
+    const workspace = await this.db.query.workspaces.findFirst({
+      where: eq(workspaces.id, input.workspaceId),
+    })
+    if (!workspace) {
+      throw new TRPCError({ code: 'NOT_FOUND', message: 'Workspace not found' })
+    }
+
+    const answersWithResolvedCoupon: WizardAnswers = {
+      ...input.answers,
+      couponTemplateId: resolvedCouponTemplateId,
+    }
+    const steps = buildCustomStepsFromWizard(answersWithResolvedCoupon)
+
+    const slug = `j-${randomUUID().slice(0, 10)}`
+
+    const [survey] = await this.db
+      .insert(surveys)
+      .values({
+        workspaceId: input.workspaceId,
+        locationId: input.locationId ?? null,
+        organizationId: workspace.organizationId,
+        name: input.name.trim(),
+        slug,
+        template: 'custom',
+        mode: 'intelligent',
+        status: 'draft',
+        settings: {
+          // Stored for re-edit (PR 2 will surface the wizard answers in
+          // the decision-tree editor's "Edit wizard" affordance) and for
+          // analytics. Engine routing is purely graph-driven.
+          wizardAnswers: answersWithResolvedCoupon,
+        },
         steps,
       })
       .returning()

@@ -12,6 +12,7 @@ import {
   QrCode,
   Download,
   Copy,
+  Sparkles,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { trpc } from '@/lib/trpc'
@@ -44,6 +45,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { CreateCustomJourneyWizard } from '@/components/surveys/create-custom-journey-wizard'
 
 /**
  * Phase 3 Stage F — surveys list + create.
@@ -64,6 +66,7 @@ export default function SurveysListPage() {
   const [tplFilter, setTplFilter] = useState<FilterTemplate>('all')
   const [statusFilter, setStatusFilter] = useState<FilterStatus>('all')
   const [createOpen, setCreateOpen] = useState(false)
+  const [wizardOpen, setWizardOpen] = useState(false)
   const [newName, setNewName] = useState('')
   const [newTemplate, setNewTemplate] = useState<'quick' | 'deep'>('quick')
   const [newDeepType, setNewDeepType] = useState<'csat' | 'nps' | 'ces' | 'custom'>('csat')
@@ -160,13 +163,22 @@ export default function SurveysListPage() {
           </p>
         </div>
 
-        <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-          <DialogTrigger asChild>
-            <Button>
-              <Plus className="size-4" />
-              Create Survey
-            </Button>
-          </DialogTrigger>
+        <div className="flex items-center gap-2">
+          {/* Hotfix §3 — Wizard Custom Journey Builder. Opens a 4-question
+              wizard that maps to a deterministic step graph; the random-
+              metric option short-circuits to template='adaptive'. */}
+          <Button variant="outline" onClick={() => setWizardOpen(true)}>
+            <Sparkles className="size-4" />
+            New Custom Journey
+          </Button>
+
+          <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+            <DialogTrigger asChild>
+              <Button>
+                <Plus className="size-4" />
+                Create Survey
+              </Button>
+            </DialogTrigger>
           <DialogContent className="sm:max-w-md">
             <DialogHeader>
               <DialogTitle>Create a survey</DialogTitle>
@@ -246,7 +258,17 @@ export default function SurveysListPage() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+        </div>
       </div>
+
+      {/* Hotfix §3 (PR 1) — Wizard Custom Journey Builder modal. */}
+      {currentWorkspaceId && (
+        <CreateCustomJourneyWizard
+          open={wizardOpen}
+          onOpenChange={setWizardOpen}
+          workspaceId={currentWorkspaceId}
+        />
+      )}
 
       {/* Filters */}
       <div className="flex flex-wrap gap-3">
