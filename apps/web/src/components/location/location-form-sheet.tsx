@@ -620,7 +620,7 @@ export function LocationFormSheet({
                     htmlFor="sla-journey-target"
                     className="text-xs font-normal"
                   >
-                    Survey responses
+                    Journey responses
                     <span className="ml-1 text-muted-foreground">(/week)</span>
                   </Label>
                   <Input

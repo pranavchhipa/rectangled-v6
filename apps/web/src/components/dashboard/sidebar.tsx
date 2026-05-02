@@ -57,7 +57,11 @@ const navItems = [
   // Phase 3 Stage F — unified surveys list (replaces Journeys + TruForms).
   // Phase 5 dropped the legacy tables; the old /dashboard/{journeys,truforms}
   // pages went with them in Phase 5 cleanup.
-  { label: 'Surveys', href: '/dashboard/surveys', icon: ClipboardList },
+  // Hotfix §5 — owner-facing label is "Customer Journeys" and route is
+  // /dashboard/journeys; the underlying `surveys` table + tRPC procedures
+  // (survey.list, survey.create, etc.) keep their names per PRD §5.2
+  // (frontend-only rename). /dashboard/surveys redirects here.
+  { label: 'Customer Journeys', href: '/dashboard/journeys', icon: ClipboardList },
   // Hotfix PRD §6.6 — workspace-level responses view.
   { label: 'Responses', href: '/dashboard/responses', icon: ListChecks },
   { label: 'Post-Review Actions', href: '/dashboard/automations', icon: Zap },

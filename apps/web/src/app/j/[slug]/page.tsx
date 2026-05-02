@@ -251,7 +251,7 @@ export default function PublicJourneyPage() {
           <div className="mx-auto flex size-16 items-center justify-center rounded-full bg-slate-100">
             <MessageSquare className="size-8 text-slate-400" />
           </div>
-          <h1 className="text-xl font-semibold text-slate-800">Survey Not Available</h1>
+          <h1 className="text-xl font-semibold text-slate-800">Journey Not Available</h1>
           <p className="text-sm text-slate-500 max-w-xs mx-auto">
             This survey is no longer active or the link may be incorrect.
           </p>

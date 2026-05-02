@@ -133,7 +133,7 @@ export function DecisionTreeEditor({
   const archiveMutation = trpc.survey.archive.useMutation({
     onSuccess: () => {
       toast.success('Journey archived')
-      router.push('/dashboard/surveys')
+      router.push('/dashboard/journeys')
     },
     onError: (err) => {
       toast.error(err.message || 'Failed to archive')

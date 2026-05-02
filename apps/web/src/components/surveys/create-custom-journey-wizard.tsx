@@ -194,12 +194,12 @@ export function CreateCustomJourneyWizard({
       onOpenChange(false)
       // Custom journeys → decision-tree editor (PR 2).
       // Adaptive journeys → AdaptiveSettingsForm (§2).
-      // Both live at /dashboard/surveys/{id}; the editor branches by
-      // template internally.
+      // Both live at /dashboard/journeys/{id} (Hotfix §5 rename); the
+      // editor branches by template internally.
       if (created?.id) {
-        router.push(`/dashboard/surveys/${created.id}`)
+        router.push(`/dashboard/journeys/${created.id}`)
       } else {
-        router.push('/dashboard/surveys')
+        router.push('/dashboard/journeys')
       }
     },
     onError: (err) => {
