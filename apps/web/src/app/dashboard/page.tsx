@@ -6,6 +6,7 @@ import { useAuthStore } from '@/stores/auth-store'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
+import { ByLocationSection } from '@/components/dashboard/by-location-section'
 import {
   MapPin,
   Users,
@@ -383,6 +384,24 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/*
+        Hotfix PRD §7 — "By Location" section. Replaces the deleted
+        /dashboard/chain page. Conditionally rendered: single-location
+        workspaces never see this (keeps Dashboard clean for SMB owners
+        who don't need cross-location comparisons).
+      */}
+      {currentWorkspaceId && locationCount >= 2 && (
+        <ByLocationSection
+          workspaceId={currentWorkspaceId}
+          locations={(locationsQuery.data ?? []).map((l: any) => ({
+            id: l.id,
+            name: l.name,
+            city: l.city ?? null,
+            state: l.state ?? null,
+          }))}
+        />
+      )}
     </div>
   )
 }

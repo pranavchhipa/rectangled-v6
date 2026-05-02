@@ -45,10 +45,11 @@ import { useAuthStore } from '@/stores/auth-store'
 
 const navItems = [
   { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-  // Phase 2 Stage D — multi-location chain rollup. The page detects when
-  // the user has no organization and shows a friendly empty state, so
-  // showing this link unconditionally is fine.
-  { label: 'Chain rollup', href: '/dashboard/chain', icon: Building2 },
+  // Hotfix §7 — the previous "Chain rollup" item is gone. Its widgets
+  // (locations leaderboard, per-location trends, geo distribution) live
+  // in the workspace Dashboard at /dashboard now, conditionally rendered
+  // when the workspace has 2+ locations. /dashboard/chain redirects to
+  // /dashboard so old bookmarks still resolve.
   { label: 'Locations', href: '/dashboard/locations', icon: MapPin },
   { label: 'Inbox', href: '/dashboard/inbox', icon: Inbox },
   { label: 'Escalations', href: '/dashboard/escalations', icon: AlertTriangle },

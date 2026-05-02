@@ -1,23 +1,32 @@
 import { Injectable, Inject, Logger } from '@nestjs/common'
-import { eq, and, gte, lte, sql, desc } from 'drizzle-orm'
+import { eq, and, gte, lte, sql, desc, inArray } from 'drizzle-orm'
 import type { Database } from '@rectangled/db'
 import {
-  workspaces,
   locations,
   reviews,
   reviewResponses,
   escalations,
 } from '@rectangled/db'
-import { requireOrgAccess } from '../auth/permissions'
+import { requireOrgWorkspaceAccess } from '../auth/permissions'
 
 /**
  * Phase 2 — chain rollup service.
  *
- * Every endpoint is scoped to an organizationId and aggregates across every
- * workspace + location in the org. Permission is verified via
- * requireOrgAccess (just being a member of the org is enough — read-only).
+ * Hotfix §7 (workspace scope correction): every endpoint is now
+ * scoped to a single workspaceId. Agency orgs with N brands had a
+ * single chain view that cross-mixed all N — wrong. A workspace = one
+ * brand; a brand has one chain view across its locations.
  *
- * Date defaults: when from/to are omitted, we default to "last 30 days".
+ * Permission: `requireOrgWorkspaceAccess(workspaceId)` validates the
+ * caller is a member of the org that owns this workspace AND has it in
+ * their assigned scope (handles agency staff who can only see specific
+ * client brands). Read-only — any role is allowed for these views.
+ *
+ * Date defaults: when from/to are omitted we default to "last 30 days".
+ *
+ * Optional `locationIds[]` filter: when supplied, queries scope to
+ * just those locations (still gated on workspace membership). Empty or
+ * undefined = all locations in the workspace.
  */
 
 const DEFAULT_WINDOW_DAYS = 30
@@ -33,31 +42,48 @@ function resolveWindow(input: { dateFrom?: string | Date; dateTo?: string | Date
   return { from, to }
 }
 
+interface BaseInput {
+  workspaceId: string
+  locationIds?: string[]
+  dateFrom?: string | Date
+  dateTo?: string | Date
+}
+
 @Injectable()
 export class ChainService {
   private readonly logger = new Logger(ChainService.name)
   constructor(@Inject('DATABASE') private readonly db: Database) {}
 
   /**
-   * Top-strip KPIs across every location in the org.
+   * Resolve which location IDs are in scope for a given query.
+   *   - If `input.locationIds` provided: use those (still must belong
+   *     to the workspace — DB join enforces this).
+   *   - Else: every location in the workspace.
    */
-  async getOverviewKpis(
-    input: { organizationId: string; dateFrom?: string | Date; dateTo?: string | Date },
-    userId: string,
-  ) {
-    await requireOrgAccess(this.db, userId, input.organizationId)
-    const { from, to } = resolveWindow(input)
-
-    // Locations in the org.
-    const orgLocations = await this.db
+  private async resolveLocationIds(input: BaseInput): Promise<string[]> {
+    const conds = [eq(locations.workspaceId, input.workspaceId)]
+    if (input.locationIds && input.locationIds.length > 0) {
+      conds.push(inArray(locations.id, input.locationIds))
+    }
+    const rows = await this.db
       .select({ id: locations.id })
       .from(locations)
-      .innerJoin(workspaces, eq(workspaces.id, locations.workspaceId))
-      .where(eq(workspaces.organizationId, input.organizationId))
-    const locationCount = orgLocations.length
-    const locationIds = orgLocations.map((l) => l.id)
+      .where(and(...conds))
+    return rows.map((r) => r.id)
+  }
 
-    if (locationIds.length === 0) {
+  /**
+   * Top-strip KPIs across the workspace (or a subset when locationIds
+   * are passed).
+   */
+  async getOverviewKpis(input: BaseInput, userId: string) {
+    await requireOrgWorkspaceAccess(this.db, userId, input.workspaceId)
+    const { from, to } = resolveWindow(input)
+
+    const locationIds = await this.resolveLocationIds(input)
+    const locationCount = locationIds.length
+
+    if (locationCount === 0) {
       return {
         locationCount: 0,
         totalReviews: 0,
@@ -82,7 +108,7 @@ export class ChainService {
       .from(reviews)
       .where(
         and(
-          sql`${reviews.locationId} = ANY(${locationIds})`,
+          inArray(reviews.locationId, locationIds),
           gte(reviews.reviewedAt, from),
           lte(reviews.reviewedAt, to),
         ),
@@ -100,7 +126,7 @@ export class ChainService {
       .leftJoin(reviewResponses, eq(reviewResponses.reviewId, reviews.id))
       .where(
         and(
-          sql`${reviews.locationId} = ANY(${locationIds})`,
+          inArray(reviews.locationId, locationIds),
           gte(reviews.reviewedAt, from),
           lte(reviews.reviewedAt, to),
         ),
@@ -110,7 +136,6 @@ export class ChainService {
     const responseRate =
       total > 0 ? Math.round(((responseStats?.respondedCount ?? 0) / total) * 100) : 0
 
-    // Escalations.
     const [escStats] = await this.db
       .select({
         open: sql<number>`count(*) filter (where ${escalations.status} IN ('open', 'in_progress', 'paused'))::int`,
@@ -118,7 +143,7 @@ export class ChainService {
         totalInWindow: sql<number>`count(*) filter (where ${escalations.createdAt} >= ${from} AND ${escalations.createdAt} <= ${to})::int`,
       })
       .from(escalations)
-      .where(sql`${escalations.locationId} = ANY(${locationIds})`)
+      .where(inArray(escalations.locationId, locationIds))
 
     const slaBreachRate =
       escStats && escStats.totalInWindow > 0
@@ -146,19 +171,16 @@ export class ChainService {
    * Per-location leaderboard. One row per location with stats.
    */
   async getLocationLeaderboard(
-    input: {
-      organizationId: string
-      dateFrom?: string | Date
-      dateTo?: string | Date
+    input: BaseInput & {
       sortBy?: string
       sortDir?: 'asc' | 'desc'
     },
     userId: string,
   ) {
-    await requireOrgAccess(this.db, userId, input.organizationId)
+    await requireOrgWorkspaceAccess(this.db, userId, input.workspaceId)
     const { from, to } = resolveWindow(input)
 
-    const orgLocations = await this.db
+    const wsLocationsQuery = this.db
       .select({
         id: locations.id,
         name: locations.name,
@@ -167,11 +189,19 @@ export class ChainService {
         workspaceId: locations.workspaceId,
       })
       .from(locations)
-      .innerJoin(workspaces, eq(workspaces.id, locations.workspaceId))
-      .where(eq(workspaces.organizationId, input.organizationId))
+    const wsLocations = await (
+      input.locationIds && input.locationIds.length > 0
+        ? wsLocationsQuery.where(
+            and(
+              eq(locations.workspaceId, input.workspaceId),
+              inArray(locations.id, input.locationIds),
+            ),
+          )
+        : wsLocationsQuery.where(eq(locations.workspaceId, input.workspaceId))
+    )
 
     const rows = await Promise.all(
-      orgLocations.map(async (loc) => {
+      wsLocations.map(async (loc) => {
         const [revStats] = await this.db
           .select({
             count: sql<number>`count(*)::int`,
@@ -221,7 +251,6 @@ export class ChainService {
             ? Math.round((escStats.breachedInWindow / escStats.totalInWindow) * 100)
             : 0
 
-        // Simple sentiment net: (positive - negative) / total
         const totalSentimented =
           (revStats?.positive ?? 0) + (revStats?.negative ?? 0)
         const sentimentNet =
@@ -241,7 +270,7 @@ export class ChainService {
           workspaceId: loc.workspaceId,
           reviews: reviewCount,
           avgRating: revStats?.avgRating ?? 0,
-          sentimentNet, // -100 to +100
+          sentimentNet,
           responseRate,
           openEscalations: escStats?.open ?? 0,
           slaBreachRate,
@@ -249,7 +278,6 @@ export class ChainService {
       }),
     )
 
-    // Sort. Default: reviews desc.
     const sortBy = input.sortBy ?? 'reviews'
     const sortDir = input.sortDir ?? 'desc'
     const dir = sortDir === 'asc' ? 1 : -1
@@ -275,33 +303,25 @@ export class ChainService {
   }
 
   /**
-   * Multi-line trend data. One series per location (top N by review count).
-   * granularity: 'day' | 'week' | 'month'.
+   * Multi-line trend data. One series per location (top N by review count
+   * when locationIds is empty).
    */
   async getRatingTrendsByLocation(
-    input: {
-      organizationId: string
-      locationIds?: string[]
-      dateFrom?: string | Date
-      dateTo?: string | Date
-      granularity: 'day' | 'week' | 'month'
-    },
+    input: BaseInput & { granularity: 'day' | 'week' | 'month' },
     userId: string,
   ) {
-    await requireOrgAccess(this.db, userId, input.organizationId)
+    await requireOrgWorkspaceAccess(this.db, userId, input.workspaceId)
     const { from, to } = resolveWindow(input)
 
-    // Resolve which locations to include.
     let locationIds = input.locationIds ?? []
     if (locationIds.length === 0) {
       const top = await this.db
         .select({ id: locations.id })
         .from(reviews)
         .innerJoin(locations, eq(locations.id, reviews.locationId))
-        .innerJoin(workspaces, eq(workspaces.id, locations.workspaceId))
         .where(
           and(
-            eq(workspaces.organizationId, input.organizationId),
+            eq(locations.workspaceId, input.workspaceId),
             gte(reviews.reviewedAt, from),
             lte(reviews.reviewedAt, to),
           ),
@@ -333,15 +353,18 @@ export class ChainService {
       .innerJoin(locations, eq(locations.id, reviews.locationId))
       .where(
         and(
-          sql`${reviews.locationId} = ANY(${locationIds})`,
+          inArray(reviews.locationId, locationIds),
           gte(reviews.reviewedAt, from),
           lte(reviews.reviewedAt, to),
         ),
       )
-      .groupBy(reviews.locationId, locations.name, sql`date_trunc(${truncUnit}, ${reviews.reviewedAt})`)
+      .groupBy(
+        reviews.locationId,
+        locations.name,
+        sql`date_trunc(${truncUnit}, ${reviews.reviewedAt})`,
+      )
       .orderBy(reviews.locationId, sql`date_trunc(${truncUnit}, ${reviews.reviewedAt})`)
 
-    // Group into series.
     const seriesMap = new Map<
       string,
       {
@@ -365,14 +388,11 @@ export class ChainService {
   /**
    * Geographic distribution — pin per location.
    */
-  async getGeoDistribution(
-    input: { organizationId: string; dateFrom?: string | Date; dateTo?: string | Date },
-    userId: string,
-  ) {
-    await requireOrgAccess(this.db, userId, input.organizationId)
+  async getGeoDistribution(input: BaseInput, userId: string) {
+    await requireOrgWorkspaceAccess(this.db, userId, input.workspaceId)
     const { from, to } = resolveWindow(input)
 
-    const orgLocations = await this.db
+    const wsLocationsQuery = this.db
       .select({
         id: locations.id,
         name: locations.name,
@@ -380,11 +400,19 @@ export class ChainService {
         state: locations.state,
       })
       .from(locations)
-      .innerJoin(workspaces, eq(workspaces.id, locations.workspaceId))
-      .where(eq(workspaces.organizationId, input.organizationId))
+    const wsLocations = await (
+      input.locationIds && input.locationIds.length > 0
+        ? wsLocationsQuery.where(
+            and(
+              eq(locations.workspaceId, input.workspaceId),
+              inArray(locations.id, input.locationIds),
+            ),
+          )
+        : wsLocationsQuery.where(eq(locations.workspaceId, input.workspaceId))
+    )
 
     const rows = await Promise.all(
-      orgLocations.map(async (loc) => {
+      wsLocations.map(async (loc) => {
         const [stats] = await this.db
           .select({
             count: sql<number>`count(*)::int`,
@@ -412,9 +440,7 @@ export class ChainService {
           name: loc.name,
           city: loc.city,
           state: loc.state,
-          // Lat/lng aren't on the locations table yet — schema gap; UI can
-          // geocode the city/state client-side as a temporary measure, or
-          // a future migration adds lat/lng columns.
+          // Lat/lng aren't on locations yet; UI groups by city/state for now.
           lat: null as number | null,
           lng: null as number | null,
           reviewCount: stats?.count ?? 0,
@@ -429,23 +455,12 @@ export class ChainService {
   /**
    * Response-time heatmap: bucket reviews by their reviewedAt's day-of-week
    * and hour-of-day; report avg minutes-to-first-reply per bucket.
-   *
-   * Returns one row per (day-of-week, hour-of-day) with count + avg.
-   * Days: 0 (Sunday) – 6 (Saturday). Hours: 0–23.
    */
-  async getResponseTimeHeatmap(
-    input: { organizationId: string; dateFrom?: string | Date; dateTo?: string | Date },
-    userId: string,
-  ) {
-    await requireOrgAccess(this.db, userId, input.organizationId)
+  async getResponseTimeHeatmap(input: BaseInput, userId: string) {
+    await requireOrgWorkspaceAccess(this.db, userId, input.workspaceId)
     const { from, to } = resolveWindow(input)
 
-    const orgLocs = await this.db
-      .select({ id: locations.id })
-      .from(locations)
-      .innerJoin(workspaces, eq(workspaces.id, locations.workspaceId))
-      .where(eq(workspaces.organizationId, input.organizationId))
-    const locationIds = orgLocs.map((l) => l.id)
+    const locationIds = await this.resolveLocationIds(input)
     if (locationIds.length === 0) return []
 
     const rows = await this.db
@@ -459,31 +474,44 @@ export class ChainService {
       .leftJoin(reviewResponses, eq(reviewResponses.reviewId, reviews.id))
       .where(
         and(
-          sql`${reviews.locationId} = ANY(${locationIds})`,
+          inArray(reviews.locationId, locationIds),
           gte(reviews.reviewedAt, from),
           lte(reviews.reviewedAt, to),
         ),
       )
-      .groupBy(sql`extract(dow from ${reviews.reviewedAt})`, sql`extract(hour from ${reviews.reviewedAt})`)
+      .groupBy(
+        sql`extract(dow from ${reviews.reviewedAt})`,
+        sql`extract(hour from ${reviews.reviewedAt})`,
+      )
 
     return rows
   }
 
   /**
-   * Per-location open escalation count snapshot. Cheap to compute, used by
-   * the chain dashboard's leaderboard color-coding.
+   * Per-location open escalation count snapshot.
    */
-  async getEscalationLoad(input: { organizationId: string }, userId: string) {
-    await requireOrgAccess(this.db, userId, input.organizationId)
+  async getEscalationLoad(
+    input: { workspaceId: string; locationIds?: string[] },
+    userId: string,
+  ) {
+    await requireOrgWorkspaceAccess(this.db, userId, input.workspaceId)
 
-    const orgLocs = await this.db
+    const wsLocsQuery = this.db
       .select({ id: locations.id, name: locations.name })
       .from(locations)
-      .innerJoin(workspaces, eq(workspaces.id, locations.workspaceId))
-      .where(eq(workspaces.organizationId, input.organizationId))
+    const wsLocs = await (
+      input.locationIds && input.locationIds.length > 0
+        ? wsLocsQuery.where(
+            and(
+              eq(locations.workspaceId, input.workspaceId),
+              inArray(locations.id, input.locationIds),
+            ),
+          )
+        : wsLocsQuery.where(eq(locations.workspaceId, input.workspaceId))
+    )
 
-    if (orgLocs.length === 0) return []
-    const locationIds = orgLocs.map((l) => l.id)
+    if (wsLocs.length === 0) return []
+    const locationIds = wsLocs.map((l) => l.id)
 
     const rows = await this.db
       .select({
@@ -492,11 +520,11 @@ export class ChainService {
         slaBreached: sql<number>`count(*) filter (where ${escalations.slaBreached} = true AND ${escalations.status} IN ('open', 'in_progress', 'paused'))::int`,
       })
       .from(escalations)
-      .where(sql`${escalations.locationId} = ANY(${locationIds})`)
+      .where(inArray(escalations.locationId, locationIds))
       .groupBy(escalations.locationId)
 
     const map = new Map(rows.map((r) => [r.locationId, r]))
-    return orgLocs.map((loc) => {
+    return wsLocs.map((loc) => {
       const row = map.get(loc.id)
       return {
         locationId: loc.id,
