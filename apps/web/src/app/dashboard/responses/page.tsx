@@ -51,7 +51,7 @@ export default function WorkspaceResponsesPage() {
             Responses
           </h1>
           <p className="text-sm text-muted-foreground">
-            Every customer who completed a journey or survey in this workspace.
+            Every customer who completed a journey in this workspace.
           </p>
         </div>
 

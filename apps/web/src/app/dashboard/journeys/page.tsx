@@ -13,6 +13,10 @@ import {
   Download,
   Copy,
   Sparkles,
+  ChevronDown,
+  Zap,
+  FileText,
+  Wand2,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { trpc } from '@/lib/trpc'
@@ -45,6 +49,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { CreateCustomJourneyWizard } from '@/components/surveys/create-custom-journey-wizard'
 
 /**
@@ -56,8 +68,17 @@ import { CreateCustomJourneyWizard } from '@/components/surveys/create-custom-jo
  * /dashboard/surveys/[id].
  */
 
-type FilterTemplate = 'all' | 'quick' | 'deep'
+// Hotfix §5 leakage fix — filter chips now cover all 4 templates so
+// owners can scope to adaptive (§2) and custom (§3) journeys, not just
+// quick/deep. List query already accepts the wider enum.
+type FilterTemplate = 'all' | 'adaptive' | 'quick' | 'deep' | 'custom'
 type FilterStatus = 'all' | 'draft' | 'active' | 'archived'
+
+// All 4 template values that survey.create / survey.createFromWizard
+// emit. quick is the manual single-screen flow; adaptive is §2's
+// random-metric flow; deep is the multi-question form; custom is the
+// §3 wizard's decision-tree output.
+type CreateTemplate = 'adaptive' | 'quick' | 'deep'
 
 export default function SurveysListPage() {
   const currentWorkspaceId = useAuthStore((s) => s.currentWorkspaceId)
@@ -68,15 +89,22 @@ export default function SurveysListPage() {
   const [createOpen, setCreateOpen] = useState(false)
   const [wizardOpen, setWizardOpen] = useState(false)
   const [newName, setNewName] = useState('')
-  const [newTemplate, setNewTemplate] = useState<'quick' | 'deep'>('quick')
+  // Hotfix §5 leakage fix — was hardcoded to 'quick' | 'deep'. Now picked
+  // by the unified "+ New Journey" dropdown so owners can also create
+  // adaptive (§2) journeys without dropping into the wizard for the
+  // random-metric short-circuit.
+  const [newTemplate, setNewTemplate] = useState<CreateTemplate>('adaptive')
   const [newDeepType, setNewDeepType] = useState<'csat' | 'nps' | 'ces' | 'custom'>('csat')
 
   // QR dialog — restored from the deleted /dashboard/journeys page.
+  // Adaptive surveys reuse the /j/{slug} URL space (same legacy QR
+  // generator as quick); custom surveys also use /j/{slug}. Deep
+  // surveys use /f/{slug} with a separate generator.
   const [qrSurvey, setQrSurvey] = useState<{
     id: string
     name: string
     slug: string
-    template: 'quick' | 'deep'
+    template: 'quick' | 'deep' | 'adaptive' | 'custom'
     legacyId: string | null
   } | null>(null)
 
@@ -119,7 +147,7 @@ export default function SurveysListPage() {
     id: string
     name: string
     slug: string
-    template: 'quick' | 'deep'
+    template: 'quick' | 'deep' | 'adaptive' | 'custom'
     mode: 'intelligent' | 'builder'
     status: 'draft' | 'active' | 'archived'
     settings: Record<string, unknown>
@@ -131,8 +159,10 @@ export default function SurveysListPage() {
   const counts = useMemo(() => {
     return {
       all: surveys.length,
+      adaptive: surveys.filter((s) => s.template === 'adaptive').length,
       quick: surveys.filter((s) => s.template === 'quick').length,
       deep: surveys.filter((s) => s.template === 'deep').length,
+      custom: surveys.filter((s) => s.template === 'custom').length,
     }
   }, [surveys])
 
@@ -146,6 +176,42 @@ export default function SurveysListPage() {
       template: newTemplate,
       settings,
     })
+  }
+
+  /**
+   * Open the create dialog with a specific template pre-selected. The
+   * dropdown menu fans out into 3 of these (adaptive / quick / deep);
+   * the 4th option (custom) skips the dialog and opens the §3 wizard.
+   */
+  function openCreateFor(template: CreateTemplate) {
+    setNewTemplate(template)
+    setNewName('')
+    if (template === 'deep') setNewDeepType('csat')
+    setCreateOpen(true)
+  }
+
+  // Owner-facing template metadata — drives the dropdown menu, the
+  // dialog header, and the "New Journey" copy. Single source of truth
+  // so vocabulary stays consistent across all three surfaces.
+  const TEMPLATE_META: Record<
+    CreateTemplate,
+    { label: string; description: string }
+  > = {
+    adaptive: {
+      label: 'Adaptive Journey',
+      description:
+        'Random metric per visit (CSAT / NPS / CES / NEV / CLI), threshold-based positive/negative routing. Recommended for most owners.',
+    },
+    quick: {
+      label: 'Quick Survey',
+      description:
+        'Single-screen QR feedback. You pick one metric and the threshold; the renderer asks once and ends.',
+    },
+    deep: {
+      label: 'Deep Survey',
+      description:
+        'Multi-question survey form with CSAT / NPS / CES presets or a custom 1–10 scale.',
+    },
   }
 
   return (
@@ -163,27 +229,102 @@ export default function SurveysListPage() {
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
-          {/* Hotfix §3 — Wizard Custom Journey Builder. Opens a 4-question
-              wizard that maps to a deterministic step graph; the random-
-              metric option short-circuits to template='adaptive'. */}
-          <Button variant="outline" onClick={() => setWizardOpen(true)}>
-            <Sparkles className="size-4" />
-            New Custom Journey
-          </Button>
+        {/*
+          Hotfix §5 leakage fix — single unified entry point for all 4
+          journey types. Was two competing buttons ("Create Survey" +
+          "+ New Custom Journey") with inconsistent vocabulary; owners
+          couldn't tell what each one did. The dropdown surfaces all 4
+          templates with one-line descriptions so the choice is obvious.
+          - Adaptive / Quick / Deep → opens the simple create dialog
+            with the template pre-selected.
+          - Custom → opens the §3 wizard modal.
+        */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button>
+              <Plus className="size-4" />
+              New Journey
+              <ChevronDown className="size-3.5 opacity-70" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-80">
+            <DropdownMenuLabel>Pick a journey type</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onSelect={() => openCreateFor('adaptive')}
+              className="items-start gap-3 py-3"
+            >
+              <Sparkles className="mt-0.5 size-4 shrink-0 text-primary" />
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="font-medium">Adaptive</span>
+                  <Badge
+                    variant="secondary"
+                    className="bg-primary/10 text-[10px] text-primary"
+                  >
+                    Recommended
+                  </Badge>
+                </div>
+                <p className="mt-0.5 text-xs text-muted-foreground whitespace-normal">
+                  Random metric per visit (CSAT / NPS / CES / NEV / CLI),
+                  threshold-based positive/negative routing.
+                </p>
+              </div>
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onSelect={() => openCreateFor('quick')}
+              className="items-start gap-3 py-3"
+            >
+              <Zap className="mt-0.5 size-4 shrink-0 text-amber-600" />
+              <div className="flex-1 min-w-0">
+                <div className="font-medium">Quick Survey</div>
+                <p className="mt-0.5 text-xs text-muted-foreground whitespace-normal">
+                  Single-screen QR feedback. You pick the metric.
+                </p>
+              </div>
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onSelect={() => openCreateFor('deep')}
+              className="items-start gap-3 py-3"
+            >
+              <FileText className="mt-0.5 size-4 shrink-0 text-violet-600" />
+              <div className="flex-1 min-w-0">
+                <div className="font-medium">Deep Survey</div>
+                <p className="mt-0.5 text-xs text-muted-foreground whitespace-normal">
+                  Multi-question form with CSAT / NPS / CES presets or
+                  a custom 1–10 scale.
+                </p>
+              </div>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onSelect={() => setWizardOpen(true)}
+              className="items-start gap-3 py-3"
+            >
+              <Wand2 className="mt-0.5 size-4 shrink-0 text-emerald-600" />
+              <div className="flex-1 min-w-0">
+                <div className="font-medium">Custom Journey</div>
+                <p className="mt-0.5 text-xs text-muted-foreground whitespace-normal">
+                  4-question wizard builds a decision-tree journey with
+                  custom branches.
+                </p>
+              </div>
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
 
-          <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-            <DialogTrigger asChild>
-              <Button>
-                <Plus className="size-4" />
-                Create Survey
-              </Button>
-            </DialogTrigger>
+        {/* Simple-create dialog for adaptive / quick / deep. Opened
+            programmatically by the dropdown items via openCreateFor(); no
+            DialogTrigger here. Custom journeys go through CreateCustom
+            JourneyWizard (rendered below). */}
+        <Dialog open={createOpen} onOpenChange={setCreateOpen}>
           <DialogContent className="sm:max-w-md">
             <DialogHeader>
-              <DialogTitle>Create a customer journey</DialogTitle>
+              <DialogTitle>
+                Create {TEMPLATE_META[newTemplate].label}
+              </DialogTitle>
               <DialogDescription>
-                Pick a template; you can edit the step graph in the editor.
+                {TEMPLATE_META[newTemplate].description}
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4 py-2">
@@ -196,25 +337,6 @@ export default function SurveysListPage() {
                   placeholder="e.g. Dine-in feedback"
                   autoFocus
                 />
-              </div>
-              <div className="space-y-2">
-                <Label>Template</Label>
-                <Select
-                  value={newTemplate}
-                  onValueChange={(v) => setNewTemplate(v as 'quick' | 'deep')}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="quick">
-                      Quick — single-screen QR feedback
-                    </SelectItem>
-                    <SelectItem value="deep">
-                      Deep — multi-question journey
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
               </div>
               {newTemplate === 'deep' && (
                 <div className="space-y-2">
@@ -229,10 +351,10 @@ export default function SurveysListPage() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="csat">CSAT</SelectItem>
-                      <SelectItem value="nps">NPS</SelectItem>
-                      <SelectItem value="ces">CES</SelectItem>
-                      <SelectItem value="custom">Custom</SelectItem>
+                      <SelectItem value="csat">CSAT — 1-5 satisfaction</SelectItem>
+                      <SelectItem value="nps">NPS — 0-10 likelihood-to-recommend</SelectItem>
+                      <SelectItem value="ces">CES — 1-7 effort score</SelectItem>
+                      <SelectItem value="custom">Custom — 1-10 scale</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -258,7 +380,6 @@ export default function SurveysListPage() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
-        </div>
       </div>
 
       {/* Hotfix §3 (PR 1) — Wizard Custom Journey Builder modal. */}
@@ -275,8 +396,10 @@ export default function SurveysListPage() {
         <div className="flex items-center gap-1 rounded-lg border bg-muted/30 p-1 text-sm">
           {([
             { value: 'all', label: 'All', count: counts.all },
+            { value: 'adaptive', label: 'Adaptive', count: counts.adaptive },
             { value: 'quick', label: 'Quick', count: counts.quick },
             { value: 'deep', label: 'Deep', count: counts.deep },
+            { value: 'custom', label: 'Custom', count: counts.custom },
           ] as const).map((tab) => (
             <button
               key={tab.value}
@@ -455,12 +578,18 @@ function QrCodeDialog({
     id: string
     name: string
     slug: string
-    template: 'quick' | 'deep'
+    template: 'quick' | 'deep' | 'adaptive' | 'custom'
     legacyId: string | null
   } | null
   onClose: () => void
   currentWorkspaceId: string | null
 }) {
+  // Hotfix §5 leakage fix — adaptive (§2) and custom (§3) surveys use the
+  // same /j/{slug} URL space as quick journeys, so they share the
+  // journey QR generator. Only deep surveys go through the form QR
+  // path. Treat every non-deep template as journey-style here.
+  const isJourneyTemplate = !!survey && survey.template !== 'deep'
+
   // The QR backend's lookupJourneySlug / lookupFormSlug accepts either
   // the new surveys.id or the legacy_*_id, so we always pass surveys.id.
   // It returns the slug + a data URL.
@@ -471,7 +600,7 @@ function QrCodeDialog({
       size: 300,
       format: 'png',
     },
-    { enabled: !!survey && survey.template === 'quick' && !!currentWorkspaceId },
+    { enabled: isJourneyTemplate && !!currentWorkspaceId },
   )
 
   const formQrMutation = trpc.qr.generateFormQr.useMutation()
@@ -508,13 +637,11 @@ function QrCodeDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [survey?.id])
 
-  const dataUrl =
-    survey?.template === 'quick' ? qrQuery.data?.qrDataUrl : deepDataUrl
-  const isLoading =
-    survey?.template === 'quick' ? qrQuery.isLoading : deepLoading
+  const dataUrl = isJourneyTemplate ? qrQuery.data?.qrDataUrl : deepDataUrl
+  const isLoading = isJourneyTemplate ? qrQuery.isLoading : deepLoading
   const publicUrl = survey
     ? `${typeof window !== 'undefined' ? window.location.origin : ''}/${
-        survey.template === 'quick' ? 'j' : 'f'
+        isJourneyTemplate ? 'j' : 'f'
       }/${survey.slug}`
     : ''
 

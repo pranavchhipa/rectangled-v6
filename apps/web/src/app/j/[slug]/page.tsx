@@ -253,7 +253,7 @@ export default function PublicJourneyPage() {
           </div>
           <h1 className="text-xl font-semibold text-slate-800">Journey Not Available</h1>
           <p className="text-sm text-slate-500 max-w-xs mx-auto">
-            This survey is no longer active or the link may be incorrect.
+            This journey is no longer active or the link may be incorrect.
           </p>
         </div>
       </div>
