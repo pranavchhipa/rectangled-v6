@@ -31,10 +31,11 @@ export class AutomationService {
 
   // --- Rule CRUD ---
 
-  async listRules(workspaceId: string, userId: string, journeyId?: string) {
+  async listRules(workspaceId: string, userId: string, _journeyId?: string) {
+    // Phase 5 — automationRules.journeyId column dropped (migration 0015).
+    // The journeyId parameter is kept for back-compat but ignored.
     await this.requireMembership(workspaceId, userId)
     const conditions = [eq(automationRules.workspaceId, workspaceId)]
-    if (journeyId) conditions.push(eq(automationRules.journeyId, journeyId))
 
     return this.db.query.automationRules.findMany({
       where: and(...conditions),
@@ -45,6 +46,8 @@ export class AutomationService {
   async createRule(
     input: {
       workspaceId: string
+      // Phase 5 — journeyId removed (column dropped). Kept on the public
+      // schema for tRPC back-compat; ignored here.
       journeyId?: string
       name: string
       triggerEvent: string
@@ -92,7 +95,7 @@ export class AutomationService {
       .insert(automationRules)
       .values({
         workspaceId: input.workspaceId,
-        journeyId: input.journeyId,
+        // Phase 5 — journeyId column dropped.
         name: input.name.trim(),
         triggerEvent: input.triggerEvent as any,
         delayMinutes: input.delayMinutes,
@@ -136,7 +139,7 @@ export class AutomationService {
 
     const setValues: Record<string, unknown> = { updatedAt: new Date() }
     if (input.name !== undefined) setValues.name = input.name.trim()
-    if (input.journeyId !== undefined) setValues.journeyId = input.journeyId
+    // Phase 5 — journeyId column dropped; ignore the input field.
     if (input.triggerEvent !== undefined) setValues.triggerEvent = input.triggerEvent
     if (input.delayMinutes !== undefined) setValues.delayMinutes = input.delayMinutes
     if (input.actionType !== undefined) setValues.actionType = input.actionType
@@ -275,18 +278,15 @@ export class AutomationService {
       ),
     })
 
-    // Step 1: journeyId filter (workspace-scope rules can be journey-scoped;
-    // org/location rules don't carry a journeyId).
-    const journeyFiltered = candidateRules.filter((rule) => {
-      if (rule.journeyId && context.journeyId && rule.journeyId !== context.journeyId) {
-        return false
-      }
-      return true
-    })
+    // Phase 5 — automation_rules.journey_id was dropped along with the
+    // journeys table. Per-survey rule targeting is now expected to flow
+    // through scope (location/workspace/organization) + the survey
+    // engine's own per-survey config; the legacy journey-id filter is
+    // a no-op now.
 
-    // Step 2: scope precedence resolution.
+    // Scope precedence resolution.
     const filteredRules = resolveRulesByScope<ScopedRule & (typeof candidateRules)[number]>(
-      journeyFiltered as Array<ScopedRule & (typeof candidateRules)[number]>,
+      candidateRules as Array<ScopedRule & (typeof candidateRules)[number]>,
       {
         organizationId: organizationId ?? '',
         workspaceId: context.workspaceId,
@@ -337,12 +337,20 @@ export class AutomationService {
           ruleId: rule.id,
           workspaceId: context.workspaceId,
           customerId: context.customerId,
-          journeyResponseId: context.journeyResponseId,
+          // Phase 5 — automation_queue.journey_response_id dropped.
+          // The link from a queue entry back to the response is now
+          // recorded in metadata (see triggerKey for the idempotency
+          // shape) so analytics still has a reference.
           reviewId: context.reviewId,
           triggerKey,
           scheduledFor,
           status: 'pending' as any,
-          metadata: context.metadata || {},
+          metadata: {
+            ...(context.metadata || {}),
+            ...(context.journeyResponseId
+              ? { surveyResponseId: context.journeyResponseId }
+              : {}),
+          },
         })
         .onConflictDoNothing({
           target: [automationQueue.ruleId, automationQueue.triggerKey],
@@ -608,11 +616,15 @@ export class AutomationService {
     return stats
   }
 
-  async seedDefaultRules(workspaceId: string, journeyId: string) {
+  /**
+   * Phase 5 — was previously per-journey; the journey_id column on
+   * automation_rules was dropped, so the seeded rules now apply at
+   * workspace scope. Callers no longer need to pass a journey id.
+   */
+  async seedDefaultRules(workspaceId: string) {
     const defaults = [
       {
         workspaceId,
-        journeyId,
         name: 'Thank positive reviewers',
         triggerEvent: 'journey_completed_positive' as const,
         delayMinutes: 4320, // 3 days
@@ -622,7 +634,6 @@ export class AutomationService {
       },
       {
         workspaceId,
-        journeyId,
         name: 'Win-back negative reviewers',
         triggerEvent: 'journey_completed_negative' as const,
         delayMinutes: 1440, // 1 day
@@ -632,7 +643,6 @@ export class AutomationService {
       },
       {
         workspaceId,
-        journeyId,
         name: 'Remind abandoned journeys',
         triggerEvent: 'journey_abandoned' as const,
         delayMinutes: 120, // 2 hours

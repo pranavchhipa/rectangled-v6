@@ -166,6 +166,9 @@ export class CouponService {
     const expiresAt = new Date()
     expiresAt.setDate(expiresAt.getDate() + template.validityDays)
 
+    // Phase 5 — coupon_instances.journey_response_id column dropped
+    // (migration 0015). The legacy id, if passed by an older caller,
+    // flows into metadata for cross-reference.
     const [instance] = await this.db
       .insert(couponInstances)
       .values({
@@ -173,14 +176,15 @@ export class CouponService {
         workspaceId: input.workspaceId,
         customerId: input.customerId,
         locationId: input.locationId,
-        journeyResponseId: input.journeyResponseId,
         reviewId: input.reviewId,
         uniqueCode,
         status: 'issued',
         expiresAt,
         deliveryMethod: input.deliveryMethod,
         deliveryStatus: 'pending',
-        metadata: {},
+        metadata: input.journeyResponseId
+          ? { legacyJourneyResponseId: input.journeyResponseId }
+          : {},
       })
       .returning()
 
@@ -390,6 +394,9 @@ export class CouponService {
     const expiresAt = new Date()
     expiresAt.setDate(expiresAt.getDate() + template.validityDays)
 
+    // Phase 5 — coupon_instances.journey_response_id column dropped
+    // (migration 0015). The legacy id, if passed by an older caller,
+    // flows into metadata for cross-reference.
     const [instance] = await this.db
       .insert(couponInstances)
       .values({
@@ -397,14 +404,15 @@ export class CouponService {
         workspaceId: input.workspaceId,
         customerId: input.customerId,
         locationId: input.locationId,
-        journeyResponseId: input.journeyResponseId,
         reviewId: input.reviewId,
         uniqueCode,
         status: 'issued',
         expiresAt,
         deliveryMethod: input.deliveryMethod,
         deliveryStatus: 'pending',
-        metadata: {},
+        metadata: input.journeyResponseId
+          ? { legacyJourneyResponseId: input.journeyResponseId }
+          : {},
       })
       .returning()
 

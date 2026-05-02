@@ -1,19 +1,14 @@
 /**
  * OptimizerV6 — Comprehensive Demo Data Seed Script
  * Populates the entire ecosystem for the test@example.com account
- * with 100+ customers, reviews, coupons, forms, escalations, team members, billing, etc.
+ * with 100+ customers, reviews, coupons, forms, escalations, team
+ * members, billing, etc.
  *
- * ⚠ Phase 5 (2026-05-02): journeys, truforms, journey_responses, truform_responses,
- *   and journey_screens tables were dropped. The journey + truform seeding sections
- *   below are guarded with `if (false)` and will not run. The script otherwise still
- *   works for the rest of the seed surface (members, locations, reviews, etc).
- *
- *   To re-introduce demo journeys/truforms, port the legacy INSERTs to:
- *     - INSERT INTO surveys(...) WITH template='quick' (was journeys)
- *     - INSERT INTO surveys(...) WITH template='deep' (was truforms)
- *     - INSERT INTO survey_responses(...) (replaces both response tables)
- *   The step graph builders live in @rectangled/shared
- *   (buildQuickIntelligentSteps, buildDeepIntelligentSteps).
+ * Phase 5 update: journey + truform sections were ported to the unified
+ * surveys + survey_responses tables. Step graphs are minimal
+ * (ask_metric → end_journey) — for richer seeded graphs, swap in the
+ * builders from @rectangled/shared (buildQuickIntelligentSteps /
+ * buildDeepIntelligentSteps).
  */
 import postgres from 'postgres'
 import { randomUUID, createHash } from 'crypto'
@@ -325,111 +320,198 @@ async function seed() {
   }
   console.log(`   ✓ ${responseCount} review responses created`)
 
-  // ─── 10. Create Journeys (Phase 5 — disabled; tables dropped) ───────────
-  // The legacy journeys + journey_screens tables were dropped in
-  // Phase 5 (migration 0014). Demo journey seeding is stubbed out
-  // until this section is ported to INSERT INTO surveys(template='quick'…).
-  // The rest of the seed (members, locations, customers, reviews, coupons,
-  // automations, billing, ...) still runs.
-  console.log('\n🗺️ Skipping journey seeding (Phase 5 — port to surveys pending)')
+  // ─── 10/11/12. Create Surveys + responses (Phase 5 port) ────────────────
+  // Phase 5 dropped the legacy journeys/truforms tables. The seed now
+  // populates the unified surveys + survey_responses with minimal step
+  // graphs (ask_metric → end_journey).
+  console.log('\n🗺️ Creating surveys (3 quick + 4 deep) + responses...')
+
+  // surveys.organization_id is NOT NULL — pull it off the workspace.
+  const [{ organization_id: ORG_ID }] = await sql`
+    SELECT organization_id FROM workspaces WHERE id = ${WORKSPACE_ID}
+  `
+  if (!ORG_ID) {
+    throw new Error(`Workspace ${WORKSPACE_ID} has no organization_id; can't seed surveys.`)
+  }
+
+  // For exposing legacy id arrays to downstream sections that still
+  // reference them (coupon_instances.journey_response_id etc.) — these
+  // now hold orphan UUIDs (no FK after Phase 5). The seed just generates
+  // them as throwaway IDs so the legacy column inserts don't fail NOT NULL
+  // checks. Anyone reading these expects survey_responses linkage.
   const journeyIds = []
   const journeyResponseIds = []
   const truformIds = []
   const truformResponseIds = []
-  if (false) {
-  const journeyData = [
-    { name: 'Dine-In Feedback Journey', slug: 'dine-in-feedback-' + rand(1000,9999), locIdx: 0, isDefault: true },
-    { name: 'Delivery Feedback Journey', slug: 'delivery-feedback-' + rand(1000,9999), locIdx: 1, isDefault: false },
-    { name: 'Quick NPS Survey', slug: 'quick-nps-' + rand(1000,9999), locIdx: 2, isDefault: false },
-  ]
-  const journeyScreenIds = []
-  for (const j of journeyData) {
-    const jId = uuid()
-    journeyIds.push(jId)
-    await sql`INSERT INTO journeys (id, workspace_id, location_id, name, slug, is_default, is_active, settings, created_at, updated_at)
-      VALUES (${jId}, ${WORKSPACE_ID}, ${locationIds[j.locIdx]}, ${j.name}, ${j.slug}, ${j.isDefault}, true, ${sql.json({positiveThreshold: 4, enableCoupon: true, reviewPlatform: 'google'})}, ${daysAgo(60)}, NOW())`
 
-    // Add screens
-    const screens = [
-      { type: 'rating', title: 'How was your experience?', subtitle: 'Tap a star to rate', order: 0 },
-      { type: 'aspects', title: 'What did you enjoy?', subtitle: 'Select all that apply', order: 1 },
-      { type: 'feedback', title: 'Tell us more', subtitle: 'Your feedback helps us improve', order: 2 },
-      { type: 'review_redirect', title: 'Share your experience!', subtitle: 'Help others discover us', order: 3 },
-      { type: 'thank_you', title: 'Thank you!', subtitle: 'We appreciate your feedback', order: 4 },
+  // ─── 10. Quick surveys (3, was Journeys) ────────────────────────────────
+  const quickSurveyData = [
+    { name: 'Dine-In Feedback', slug: 'dine-in-feedback-' + rand(1000, 9999), locIdx: 0 },
+    { name: 'Delivery Feedback', slug: 'delivery-feedback-' + rand(1000, 9999), locIdx: 1 },
+    { name: 'Quick NPS', slug: 'quick-nps-' + rand(1000, 9999), locIdx: 2 },
+  ]
+  const quickSurveyIds = []
+  for (const q of quickSurveyData) {
+    const sId = uuid()
+    const legacyJourneyId = uuid() // orphan UUID for downstream legacy refs
+    quickSurveyIds.push(sId)
+    journeyIds.push(legacyJourneyId)
+    const steps = [
+      {
+        id: 's1_metric',
+        type: 'ask_metric',
+        position: { x: 0, y: 0 },
+        config: {
+          metric: 'csat',
+          question: 'How was your experience?',
+          onComplete: { nextStepId: 's2_end' },
+        },
+      },
+      {
+        id: 's2_end',
+        type: 'end_journey',
+        position: { x: 0, y: 200 },
+        config: { message: 'Thanks for your feedback!' },
+      },
     ]
-    for (const s of screens) {
-      const sId = uuid()
-      journeyScreenIds.push(sId)
-      await sql`INSERT INTO journey_screens (id, journey_id, "order", screen_type, title, subtitle, config, branch_conditions, created_at, updated_at)
-        VALUES (${sId}, ${jId}, ${s.order}, ${s.type}, ${s.title}, ${s.subtitle}, ${sql.json({})}, ${sql.array([])}, ${daysAgo(60)}, NOW())`
-    }
-    console.log(`   ✓ ${j.name} (${screens.length} screens)`)
+    await sql`INSERT INTO surveys (
+      id, workspace_id, location_id, organization_id,
+      name, slug, template, mode, status,
+      settings, steps, legacy_journey_id, created_at, updated_at
+    ) VALUES (
+      ${sId}, ${WORKSPACE_ID}, ${locationIds[q.locIdx]}, ${ORG_ID},
+      ${q.name}, ${q.slug}, 'quick', 'intelligent', 'active',
+      ${sql.json({ enabledMetrics: ['csat', 'nps'], reviewPlatform: 'google' })},
+      ${sql.json(steps)}, ${legacyJourneyId},
+      ${daysAgo(60)}, NOW()
+    )`
+    console.log(`   ✓ quick survey: ${q.name}`)
   }
 
-  // ─── 11. Create Journey Responses (200+) ───────────────────────────────────
-  console.log('\n📝 Creating journey responses...')
-  const journeyResponseIds = []
+  // ─── 11. Quick survey responses (200) ───────────────────────────────────
+  console.log('   Creating 200 quick-survey responses...')
   for (let i = 0; i < 200; i++) {
-    const jrId = uuid()
-    journeyResponseIds.push(jrId)
-    const jIdx = i % journeyIds.length
+    const rId = uuid()
+    const legacyJourneyResponseId = uuid()
+    journeyResponseIds.push(legacyJourneyResponseId)
+    const sIdx = i % quickSurveyIds.length
     const locIdx = i % locationIds.length
     const custIdx = i % customerIds.length
-    const rating = rand(1, 5)
-    await sql`INSERT INTO journey_responses (id, journey_id, customer_id, location_id, session_id, response_data, created_at)
-      VALUES (${jrId}, ${journeyIds[jIdx]}, ${customerIds[custIdx]}, ${locationIds[locIdx]}, ${'sess_' + uuid().slice(0,8)}, ${sql.json({
-        rating,
-        aspects: pickN(ASPECTS, rand(1, 4)),
-        feedback: rating >= 4 ? pick(['Great food!', 'Loved the service', 'Will come again', 'Best restaurant']) : pick(['Could be better', 'Slow service', 'Food was cold', 'Too expensive']),
-        nps: rand(0, 10),
-        contactInfo: { name: customerNames[custIdx], phone: customerPhones[custIdx] },
-      })}, ${daysAgo(rand(0, 90))})`
+    const score = rand(1, 5)
+    const isPositive = score >= 4
+    await sql`INSERT INTO survey_responses (
+      id, survey_id, workspace_id, location_id, customer_id, session_id,
+      response_data, metric_shown, metric_score, is_positive, score, answers,
+      started_at, completed_at, metadata, legacy_journey_response_id, created_at
+    ) VALUES (
+      ${rId}, ${quickSurveyIds[sIdx]}, ${WORKSPACE_ID},
+      ${locationIds[locIdx]}, ${customerIds[custIdx]},
+      ${'sess_' + uuid().slice(0, 8)},
+      ${sql.json({
+        metricShown: 'csat',
+        metricScore: score,
+        aspectTags: pickN(ASPECTS, rand(1, 4)),
+        feedback: isPositive
+          ? pick(['Great food!', 'Loved the service', 'Will come again'])
+          : pick(['Could be better', 'Slow service', 'Food was cold']),
+      })},
+      'csat', ${score}, ${isPositive}, ${score}, ${sql.json({})},
+      ${daysAgo(rand(0, 90))}, ${daysAgo(rand(0, 90))}, ${sql.json({})},
+      ${legacyJourneyResponseId}, ${daysAgo(rand(0, 90))}
+    )`
   }
-  console.log(`   ✓ 200 journey responses created`)
+  console.log('   ✓ 200 quick-survey responses created')
 
-  // ─── 12. Create TruForms (4 forms with responses) ─────────────────────────
-  console.log('\n📋 Creating TruForms...')
-  const truformData = [
-    { name: 'Monthly NPS Survey', type: 'nps', status: 'active', slug: 'monthly-nps-' + rand(1000,9999) },
-    { name: 'Dine-In CSAT', type: 'csat', status: 'active', slug: 'dine-in-csat-' + rand(1000,9999) },
-    { name: 'Delivery CES', type: 'ces', status: 'active', slug: 'delivery-ces-' + rand(1000,9999) },
-    { name: 'Custom Feedback Form', type: 'custom', status: 'active', slug: 'custom-feedback-' + rand(1000,9999) },
+  // ─── 12. Deep surveys (4, was TruForms) + responses (150) ──────────────
+  const deepSurveyData = [
+    { name: 'Monthly NPS', type: 'nps', slug: 'monthly-nps-' + rand(1000, 9999) },
+    { name: 'Dine-In CSAT', type: 'csat', slug: 'dine-in-csat-' + rand(1000, 9999) },
+    { name: 'Delivery CES', type: 'ces', slug: 'delivery-ces-' + rand(1000, 9999) },
+    { name: 'Custom Feedback', type: 'custom', slug: 'custom-feedback-' + rand(1000, 9999) },
   ]
-  const truformIds = []
-  for (const tf of truformData) {
-    const tfId = uuid()
-    truformIds.push(tfId)
-    await sql`INSERT INTO truforms (id, workspace_id, location_id, name, type, status, config, slug, created_at, updated_at)
-      VALUES (${tfId}, ${WORKSPACE_ID}, ${pick(locationIds)}, ${tf.name}, ${tf.type}, ${tf.status}, ${sql.json({
-        questions: [
-          { id: 'q1', type: tf.type === 'nps' ? 'nps' : 'rating', text: tf.type === 'nps' ? 'How likely are you to recommend us?' : 'Rate your experience' },
-          { id: 'q2', type: 'text', text: 'What could we improve?' },
-          { id: 'q3', type: 'select', text: 'How did you hear about us?', options: ['Google', 'Instagram', 'Friend', 'Walk-in', 'Zomato'] },
-        ],
-        branding: { primaryColor: '#E65100', logo: '/logo.png' },
+  const deepSurveyIds = []
+  for (const d of deepSurveyData) {
+    const sId = uuid()
+    const legacyTruformId = uuid()
+    deepSurveyIds.push(sId)
+    truformIds.push(legacyTruformId)
+    const steps = [
+      {
+        id: 's1_metric',
+        type: 'ask_metric',
+        position: { x: 0, y: 0 },
+        config: {
+          metric: d.type === 'custom' ? 'csat' : d.type,
+          question:
+            d.type === 'nps'
+              ? 'How likely are you to recommend us?'
+              : 'Rate your experience',
+          onComplete: { nextStepId: 's2_end' },
+        },
+      },
+      {
+        id: 's2_end',
+        type: 'end_journey',
+        position: { x: 0, y: 200 },
+        config: { message: 'Thank you for your valuable feedback!' },
+      },
+    ]
+    await sql`INSERT INTO surveys (
+      id, workspace_id, location_id, organization_id,
+      name, slug, template, mode, status,
+      settings, steps, legacy_truform_id, created_at, updated_at
+    ) VALUES (
+      ${sId}, ${WORKSPACE_ID}, ${pick(locationIds)}, ${ORG_ID},
+      ${d.name}, ${d.slug}, 'deep', 'intelligent', 'active',
+      ${sql.json({
+        type: d.type,
+        branding: { brandColor: '#E65100', logo: '/logo.png' },
         thankYouMessage: 'Thank you for your valuable feedback!',
-      })}, ${tf.slug}, ${daysAgo(45)}, NOW())`
-    console.log(`   ✓ ${tf.name}`)
+      })},
+      ${sql.json(steps)}, ${legacyTruformId},
+      ${daysAgo(45)}, NOW()
+    )`
+    console.log(`   ✓ deep survey: ${d.name}`)
   }
 
-  // Create 150 TruForm responses
-  console.log('   Creating 150 truform responses...')
-  const truformResponseIds = []
+  console.log('   Creating 150 deep-survey responses...')
   for (let i = 0; i < 150; i++) {
-    const trId = uuid()
-    truformResponseIds.push(trId)
-    const tfIdx = i % truformIds.length
+    const rId = uuid()
+    const legacyTruformResponseId = uuid()
+    truformResponseIds.push(legacyTruformResponseId)
+    const sIdx = i % deepSurveyIds.length
     const custIdx = i % customerIds.length
     const score = rand(1, 10)
-    await sql`INSERT INTO truform_responses (id, truform_id, customer_id, score, answers, metadata, completed_at, created_at)
-      VALUES (${trId}, ${truformIds[tfIdx]}, ${customerIds[custIdx]}, ${score}, ${sql.json({
+    await sql`INSERT INTO survey_responses (
+      id, survey_id, workspace_id, customer_id, session_id,
+      response_data, score, answers,
+      started_at, completed_at, metadata, legacy_truform_response_id, created_at
+    ) VALUES (
+      ${rId}, ${deepSurveyIds[sIdx]}, ${WORKSPACE_ID},
+      ${customerIds[custIdx]},
+      ${'sess_' + uuid().slice(0, 8)},
+      ${sql.json({
         q1: score,
-        q2: score >= 7 ? pick(['Everything was great!', 'Nothing, keep it up!', 'More variety please']) : pick(['Faster service', 'Better hygiene', 'Lower prices', 'More parking']),
+        q2:
+          score >= 7
+            ? pick(['Everything was great!', 'Nothing, keep it up!'])
+            : pick(['Faster service', 'Better hygiene', 'Lower prices']),
         q3: pick(['Google', 'Instagram', 'Friend', 'Walk-in', 'Zomato']),
-      })}, ${sql.json({ source: pick(['qr', 'email', 'whatsapp', 'link']), device: pick(['mobile', 'desktop', 'tablet']) })}, ${daysAgo(rand(0, 60))}, ${daysAgo(rand(0, 60))})`
+      })},
+      ${score},
+      ${sql.json({
+        q1: score,
+        q3: pick(['Google', 'Instagram', 'Friend', 'Walk-in']),
+      })},
+      ${daysAgo(rand(0, 60))}, ${daysAgo(rand(0, 60))},
+      ${sql.json({
+        source: pick(['qr', 'email', 'whatsapp', 'link']),
+        device: pick(['mobile', 'desktop', 'tablet']),
+      })},
+      ${legacyTruformResponseId}, ${daysAgo(rand(0, 60))}
+    )`
   }
-  console.log(`   ✓ 150 truform responses created`)
-  } // end if(false) — Phase 5 stub for legacy journey/truform seeding
+  console.log('   ✓ 150 deep-survey responses created')
 
   // ─── 13. Create Coupon Templates & Instances ───────────────────────────────
   console.log('\n🎟️ Creating coupons...')

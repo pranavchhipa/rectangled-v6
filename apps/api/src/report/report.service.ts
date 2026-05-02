@@ -11,6 +11,7 @@ import {
   businessAspects,
   surveys,
   surveyResponses,
+  surveyStarts,
   members,
 } from '@rectangled/db'
 
@@ -447,13 +448,24 @@ export class ReportService {
     ]
     if (locationId) journeyConditions.push(eq(surveys.locationId, locationId))
 
-    const allJourneys = (await this.db
-      .select()
-      .from(surveys)
-      .where(and(...journeyConditions))).map((s) => ({
+    // Phase 5 — pulled from surveys WHERE template='quick' + walk the
+    // step graph for each survey to surface stepCount. Funnel data
+    // comes from survey_starts (started) vs survey_responses w/
+    // completedAt set (completed); the per-step transition log doesn't
+    // exist on the current schema — would need a survey_step_visits
+    // table to track funnel drop-off at each step.
+    const allJourneys = (
+      await this.db
+        .select()
+        .from(surveys)
+        .where(and(...journeyConditions))
+    ).map((s) => ({
       id: s.id,
       name: s.name,
       slug: s.slug,
+      stepCount: Array.isArray(s.steps)
+        ? (s.steps as unknown[]).length
+        : 0,
     }))
 
     const journeyIds = allJourneys.map((j) => j.id)
@@ -461,7 +473,8 @@ export class ReportService {
     if (journeyIds.length === 0) {
       return {
         completionRate: 0,
-        dropOffByScreen: [],
+        dropOffByScreen: [], // back-compat field; same shape as legacy report
+        funnel: { started: 0, completed: 0, abandoned: 0, abandonRate: 0 },
         avgCompletionTime: 0,
         positiveRatio: 0,
         reviewsGenerated: 0,
@@ -469,18 +482,46 @@ export class ReportService {
       }
     }
 
-    // Get all responses in date range
-    const allJourneyResponses = (await this.db
-      .select()
-      .from(surveyResponses)
+    // ─── Funnel: started + completed in window ───
+    // survey_starts.startedAt is set on first visit; survey_responses
+    // with completedAt non-null marks a finished session.
+    const startedRows = await this.db
+      .select({
+        surveyId: surveyStarts.surveyId,
+        sessionId: surveyStarts.sessionId,
+        startedAt: surveyStarts.startedAt,
+      })
+      .from(surveyStarts)
       .where(
         and(
-          sql`${surveyResponses.surveyId} IN ${journeyIds}`,
-          gte(surveyResponses.createdAt, dateFrom),
-          lte(surveyResponses.createdAt, dateTo),
+          sql`${surveyStarts.surveyId} IN ${journeyIds}`,
+          gte(surveyStarts.startedAt, dateFrom),
+          lte(surveyStarts.startedAt, dateTo),
         ),
-      )).map((r) => ({
-      // alias for the legacy variable names below.
+      )
+    const startedSessionsBySurvey = new Map<string, Set<string>>()
+    for (const s of startedRows) {
+      let set = startedSessionsBySurvey.get(s.surveyId)
+      if (!set) {
+        set = new Set()
+        startedSessionsBySurvey.set(s.surveyId, set)
+      }
+      set.add(s.sessionId)
+    }
+
+    // Get all responses in date range
+    const allJourneyResponses = (
+      await this.db
+        .select()
+        .from(surveyResponses)
+        .where(
+          and(
+            sql`${surveyResponses.surveyId} IN ${journeyIds}`,
+            gte(surveyResponses.createdAt, dateFrom),
+            lte(surveyResponses.createdAt, dateTo),
+          ),
+        )
+    ).map((r) => ({
       journeyId: r.surveyId,
       sessionId: r.sessionId,
       createdAt: r.createdAt,
@@ -489,12 +530,7 @@ export class ReportService {
       completedAt: r.completedAt,
     }))
 
-    // Phase 5 — journey_screens table dropped; per-screen breakdown not
-    // available from the new schema without rewriting against step ids.
-    // Returning empty so downstream JSON shape stays consistent.
-    const allScreens: Array<{ id: string; journeyId: string; order: number }> = []
-
-    // Group responses by session to detect completion
+    // Group responses by session for per-session analysis.
     const sessionMap = new Map<string, typeof allJourneyResponses>()
     for (const resp of allJourneyResponses) {
       const key = resp.sessionId
@@ -502,50 +538,31 @@ export class ReportService {
       sessionMap.get(key)!.push(resp)
     }
 
+    // Cross-survey funnel totals.
+    const totalStarted = startedRows.length
+    let totalCompleted = 0
+    for (const responses of sessionMap.values()) {
+      if (responses.some((r) => r.completedAt !== null)) totalCompleted++
+    }
+    const totalAbandoned = Math.max(totalStarted - totalCompleted, 0)
+    const abandonRate =
+      totalStarted > 0 ? Math.round((totalAbandoned / totalStarted) * 100) : 0
+
+    // For back-compat: per-survey row in completedSessions / totalSessions.
     const totalSessions = sessionMap.size
-
-    // Compute completion: sessions that have a response on the last screen
     let completedSessions = 0
-    const screenCountByJourney = new Map<string, number>()
-    for (const s of allScreens) {
-      const current = screenCountByJourney.get(s.journeyId) ?? 0
-      screenCountByJourney.set(s.journeyId, Math.max(current, s.order))
+    for (const responses of sessionMap.values()) {
+      if (responses.some((r) => r.completedAt !== null)) completedSessions++
     }
+    const completionRate =
+      totalSessions > 0
+        ? Math.round((completedSessions / totalSessions) * 100)
+        : 0
 
-    // Drop-off by screen order
-    const screenOrderCounts = new Map<number, number>()
-
-    for (const [, sessionResponses] of sessionMap) {
-      // Determine the journey for this session
-      const journeyId = sessionResponses[0].journeyId
-      const maxOrder = screenCountByJourney.get(journeyId) ?? 1
-
-      // Phase 5 — journey_screens dropped; can't reconstruct
-      // per-screen abandonment depth. Approximate completion as "any
-      // response in this session has completedAt set", which is what
-      // the new survey engine writes on terminal step. maxOrder=1
-      // ensures the comparison below behaves as a binary completed?.
-      const sessionCompleted = sessionResponses.some(
-        (r) => r.completedAt !== null,
-      )
-      const maxReachedOrder = sessionCompleted ? maxOrder : 0
-
-      if (maxReachedOrder >= maxOrder) {
-        completedSessions++
-      }
-
-      // Count per screen order
-      for (let order = 1; order <= maxReachedOrder; order++) {
-        screenOrderCounts.set(order, (screenOrderCounts.get(order) ?? 0) + 1)
-      }
-    }
-
-    const completionRate = totalSessions > 0 ? Math.round((completedSessions / totalSessions) * 100) : 0
-
-    // Drop-off by screen
-    const dropOffByScreen = Array.from(screenOrderCounts.entries())
-      .sort((a, b) => a[0] - b[0])
-      .map(([order, count]) => ({ screenOrder: order, sessions: count }))
+    // dropOffByScreen kept as an empty array — the new step-graph shape
+    // doesn't preserve per-step transition counts (would need a
+    // survey_step_visits table). Funnel data above replaces it.
+    const dropOffByScreen: Array<{ screenOrder: number; sessions: number }> = []
 
     // Avg completion time (between first and last response in a session)
     let totalCompletionTimeMs = 0
@@ -575,51 +592,73 @@ export class ReportService {
     }
     const positiveRatio = totalRated > 0 ? Math.round((positiveCount / totalRated) * 100) : 0
 
-    // Reviews generated from journeys
+    // Reviews generated from surveys (Phase 5 — was reviews.journey_response_id;
+    // that column was dropped. The new linkage goes through
+    // reviews.metadata.surveyResponseId, set by the survey engine when
+    // it creates an offline review on unhappy-path completion).
     const reviewsFromJourneys = await this.db
       .select({ count: sql<number>`count(*)::int` })
       .from(reviews)
       .where(
         and(
           eq(reviews.workspaceId, workspaceId),
-          isNotNull(reviews.journeyResponseId),
+          sql`${reviews.metadata}->>'surveyResponseId' IS NOT NULL`,
           gte(reviews.reviewedAt, dateFrom),
           lte(reviews.reviewedAt, dateTo),
         ),
       )
     const reviewsGenerated = reviewsFromJourneys[0]?.count ?? 0
 
-    // Per-journey stats
+    // Per-survey stats. Funnel = started (from survey_starts) vs
+    // completed (from survey_responses with completedAt).
     const perJourneyStats = allJourneys.map((journey) => {
-      const jResponses = allJourneyResponses.filter((r) => r.journeyId === journey.id)
+      const jResponses = allJourneyResponses.filter(
+        (r) => r.journeyId === journey.id,
+      )
+      const jStartedSessions =
+        startedSessionsBySurvey.get(journey.id) ?? new Set<string>()
       const jSessions = new Set(jResponses.map((r) => r.sessionId))
-      // Phase 5 — journey_screens dropped; per-journey screen depth not
-      // available. Treat completion as "any response in the session has
-      // completedAt set" (mirrors the engine's terminal-write semantics).
-      const maxOrder = 1
 
       let jCompleted = 0
       for (const sessionId of jSessions) {
         const sResponses = jResponses.filter((r) => r.sessionId === sessionId)
-        const sessionCompleted = sResponses.some((r) => r.completedAt !== null)
-        if (sessionCompleted) jCompleted++
+        if (sResponses.some((r) => r.completedAt !== null)) jCompleted++
       }
+      const jStarted = jStartedSessions.size
+      const jAbandoned = Math.max(jStarted - jCompleted, 0)
 
       return {
         journeyId: journey.id,
         journeyName: journey.name,
         totalSessions: jSessions.size,
         completedSessions: jCompleted,
-        completionRate: jSessions.size > 0 ? Math.round((jCompleted / jSessions.size) * 100) : 0,
-        // Phase 5 — screen breakdown unavailable; the new step-graph
-        // shape needs a different report.
-        screenCount: 0,
+        completionRate:
+          jSessions.size > 0
+            ? Math.round((jCompleted / jSessions.size) * 100)
+            : 0,
+        // Phase 5 — funnel from survey_starts.
+        started: jStarted,
+        abandoned: jAbandoned,
+        abandonRate:
+          jStarted > 0 ? Math.round((jAbandoned / jStarted) * 100) : 0,
+        // Phase 5 — step graph length (was screenCount).
+        stepCount: journey.stepCount,
       }
     })
 
     return {
       completionRate,
-      dropOffByScreen,
+      dropOffByScreen, // kept for back-compat; always [] under the new schema
+      // Phase 5 — funnel + per-step counts replace the legacy
+      // dropOffByScreen analysis. A future schema for per-step
+      // transition logging would let us populate dropOffByScreen with
+      // step-level depth.
+      funnel: {
+        started: totalStarted,
+        completed: totalCompleted,
+        abandoned: totalAbandoned,
+        abandonRate,
+      },
       avgCompletionTimeSec,
       positiveRatio,
       reviewsGenerated,

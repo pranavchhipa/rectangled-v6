@@ -14,7 +14,18 @@ import {
   ChevronUp,
   ChevronDown,
   MapPin,
+  Globe,
 } from 'lucide-react'
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  Legend,
+} from 'recharts'
 import { trpc } from '@/lib/trpc'
 import { useAuthStore } from '@/stores/auth-store'
 import { Button } from '@/components/ui/button'
@@ -105,6 +116,26 @@ export default function ChainDashboardPage() {
       dateTo: dateWindow.dateTo,
       sortBy,
       sortDir,
+    },
+    { enabled: !!currentOrganizationId },
+  )
+
+  // Phase 2 Stage D follow-up — rating trends + geo distribution.
+  const trendsQuery = trpc.chain.getRatingTrendsByLocation.useQuery(
+    {
+      organizationId: currentOrganizationId!,
+      dateFrom: dateWindow.dateFrom,
+      dateTo: dateWindow.dateTo,
+      granularity: 'day',
+    },
+    { enabled: !!currentOrganizationId },
+  )
+
+  const geoQuery = trpc.chain.getGeoDistribution.useQuery(
+    {
+      organizationId: currentOrganizationId!,
+      dateFrom: dateWindow.dateFrom,
+      dateTo: dateWindow.dateTo,
     },
     { enabled: !!currentOrganizationId },
   )
@@ -474,33 +505,273 @@ export default function ChainDashboardPage() {
         </CardContent>
       </Card>
 
-      {/* Deferred widgets — placeholder so the IA shows the planned shape. */}
-      <div className="grid gap-3 lg:grid-cols-2">
-        <Card className="opacity-70">
-          <CardHeader>
-            <CardTitle className="text-sm">Geo distribution</CardTitle>
-            <CardDescription className="text-xs">
-              Map of locations colored by avg rating. Coming next.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="text-xs text-muted-foreground">
-            Backend ready (chain.getGeoDistribution); UI deferred until the
-            mapping library is picked.
-          </CardContent>
-        </Card>
-        <Card className="opacity-70">
-          <CardHeader>
-            <CardTitle className="text-sm">Response time heatmap</CardTitle>
-            <CardDescription className="text-xs">
-              Hour-of-day × day-of-week response latency. Coming next.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="text-xs text-muted-foreground">
-            Backend ready (chain.getResponseTimeHeatmap); UI deferred.
-          </CardContent>
-        </Card>
-      </div>
+      {/* Rating trends chart */}
+      <RatingTrendsChart
+        data={trendsQuery.data}
+        isLoading={trendsQuery.isLoading}
+      />
+
+      {/* Geo distribution table */}
+      <GeoDistributionTable
+        data={geoQuery.data}
+        isLoading={geoQuery.isLoading}
+      />
+
+      {/* Response time heatmap — still placeholder until UX direction. */}
+      <Card className="opacity-70">
+        <CardHeader>
+          <CardTitle className="text-sm">Response time heatmap</CardTitle>
+          <CardDescription className="text-xs">
+            Hour-of-day × day-of-week response latency. Backend ready
+            (chain.getResponseTimeHeatmap); rendering deferred until the
+            heatmap visualisation is designed.
+          </CardDescription>
+        </CardHeader>
+      </Card>
     </div>
+  )
+}
+
+// ─── Rating trends ─────────────────────────────────────────────────────────
+
+const SERIES_COLORS = [
+  '#2563eb',
+  '#dc2626',
+  '#16a34a',
+  '#ca8a04',
+  '#9333ea',
+  '#0891b2',
+  '#db2777',
+  '#65a30d',
+  '#7c3aed',
+  '#0d9488',
+]
+
+function RatingTrendsChart({
+  data,
+  isLoading,
+}: {
+  data:
+    | Array<{
+        locationId: string
+        name: string
+        points: Array<{ date: string; avgRating: number; count: number }>
+      }>
+    | undefined
+  isLoading: boolean
+}) {
+  // Pivot the per-location point arrays into a flat row-per-date array
+  // that Recharts can render as multiple lines (one per location).
+  const { rows, locationKeys } = useMemo(() => {
+    const series = data ?? []
+    const dateSet = new Set<string>()
+    for (const s of series) for (const p of s.points) dateSet.add(p.date)
+    const dates = Array.from(dateSet).sort()
+    const keys = series.map((s) => ({
+      key: s.locationId,
+      name: s.name || s.locationId.slice(0, 8),
+    }))
+    const rows = dates.map((d) => {
+      const row: Record<string, string | number> = { date: d }
+      for (const s of series) {
+        const point = s.points.find((p) => p.date === d)
+        if (point) row[s.locationId] = point.avgRating
+      }
+      return row
+    })
+    return { rows, locationKeys: keys }
+  }, [data])
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base flex items-center gap-2">
+          <TrendingUp className="size-4" />
+          Rating trends
+        </CardTitle>
+        <CardDescription className="text-xs">
+          Daily avg rating per location. Top 10 locations by review volume
+          when no explicit selection.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <Skeleton className="h-[280px] w-full" />
+        ) : rows.length === 0 ? (
+          <div className="py-10 text-center text-sm text-muted-foreground">
+            No reviews in this window.
+          </div>
+        ) : (
+          <ResponsiveContainer width="100%" height={280}>
+            <LineChart data={rows} margin={{ left: 0, right: 16, top: 8, bottom: 0 }}>
+              <CartesianGrid stroke="#f1f5f9" vertical={false} />
+              <XAxis
+                dataKey="date"
+                tick={{ fontSize: 11 }}
+                tickFormatter={(d) => {
+                  const m = /^\d{4}-(\d{2})-(\d{2})/.exec(d)
+                  return m ? `${m[1]}/${m[2]}` : d
+                }}
+              />
+              <YAxis
+                domain={[0, 5]}
+                tick={{ fontSize: 11 }}
+                width={28}
+                allowDecimals
+              />
+              <Tooltip
+                contentStyle={{ fontSize: 12 }}
+                formatter={(v: number) => v.toFixed(2)}
+              />
+              <Legend wrapperStyle={{ fontSize: 11 }} />
+              {locationKeys.slice(0, 10).map((loc, i) => (
+                <Line
+                  key={loc.key}
+                  type="monotone"
+                  dataKey={loc.key}
+                  name={loc.name}
+                  stroke={SERIES_COLORS[i % SERIES_COLORS.length]}
+                  strokeWidth={2}
+                  dot={false}
+                  connectNulls
+                />
+              ))}
+            </LineChart>
+          </ResponsiveContainer>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+// ─── Geo distribution ──────────────────────────────────────────────────────
+
+function GeoDistributionTable({
+  data,
+  isLoading,
+}: {
+  data:
+    | Array<{
+        locationId: string
+        name: string
+        city: string | null
+        state: string | null
+        reviewCount: number
+        avgRating: number
+        sentimentNet: number
+      }>
+    | undefined
+  isLoading: boolean
+}) {
+  // Group by city/state — the cheapest "geo" view without a real map.
+  const cityRows = useMemo(() => {
+    const byCity = new Map<
+      string,
+      {
+        city: string
+        state: string
+        locationCount: number
+        reviews: number
+        ratingSum: number
+      }
+    >()
+    for (const row of data ?? []) {
+      if (!row.city) continue
+      const key = `${row.city}|${row.state ?? ''}`
+      let bucket = byCity.get(key)
+      if (!bucket) {
+        bucket = {
+          city: row.city,
+          state: row.state ?? '',
+          locationCount: 0,
+          reviews: 0,
+          ratingSum: 0,
+        }
+        byCity.set(key, bucket)
+      }
+      bucket.locationCount += 1
+      bucket.reviews += row.reviewCount
+      // Weight avg rating by review count so a city with a high-volume
+      // location dominates over a city with a single 5-review location.
+      bucket.ratingSum += row.avgRating * row.reviewCount
+    }
+    return Array.from(byCity.values())
+      .map((b) => ({
+        ...b,
+        avgRating: b.reviews > 0 ? b.ratingSum / b.reviews : 0,
+      }))
+      .sort((a, b) => b.reviews - a.reviews)
+  }, [data])
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base flex items-center gap-2">
+          <Globe className="size-4" />
+          Geo distribution
+        </CardTitle>
+        <CardDescription className="text-xs">
+          Locations grouped by city. A real map view (Mapbox / Leaflet)
+          plus lat/lng on the locations table is the next step.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="px-0 pb-0">
+        {isLoading ? (
+          <div className="space-y-2 px-6 pb-4">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <Skeleton key={i} className="h-8 w-full" />
+            ))}
+          </div>
+        ) : cityRows.length === 0 ? (
+          <div className="px-6 py-10 text-center text-sm text-muted-foreground">
+            No locations with city data in this window.
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="border-y bg-muted/30 text-xs text-muted-foreground">
+                <tr>
+                  <th className="px-6 py-2 text-left font-medium">City</th>
+                  <th className="px-3 py-2 text-right font-medium">
+                    Locations
+                  </th>
+                  <th className="px-3 py-2 text-right font-medium">Reviews</th>
+                  <th className="px-3 py-2 text-right font-medium">
+                    Weighted ★
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {cityRows.map((c, i) => (
+                  <tr
+                    key={`${c.city}-${c.state}`}
+                    className={i % 2 === 0 ? 'bg-background' : 'bg-muted/20'}
+                  >
+                    <td className="px-6 py-2 font-medium">
+                      {c.city}
+                      {c.state && (
+                        <span className="ml-1 text-xs text-muted-foreground">
+                          {c.state}
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums">
+                      {c.locationCount}
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums">
+                      {c.reviews}
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums">
+                      {c.avgRating.toFixed(2)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   )
 }
 

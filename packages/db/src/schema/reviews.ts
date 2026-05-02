@@ -49,7 +49,9 @@ export const reviews = pgTable(
       .default({})
       .notNull(),
     source: varchar('source', { length: 20 }).default('online').notNull(),
-    journeyResponseId: uuid('journey_response_id'),
+    // Phase 5 — journey_response_id column dropped (migration 0015).
+    // Cross-reference via reviews.metadata.surveyResponseId
+    // (set by the survey engine on offline-review creation).
     aspectTags: text('aspect_tags').array(),
     isEscalated: boolean('is_escalated').default(false).notNull(),
     createdAt: timestamp('created_at').defaultNow().notNull(),

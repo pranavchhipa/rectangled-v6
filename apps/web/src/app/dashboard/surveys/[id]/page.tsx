@@ -8,7 +8,9 @@ import {
   Background,
   Controls,
   MiniMap,
+  applyNodeChanges,
   type Node,
+  type NodeChange,
   type Edge,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
@@ -231,6 +233,12 @@ export default function SurveyEditorPage() {
   const [name, setName] = useState('')
   const [status, setStatus] = useState<'draft' | 'active' | 'archived'>('draft')
   const [dirty, setDirty] = useState(false)
+  // Phase 3 Stage F follow-up — local node state so the user can drag
+  // nodes around. Positions are persisted via "Save layout" which calls
+  // survey.update with the new steps array (each step's `position`
+  // mirrors the React Flow node position).
+  const [nodes, setNodes] = useState<Node[]>([])
+  const [layoutDirty, setLayoutDirty] = useState(false)
 
   const surveyQuery = trpc.survey.getById.useQuery(
     { id },
@@ -273,15 +281,43 @@ export default function SurveyEditorPage() {
 
   const steps = (survey?.steps ?? []) as Step[]
 
-  const nodes = useMemo<Node[]>(
-    () =>
+  // Sync the React Flow node state from the server-side steps. Resetting
+  // here also clears the layoutDirty flag because we're now in sync with
+  // the persisted state.
+  useEffect(() => {
+    setNodes(
       buildNodes(steps, (step) => {
         setEditingStep(step)
         setStepDraft(JSON.parse(JSON.stringify(step.config)))
       }),
-    [steps],
-  )
+    )
+    setLayoutDirty(false)
+  }, [steps])
+
   const edges = useMemo<Edge[]>(() => buildEdges(steps), [steps])
+
+  function onNodesChange(changes: NodeChange[]) {
+    setNodes((current) => applyNodeChanges(changes, current))
+    // Position changes are the only thing we want to flag as dirty.
+    if (changes.some((c) => c.type === 'position')) setLayoutDirty(true)
+  }
+
+  function handleSaveLayout() {
+    if (!survey) return
+    // Pull the latest positions off the React Flow node state and
+    // mirror them into each step's `position` field.
+    const positionMap = new Map(
+      nodes.map((n) => [n.id, n.position]),
+    )
+    const newSteps = steps.map((s) => {
+      const pos = positionMap.get(s.id)
+      return pos ? { ...s, position: { x: pos.x, y: pos.y } } : s
+    })
+    updateMutation.mutate({
+      id: survey.id,
+      steps: newSteps,
+    })
+  }
 
   function handleSaveMetadata() {
     if (!survey) return
@@ -436,19 +472,38 @@ export default function SurveyEditorPage() {
       {/* React Flow canvas */}
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="text-base">Step graph</CardTitle>
-          <CardDescription className="text-xs">
-            Click any step to edit its config. Dashed red edges point at
-            steps that don't exist (likely a typo in a config).
-          </CardDescription>
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <CardTitle className="text-base">Step graph</CardTitle>
+              <CardDescription className="text-xs">
+                Drag a step to re-arrange. Click any step to edit its
+                config. Dashed red edges point at steps that don't exist
+                (typo in a config).
+              </CardDescription>
+            </div>
+            <Button
+              size="sm"
+              variant={layoutDirty ? 'default' : 'outline'}
+              onClick={handleSaveLayout}
+              disabled={!layoutDirty || updateMutation.isPending}
+            >
+              {updateMutation.isPending ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <Save className="size-4" />
+              )}
+              Save layout
+            </Button>
+          </div>
         </CardHeader>
         <CardContent className="p-0">
           <div className="h-[600px] w-full border-t bg-muted/10">
             <ReactFlow
               nodes={nodes}
               edges={edges}
+              onNodesChange={onNodesChange}
               fitView
-              nodesDraggable={false}
+              nodesDraggable={true}
               nodesConnectable={false}
               elementsSelectable={true}
               proOptions={{ hideAttribution: true }}

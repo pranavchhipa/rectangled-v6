@@ -19,6 +19,9 @@ export class CliService {
     trustScore: number
     satisfactionScore: number
     advocacyScore: number
+    // Phase 5 — kept on the input for back-compat with callers; the
+    // backing columns were dropped (migration 0015) so the values flow
+    // into metadata instead for historical cross-reference.
     truformResponseId?: string
     journeyResponseId?: string
     metadata?: Record<string, unknown>
@@ -30,20 +33,24 @@ export class CliService {
     )
     const segment = determineCliSegment(cliScore)
 
+    const legacyRefs: Record<string, string> = {}
+    if (input.truformResponseId)
+      legacyRefs.legacyTruformResponseId = input.truformResponseId
+    if (input.journeyResponseId)
+      legacyRefs.legacyJourneyResponseId = input.journeyResponseId
+
     const [response] = await this.db
       .insert(cliResponses)
       .values({
         workspaceId: input.workspaceId!,
         customerId: input.customerId,
         locationId: input.locationId,
-        truformResponseId: input.truformResponseId,
-        journeyResponseId: input.journeyResponseId,
         trustScore: input.trustScore,
         satisfactionScore: input.satisfactionScore,
         advocacyScore: input.advocacyScore,
         cliScore,
         segment,
-        metadata: input.metadata ?? {},
+        metadata: { ...(input.metadata ?? {}), ...legacyRefs },
       })
       .returning()
 

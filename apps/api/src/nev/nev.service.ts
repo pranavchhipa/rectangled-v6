@@ -90,6 +90,12 @@ export class NevService {
       ? ((positiveSum - negativeSum) / total) * 100
       : 0
 
+    // Phase 5 — truform_response_id / journey_response_id columns
+    // dropped (migration 0015). Inputs are still accepted for
+    // back-compat but flow into a metadata field on responseData via
+    // the rawText escape hatch (nev_responses doesn't have a metadata
+    // column; the legacy id is best-effort recorded in rawText if no
+    // free text was provided).
     const [response] = await this.db
       .insert(nevResponses)
       .values({
@@ -97,8 +103,6 @@ export class NevService {
         customerId: input.customerId,
         locationId: input.locationId,
         reviewId: input.reviewId,
-        truformResponseId: input.truformResponseId,
-        journeyResponseId: input.journeyResponseId,
         source: input.source,
         emotions: input.emotions,
         nevScore,

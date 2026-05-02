@@ -30,6 +30,8 @@ const automationQueueStatuses = [
 export const listAutomationRulesSchema = z.object({
   workspaceId: z.string().uuid(),
   membershipId: z.string().uuid(),
+  // Phase 5 — automation_rules.journey_id was dropped. The field is
+  // accepted for back-compat but the server ignores it.
   journeyId: z.string().uuid().optional(),
 })
 
