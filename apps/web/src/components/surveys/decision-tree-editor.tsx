@@ -40,7 +40,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { AlertTriangle, Loader2, Plus, Save } from 'lucide-react'
+import { AlertTriangle, Eye, Loader2, Plus, Save } from 'lucide-react'
 import { toast } from 'sonner'
 import {
   STEP_TYPE_LABELS,
@@ -78,12 +78,15 @@ interface DecisionTreeEditorProps {
   surveyId: string
   initialSteps: SurveyStep[]
   workspaceId: string
+  /** Survey slug — used to open the preview at /j/{slug}?preview=true. */
+  slug: string
 }
 
 export function DecisionTreeEditor({
   surveyId,
   initialSteps,
   workspaceId,
+  slug,
 }: DecisionTreeEditorProps) {
   const router = useRouter()
   const utils = trpc.useUtils()
@@ -216,6 +219,23 @@ export function DecisionTreeEditor({
         <span className="text-xs text-muted-foreground">
           {dirty ? 'Unsaved changes' : 'All changes saved'}
         </span>
+        {/* Hotfix PRD §3.6 — preview button. Opens /j/{slug}?preview=true
+            in a new tab; the renderer reads the flag and threads it
+            through every submit so the engine no-ops persistence. */}
+        <Button
+          variant="outline"
+          onClick={() => {
+            if (dirty) {
+              toast.info('Save first to preview the latest version.')
+              return
+            }
+            window.open(`/j/${slug}?preview=true`, '_blank', 'noopener,noreferrer')
+          }}
+          disabled={hasErrors}
+        >
+          <Eye className="size-4" />
+          Preview
+        </Button>
         <Button
           onClick={handleSave}
           disabled={!dirty || hasErrors || updateMutation.isPending}

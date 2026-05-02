@@ -139,6 +139,16 @@ export const submitLegacyJourneySchema = z.object({
   customerEmail: z.string().email().optional(),
   customerPhone: z.string().optional(),
   updateResponseId: z.string().uuid().optional(),
+  /**
+   * Hotfix PRD §3.6 — preview mode for the decision-tree editor.
+   * When true, the engine returns a synthetic success response without
+   * inserting `survey_starts` / `survey_responses` / `customers` /
+   * `reviews` rows or firing automations. Used by the editor's
+   * "📱 Preview" button which opens `/j/{slug}?preview=true` in a new
+   * tab so the owner walks through the actual public renderer with
+   * zero side effects.
+   */
+  preview: z.boolean().optional(),
 })
 
 export const submitLegacyTruformSchema = z.object({

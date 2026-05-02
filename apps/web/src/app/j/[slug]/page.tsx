@@ -1,8 +1,8 @@
 'use client'
 
 import { useState, useCallback, useMemo } from 'react'
-import { useParams } from 'next/navigation'
-import { Loader2, CheckCircle2, MessageSquare, Send, Copy, ExternalLink } from 'lucide-react'
+import { useParams, useSearchParams } from 'next/navigation'
+import { Loader2, CheckCircle2, MessageSquare, Send, Copy, ExternalLink, Eye } from 'lucide-react'
 import { trpc } from '@/lib/trpc'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -25,7 +25,14 @@ const METRIC_RANGE: Record<Metric, { min: number; max: number; step: number }> =
 
 export default function PublicJourneyPage() {
   const params = useParams()
+  const searchParams = useSearchParams()
   const slug = params.slug as string
+
+  // Hotfix PRD §3.6 — owner-side preview mode. When `?preview=true` is
+  // in the URL, every submit call passes `preview: true` so the engine
+  // skips inserting survey_starts / survey_responses / customers /
+  // reviews. Used by the decision-tree editor's "📱 Preview" button.
+  const isPreview = searchParams?.get('preview') === 'true'
 
   const [sessionId] = useState(() =>
     typeof crypto !== 'undefined' && crypto.randomUUID
@@ -106,6 +113,7 @@ export default function PublicJourneyPage() {
             metricShown: screen.metricShown,
             metricScore: chosenScore,
           },
+          preview: isPreview,
         })
         setResponseId(result.responseId)
         setScore(chosenScore)
@@ -145,6 +153,7 @@ export default function PublicJourneyPage() {
           acceptedReviewPrompt: true,
           redirectedTo: platform,
         },
+        preview: isPreview,
       })
       setThankYouText(screen.thankYouHappyYes)
       setFlowState('thank_you')
@@ -168,6 +177,7 @@ export default function PublicJourneyPage() {
         sessionId,
         updateResponseId: responseId,
         responseData: { acceptedReviewPrompt: false },
+        preview: isPreview,
       })
       setThankYouText(screen.thankYouHappyNo)
       setFlowState('thank_you')
@@ -193,6 +203,7 @@ export default function PublicJourneyPage() {
         customerName: name || undefined,
         customerEmail: email || undefined,
         customerPhone: phone || undefined,
+        preview: isPreview,
       })
       setThankYouText(screen.thankYouUnhappy)
       setFlowState('thank_you')
@@ -246,6 +257,13 @@ export default function PublicJourneyPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white flex flex-col">
+      {isPreview && (
+        <div className="bg-amber-100 border-b border-amber-200 px-4 py-2 text-center text-xs text-amber-900">
+          <Eye className="mr-1 inline-block size-3.5" />
+          <strong>Preview mode</strong> · responses are NOT saved · close this
+          tab to exit
+        </div>
+      )}
       <div className="flex-1 flex items-center justify-center p-4">
         <div className="w-full max-w-md space-y-6">
           {flowState === 'asking_metric' && (

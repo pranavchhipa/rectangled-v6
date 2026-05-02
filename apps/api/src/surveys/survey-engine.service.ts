@@ -471,11 +471,26 @@ export class SurveyEngineService {
     customerEmail?: string
     customerPhone?: string
     updateResponseId?: string
+    /**
+     * Hotfix PRD §3.6 — preview mode. When true, returns a synthetic
+     * success without writing to survey_starts / survey_responses /
+     * customers / reviews. The renderer behaves identically; the
+     * server just no-ops the persistence.
+     */
+    preview?: boolean
   }): Promise<{ success: true; responseId: string; isPositive: boolean | null }> {
-    // 1. Find the survey backing this legacy journey id.
-    const survey = await this.db.query.surveys.findFirst({
+    // 1. Find the survey backing this legacy journey id. Custom and
+    //    post-merger quick surveys don't have legacy_journey_id set;
+    //    `getPublicLegacyJourney` surfaces survey.id as the renderer's
+    //    `journeyId` in that case, so we fall back to a survey.id lookup.
+    let survey = await this.db.query.surveys.findFirst({
       where: eq(surveys.legacyJourneyId, input.journeyId),
     })
+    if (!survey) {
+      survey = await this.db.query.surveys.findFirst({
+        where: eq(surveys.id, input.journeyId),
+      })
+    }
     if (!survey) {
       throw new TRPCError({
         code: 'NOT_FOUND',
@@ -493,11 +508,33 @@ export class SurveyEngineService {
       return this.delegateToAdaptive(survey, input)
     }
 
-    if (survey.template !== 'quick') {
+    // Hotfix §3 — custom surveys share the quick step-graph shape and
+    // run through the same code path here. The wizard locks structure
+    // so the engine logic below works identically.
+    if (survey.template !== 'quick' && survey.template !== 'custom') {
       throw new TRPCError({
         code: 'BAD_REQUEST',
         message: 'Legacy journey shim used on a deep-template survey',
       })
+    }
+
+    // Hotfix §3.6 — preview short-circuit. Return a synthetic success
+    // before any DB write. The renderer still advances to the next
+    // screen (positive vs negative path) based on the metric score it
+    // already knows; we just compute is_positive without persisting.
+    if (input.preview) {
+      const data = input.responseData
+      const previewMetric = data.metricShown as SurveyMetric | undefined
+      const previewScore = data.metricScore as number | undefined
+      const previewIsPositive =
+        previewMetric && typeof previewScore === 'number'
+          ? this.computeLegacyIsPositive(survey, previewMetric, previewScore)
+          : null
+      return {
+        success: true,
+        responseId: `preview-${input.sessionId}`,
+        isPositive: previewIsPositive,
+      }
     }
 
     // ===== PHASE 2: merge into existing response =====
@@ -967,12 +1004,18 @@ export class SurveyEngineService {
       return this.legacyShapeFromAdaptive(survey, input.slug)
     }
 
-    if (survey.template !== 'quick') {
+    if (survey.template !== 'quick' && survey.template !== 'custom') {
       throw new TRPCError({
         code: 'BAD_REQUEST',
         message: 'Slug resolves to a deep-template survey; use getPublicLegacyTruform instead',
       })
     }
+    // Hotfix PRD §3 — `template='custom'` surveys share the wizard's
+    // step-graph shape with quick surveys (s1_metric → s2_branch → ...),
+    // so the same legacy-shape reconstruction works for both. The only
+    // structural divergence is the just_thank case where there's no
+    // redirect step — handled below by the redirect/redirectStep being
+    // undefined falling back to redirectLinks={}.
 
     const steps = (survey.steps as SurveyStep[]) ?? []
     const metricStep = steps.find((s) => isAskMetric(s)) as

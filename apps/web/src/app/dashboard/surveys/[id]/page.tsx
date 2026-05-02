@@ -876,6 +876,7 @@ export default function SurveyEditorPage() {
           surveyId={survey.id}
           initialSteps={survey.steps as unknown as SurveyStep[]}
           workspaceId={currentWorkspaceId ?? ''}
+          slug={survey.slug}
         />
       ) : (
         <>
