@@ -41,21 +41,22 @@ function NpsInput({
 }) {
   // Hotfix-8 — Afraa-style. Navy-bordered scale buttons with brand-color
   // selected state. Uniform look (no red/amber/green tinting).
+  // Hotfix-9 — mobile-first sizing.
   return (
-    <div className="space-y-3">
+    <div className="space-y-2.5 sm:space-y-3">
       <p
-        className="text-center text-[26px] font-extrabold leading-[1.15] tracking-tight"
+        className="text-center text-[20px] font-extrabold leading-[1.15] tracking-tight sm:text-[26px]"
         style={{ color: 'var(--navy)' }}
       >
         How likely are you to recommend us to a friend?
       </p>
       <p
-        className="text-center text-[11px] font-bold uppercase tracking-[0.22em]"
+        className="text-center text-[10px] font-bold uppercase tracking-[0.22em] sm:text-[11px]"
         style={{ color: 'var(--navy)', opacity: 0.55 }}
       >
         NPS
       </p>
-      <div className="grid grid-cols-11 gap-1 pt-3 sm:gap-1.5">
+      <div className="grid grid-cols-11 gap-0.5 pt-2 sm:gap-1.5 sm:pt-3">
         {Array.from({ length: 11 }).map((_, i) => {
           const isSelected = value === i
           return (
@@ -63,7 +64,7 @@ function NpsInput({
               key={i}
               type="button"
               onClick={() => onChange(i)}
-              className="flex aspect-square items-center justify-center rounded-lg border-2 text-[13px] font-bold transition-all hover:scale-105 sm:text-base"
+              className="flex aspect-square items-center justify-center rounded-lg border-2 text-[11px] font-bold transition-all hover:scale-105 sm:text-base"
               style={
                 isSelected
                   ? {
@@ -86,7 +87,7 @@ function NpsInput({
         })}
       </div>
       <div
-        className="flex justify-between px-1 text-[11px] font-semibold"
+        className="flex justify-between px-1 text-[10px] font-semibold sm:text-[11px]"
         style={{ color: 'var(--navy)', opacity: 0.55 }}
       >
         <span>Not at all likely</span>
@@ -109,21 +110,22 @@ function CsatInput({
 
   // Hotfix-8 — Afraa-style. Gold outlined stars by default, brand-color
   // fill on hover/select. Big navy heading + small uppercase metric label.
+  // Hotfix-9 — mobile-first sizing.
   return (
-    <div className="space-y-3">
+    <div className="space-y-2.5 sm:space-y-3">
       <p
-        className="text-center text-[26px] font-extrabold leading-[1.15] tracking-tight"
+        className="text-center text-[20px] font-extrabold leading-[1.15] tracking-tight sm:text-[26px]"
         style={{ color: 'var(--navy)' }}
       >
         How was your experience with us?
       </p>
       <p
-        className="text-center text-[11px] font-bold uppercase tracking-[0.22em]"
+        className="text-center text-[10px] font-bold uppercase tracking-[0.22em] sm:text-[11px]"
         style={{ color: 'var(--navy)', opacity: 0.55 }}
       >
         CSAT
       </p>
-      <div className="flex justify-center gap-3 py-2 sm:gap-4">
+      <div className="flex justify-center gap-2 py-1 sm:gap-4 sm:py-2">
         {Array.from({ length: 5 }).map((_, i) => {
           const starNum = i + 1
           const isFilled =
@@ -142,7 +144,7 @@ function CsatInput({
               aria-label={`${starNum} star${starNum > 1 ? 's' : ''}`}
             >
               <Star
-                className="size-11 sm:size-12"
+                className="size-9 sm:size-12"
                 style={
                   isFilled
                     ? { fill: brandColor, color: brandColor }
@@ -155,7 +157,7 @@ function CsatInput({
         })}
       </div>
       <div
-        className="flex justify-between px-2 text-[11px] font-semibold"
+        className="flex justify-between px-2 text-[10px] font-semibold sm:text-[11px]"
         style={{ color: 'var(--navy)', opacity: 0.55 }}
       >
         <span>Very Dissatisfied</span>
@@ -185,21 +187,22 @@ function CesInput({
   ]
 
   // Hotfix-8 — Afraa-style. Same scale treatment as NPS but 7-point.
+  // Hotfix-9 — mobile-first sizing.
   return (
-    <div className="space-y-3">
+    <div className="space-y-2.5 sm:space-y-3">
       <p
-        className="text-center text-[26px] font-extrabold leading-[1.15] tracking-tight"
+        className="text-center text-[20px] font-extrabold leading-[1.15] tracking-tight sm:text-[26px]"
         style={{ color: 'var(--navy)' }}
       >
         How easy was it to get what you needed today?
       </p>
       <p
-        className="text-center text-[11px] font-bold uppercase tracking-[0.22em]"
+        className="text-center text-[10px] font-bold uppercase tracking-[0.22em] sm:text-[11px]"
         style={{ color: 'var(--navy)', opacity: 0.55 }}
       >
         CES
       </p>
-      <div className="grid grid-cols-7 gap-1 pt-3 sm:gap-1.5">
+      <div className="grid grid-cols-7 gap-1 pt-2 sm:gap-1.5 sm:pt-3">
         {Array.from({ length: 7 }).map((_, i) => {
           const num = i + 1
           const isSelected = value === num
@@ -209,7 +212,7 @@ function CesInput({
               key={i}
               type="button"
               onClick={() => onChange(num)}
-              className="flex aspect-square items-center justify-center rounded-lg border-2 text-[14px] font-bold transition-all hover:scale-105 sm:p-3"
+              className="flex aspect-square items-center justify-center rounded-lg border-2 text-[12px] font-bold transition-all hover:scale-105 sm:text-[14px] sm:p-3"
               style={
                 isSelected
                   ? {
@@ -232,7 +235,7 @@ function CesInput({
         })}
       </div>
       <div
-        className="flex justify-between px-1 text-[11px] font-semibold"
+        className="flex justify-between px-1 text-[10px] font-semibold sm:text-[11px]"
         style={{ color: 'var(--navy)', opacity: 0.55 }}
       >
         <span>Very Difficult</span>
@@ -308,24 +311,25 @@ export default function PublicFormPage() {
     return (
       <BrandedPublicLayout branding={branding}>
         {/* Hotfix-8 — Afraa-style thank-you. Brand-color celebration ring,
-            navy heading. */}
+            navy heading.
+            Hotfix-9 — mobile-first sizing. */}
         <div className="text-center">
           <div
-            className="mx-auto flex size-20 items-center justify-center rounded-full"
+            className="mx-auto flex size-16 items-center justify-center rounded-full sm:size-20"
             style={{
               backgroundColor: 'color-mix(in srgb, var(--brand) 15%, white)',
             }}
           >
-            <CheckCircle2 className="size-10" style={{ color: 'var(--brand)' }} />
+            <CheckCircle2 className="size-8 sm:size-10" style={{ color: 'var(--brand)' }} />
           </div>
           <h2
-            className="mt-5 text-[28px] font-extrabold leading-tight tracking-tight"
+            className="mt-4 text-[24px] font-extrabold leading-tight tracking-tight sm:mt-5 sm:text-[28px]"
             style={{ color: 'var(--navy)' }}
           >
             Thank You!
           </h2>
           <p
-            className="mt-2 text-[15px] font-medium"
+            className="mt-2 text-[14px] font-medium sm:text-[15px]"
             style={{ color: 'var(--navy)', opacity: 0.7 }}
           >
             {thankYouMessage}
@@ -356,10 +360,11 @@ export default function PublicFormPage() {
           the navy header). Score input + contact fields + submit all
           tinted to navy/brand palette. */}
       <div>
-        {/* Form name as eyebrow + scoring instruction */}
+        {/* Form name as eyebrow + scoring instruction.
+            Hotfix-9 — tighter spacing on mobile. */}
         {form.name && (
           <p
-            className="mb-4 text-center text-[11px] font-bold uppercase tracking-[0.22em]"
+            className="mb-3 text-center text-[10px] font-bold uppercase tracking-[0.22em] sm:mb-4 sm:text-[11px]"
             style={{ color: 'var(--navy)', opacity: 0.5 }}
           >
             {form.name}
@@ -377,20 +382,20 @@ export default function PublicFormPage() {
           <CesInput value={score} onChange={setScore} brandColor={brandColor} />
         )}
         {form.type === 'custom' && (
-          <div className="space-y-3">
+          <div className="space-y-2.5 sm:space-y-3">
             <p
-              className="text-center text-[26px] font-extrabold leading-[1.15] tracking-tight"
+              className="text-center text-[20px] font-extrabold leading-[1.15] tracking-tight sm:text-[26px]"
               style={{ color: 'var(--navy)' }}
             >
               Rate your experience
             </p>
             <p
-              className="text-center text-[11px] font-bold uppercase tracking-[0.22em]"
+              className="text-center text-[10px] font-bold uppercase tracking-[0.22em] sm:text-[11px]"
               style={{ color: 'var(--navy)', opacity: 0.55 }}
             >
               1 – 10
             </p>
-            <div className="grid grid-cols-5 gap-1.5 pt-3 sm:grid-cols-10">
+            <div className="grid grid-cols-5 gap-1 pt-2 sm:grid-cols-10 sm:gap-1.5 sm:pt-3">
               {Array.from({ length: 10 }).map((_, i) => {
                 const num = i + 1
                 const isSelected = score === num
@@ -399,7 +404,7 @@ export default function PublicFormPage() {
                     key={i}
                     type="button"
                     onClick={() => setScore(num)}
-                    className="flex aspect-square size-11 items-center justify-center rounded-lg border-2 text-[14px] font-bold transition-all hover:scale-105"
+                    className="flex aspect-square items-center justify-center rounded-lg border-2 text-[12px] font-bold transition-all hover:scale-105 sm:size-11 sm:text-[14px]"
                     style={
                       isSelected
                         ? {
@@ -424,10 +429,11 @@ export default function PublicFormPage() {
           </div>
         )}
 
-        {/* Contact fields — navy-bordered, brand focus */}
-        <div className="mt-8 space-y-3">
+        {/* Contact fields — navy-bordered, brand focus.
+            Hotfix-9 — tighter spacing + smaller h on mobile. */}
+        <div className="mt-5 space-y-2 sm:mt-8 sm:space-y-3">
           <p
-            className="text-[11px] font-bold uppercase tracking-[0.18em]"
+            className="text-[10px] font-bold uppercase tracking-[0.18em] sm:text-[11px]"
             style={{ color: 'var(--navy)', opacity: 0.5 }}
           >
             Optional — your details
@@ -455,7 +461,7 @@ export default function PublicFormPage() {
             <input
               key={i}
               type={f.type}
-              className="h-12 w-full rounded-xl border-2 bg-white px-4 text-[14px] transition-colors focus:outline-none"
+              className="h-10 w-full rounded-xl border-2 bg-white px-3.5 text-[13px] transition-colors focus:outline-none sm:h-12 sm:px-4 sm:text-[14px]"
               style={{
                 borderColor: 'rgba(17, 34, 79, 0.15)',
                 color: 'var(--navy)',
@@ -475,7 +481,7 @@ export default function PublicFormPage() {
 
         {/* Submit */}
         <Button
-          className="mt-6 h-14 w-full rounded-xl text-[15px] font-bold text-white shadow-md transition-all hover:opacity-90"
+          className="mt-4 h-12 w-full rounded-xl text-[14px] font-bold text-white shadow-md transition-all hover:opacity-90 sm:mt-6 sm:h-14 sm:text-[15px]"
           size="lg"
           onClick={handleSubmit}
           disabled={score == null || submitMutation.isPending}

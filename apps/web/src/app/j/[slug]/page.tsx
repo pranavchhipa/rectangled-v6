@@ -324,22 +324,23 @@ export default function PublicJourneyPage() {
         )}
 
         {flowState === 'thank_you' && (
-          // Hotfix-8 — brand-color celebration ring, navy heading
-          <div className="space-y-4 text-center">
+          // Hotfix-8 — brand-color celebration ring, navy heading.
+          // Hotfix-9 — mobile-first sizing.
+          <div className="space-y-3 text-center sm:space-y-4">
             <div
-              className="mx-auto flex size-20 items-center justify-center rounded-full"
+              className="mx-auto flex size-16 items-center justify-center rounded-full sm:size-20"
               style={{ backgroundColor: 'color-mix(in srgb, var(--brand) 15%, white)' }}
             >
-              <CheckCircle2 className="size-10" style={{ color: 'var(--brand)' }} />
+              <CheckCircle2 className="size-8 sm:size-10" style={{ color: 'var(--brand)' }} />
             </div>
             <h1
-              className="text-[28px] font-extrabold leading-tight tracking-tight"
+              className="text-[24px] font-extrabold leading-tight tracking-tight sm:text-[28px]"
               style={{ color: 'var(--navy)' }}
             >
               Thank You!
             </h1>
             <p
-              className="text-[15px] font-medium"
+              className="text-[14px] font-medium sm:text-[15px]"
               style={{ color: 'var(--navy)', opacity: 0.7 }}
             >
               {thankYouText}
@@ -381,26 +382,28 @@ function MetricInput({
   // Hotfix-8 — Afraa-style refactor. Navy heading, brand-color selected
   // state, brand-color Continue button. Reads --navy / --brand / --gold
   // CSS vars exposed by BrandedPublicLayout.
+  // Hotfix-9 — mobile-first sizing so the whole NPS flow fits in one
+  // iPhone SE viewport (667px) without scrolling.
   return (
-    <div className="space-y-7">
+    <div className="space-y-5 sm:space-y-7">
       <div className="text-center">
         <h1
-          className="text-[28px] font-extrabold leading-[1.15] tracking-tight"
+          className="text-[22px] font-extrabold leading-[1.15] tracking-tight sm:text-[28px]"
           style={{ color: 'var(--navy)' }}
         >
           {question}
         </h1>
         <p
-          className="mt-2 text-[11px] font-bold uppercase tracking-[0.22em]"
+          className="mt-2 text-[10px] font-bold uppercase tracking-[0.22em] sm:text-[11px]"
           style={{ color: 'var(--navy)', opacity: 0.55 }}
         >
           {metric.toUpperCase()}
         </p>
       </div>
 
-      <div className="space-y-3">
+      <div className="space-y-2.5 sm:space-y-3">
         <div
-          className={`grid gap-2 ${
+          className={`grid gap-1.5 sm:gap-2 ${
             values.length <= 5
               ? 'grid-cols-5'
               : values.length <= 7
@@ -415,7 +418,7 @@ function MetricInput({
                 key={v}
                 type="button"
                 onClick={() => setPendingScore(v)}
-                className={`min-h-[48px] rounded-xl border-2 py-3 text-[15px] font-bold transition-all ${
+                className={`min-h-[40px] rounded-xl border-2 py-2 text-[14px] font-bold transition-all sm:min-h-[48px] sm:py-3 sm:text-[15px] ${
                   selected ? 'scale-105 text-white shadow-md' : 'bg-white'
                 }`}
                 style={
@@ -436,7 +439,7 @@ function MetricInput({
           })}
         </div>
         <div
-          className="flex justify-between px-1 text-[11px] font-semibold"
+          className="flex justify-between px-1 text-[10px] font-semibold sm:text-[11px]"
           style={{ color: 'var(--navy)', opacity: 0.55 }}
         >
           <span>{scaleLabels.low}</span>
@@ -445,7 +448,7 @@ function MetricInput({
       </div>
 
       <Button
-        className="h-14 w-full rounded-xl text-[15px] font-bold text-white shadow-md transition-all hover:opacity-90"
+        className="h-12 w-full rounded-xl text-[14px] font-bold text-white shadow-md transition-all hover:opacity-90 sm:h-14 sm:text-[15px]"
         size="lg"
         onClick={() => pendingScore !== null && onSubmit(pendingScore)}
         disabled={pendingScore === null || isSubmitting}
@@ -487,17 +490,18 @@ function HappyPrompt({
 
   // Hotfix-8 — Afraa-style refactor. Brand-color celebration ring on
   // the checkmark, navy heading, brand-primary YES button + outline NO.
+  // Hotfix-9 — mobile-first sizing so this flow fits one viewport.
   return (
-    <div className="space-y-6">
+    <div className="space-y-5 sm:space-y-6">
       <div className="text-center">
         <div
-          className="mx-auto flex size-16 items-center justify-center rounded-full"
+          className="mx-auto flex size-14 items-center justify-center rounded-full sm:size-16"
           style={{ backgroundColor: 'color-mix(in srgb, var(--brand) 15%, white)' }}
         >
-          <CheckCircle2 className="size-8" style={{ color: 'var(--brand)' }} />
+          <CheckCircle2 className="size-7 sm:size-8" style={{ color: 'var(--brand)' }} />
         </div>
         <h1
-          className="mt-4 text-[26px] font-extrabold leading-[1.15] tracking-tight"
+          className="mt-3 text-[22px] font-extrabold leading-[1.15] tracking-tight sm:mt-4 sm:text-[26px]"
           style={{ color: 'var(--navy)' }}
         >
           {copy.question}
@@ -535,9 +539,9 @@ function HappyPrompt({
         </div>
       )}
 
-      <div className="space-y-3">
+      <div className="space-y-2.5 sm:space-y-3">
         <Button
-          className="h-14 w-full rounded-xl text-[15px] font-bold text-white shadow-md transition-all hover:opacity-90"
+          className="h-12 w-full rounded-xl text-[14px] font-bold text-white shadow-md transition-all hover:opacity-90 sm:h-14 sm:text-[15px]"
           size="lg"
           onClick={() => {
             if (!hasClipboard) setShowFallback(true)
@@ -557,7 +561,7 @@ function HappyPrompt({
         </Button>
         <Button
           variant="ghost"
-          className="h-12 w-full rounded-xl border-2 text-[14px] font-semibold transition-colors hover:bg-slate-50"
+          className="h-11 w-full rounded-xl border-2 text-[13px] font-semibold transition-colors hover:bg-slate-50 sm:h-12 sm:text-[14px]"
           onClick={onNo}
           disabled={isSubmitting}
           style={{
@@ -608,17 +612,18 @@ function UnhappyFeedback({
 }) {
   // Hotfix-8 — Afraa-style refactor. Navy heading, brand-color selected
   // chips, navy/brand input borders, brand-color Submit.
+  // Hotfix-9 — mobile-first sizing.
   return (
-    <div className="space-y-5">
+    <div className="space-y-4 sm:space-y-5">
       <div>
         <h2
-          className="text-[24px] font-extrabold leading-tight tracking-tight"
+          className="text-[20px] font-extrabold leading-tight tracking-tight sm:text-[24px]"
           style={{ color: 'var(--navy)' }}
         >
           What went wrong?
         </h2>
         <p
-          className="mt-1 text-[14px] font-medium"
+          className="mt-1 text-[13px] font-medium sm:text-[14px]"
           style={{ color: 'var(--navy)', opacity: 0.65 }}
         >
           Help us improve your next experience.
@@ -716,7 +721,7 @@ function UnhappyFeedback({
       </div>
 
       <Button
-        className="h-14 w-full rounded-xl text-[15px] font-bold text-white shadow-md transition-all hover:opacity-90"
+        className="h-12 w-full rounded-xl text-[14px] font-bold text-white shadow-md transition-all hover:opacity-90 sm:h-14 sm:text-[15px]"
         size="lg"
         onClick={onSubmit}
         disabled={isSubmitting}

@@ -84,10 +84,22 @@ const WAVES_BG =
 export function BrandedPublicLayout({ branding, children, topSlot }: Props) {
   const brand = branding.brandColor
 
-  // Cursive fallback: first word of displayName lowercased, in italic
-  // serif. Long names truncate visually inside the 152px circle.
+  // Cursive fallback (when no logoUrl uploaded). Source priority:
+  //   1. workspaceName — never includes location suffix; cleanest
+  //      when the displayName resolves to "Workspace — Location"
+  //      composite. We want the LOCATION's branding to lead, so we
+  //      actually prefer the location half when present.
+  //   2. If displayName has " — " separator (from branding.helper.ts
+  //      single-location fallthrough), use the part AFTER the dash
+  //      (location name). Otherwise use displayName as-is.
+  // Then take first word, lowercase. For "Pranav's Business — Woof
+  // Nest" → "woof". For "Woof Nest" alone → "woof". For "Afraa Lounge
+  // & Restaurant" → "afraa".
+  const cursiveSource = branding.displayName.includes(' — ')
+    ? branding.displayName.split(' — ').slice(1).join(' — ').trim()
+    : branding.displayName
   const cursiveFallback =
-    branding.displayName.trim().split(/\s+/)[0]?.toLowerCase() || '?'
+    cursiveSource.trim().split(/\s+/)[0]?.toLowerCase() || '?'
 
   // Inline CSS vars so descendants can use `var(--brand)`, `var(--navy)`,
   // `var(--gold)` without prop-drilling. Avoids tailwind arbitrary-value
@@ -116,27 +128,33 @@ export function BrandedPublicLayout({ branding, children, topSlot }: Props) {
     >
       {topSlot}
 
-      {/* Top: navy header with concentric rings */}
+      {/* Top: navy header with concentric rings.
+          Hotfix-9 — mobile-first sizing. Was minHeight: 36vh which on
+          iPhone SE (667px) ate 240px and overflowed the viewport with
+          page scroll. Now 22vh mobile / 32vh sm: keeps the whole
+          experience inside one screen on small phones. */}
       <header
         role="banner"
-        className="relative px-7 pb-7 pt-14 sm:pt-16"
+        className="relative px-6 pb-5 pt-10 sm:px-7 sm:pb-7 sm:pt-14"
         style={{
           backgroundColor: HEADER_NAVY,
           backgroundImage: RINGS_BG,
           backgroundSize: '100% 100%',
           backgroundRepeat: 'no-repeat',
           backgroundPosition: 'bottom center',
-          minHeight: '36vh',
+          minHeight: 'min(22vh, 180px)',
         }}
       >
-        <h1 className="z-10 text-[28px] font-bold leading-[1.15] tracking-tight text-white sm:text-[30px]">
+        <h1 className="z-10 text-[22px] font-bold leading-[1.2] tracking-tight text-white sm:text-[28px] sm:leading-[1.15] md:text-[30px]">
           {branding.displayName}
         </h1>
       </header>
 
-      {/* Bottom: white card with curved top + waves + content */}
+      {/* Bottom: white card with curved top + waves + content.
+          Hotfix-9 — pt-20 mobile, pt-24 sm: (less padding above logo
+          on small phones to claw back vertical space). */}
       <main
-        className="relative -mt-6 flex flex-1 flex-col items-center bg-white px-5 pb-5 pt-24 sm:px-6"
+        className="relative -mt-6 flex flex-1 flex-col items-center bg-white px-5 pb-4 pt-20 sm:px-6 sm:pb-5 sm:pt-24"
         style={{
           borderTopLeftRadius: '50% 50px',
           borderTopRightRadius: '50% 50px',
@@ -145,15 +163,14 @@ export function BrandedPublicLayout({ branding, children, topSlot }: Props) {
           backgroundSize: '200px 200px',
         }}
       >
-        {/* Logo straddling the boundary. 152px circle, white outer pad,
-            brand-color inner ring. Image when logoUrl set; cursive
-            fallback otherwise. */}
+        {/* Logo straddling the boundary.
+            Hotfix-9 — 124px on mobile, 152px on sm:. Smaller circle
+            keeps the negative-margin overlap from eating the navy
+            title on small phones. */}
         <div
-          className="absolute left-1/2 z-20 -translate-x-1/2 rounded-full bg-white p-2"
+          className="absolute left-1/2 z-20 size-[124px] -translate-x-1/2 -translate-y-[62px] rounded-full bg-white p-1.5 sm:size-[152px] sm:-translate-y-[76px] sm:p-2"
           style={{
-            top: -76,
-            width: 152,
-            height: 152,
+            top: 0,
             boxShadow: '0 12px 30px rgba(0, 0, 0, 0.18)',
           }}
         >
@@ -169,7 +186,7 @@ export function BrandedPublicLayout({ branding, children, topSlot }: Props) {
               />
             ) : (
               <span
-                className="text-[36px] font-bold italic leading-none lowercase"
+                className="text-[30px] font-bold italic leading-none lowercase sm:text-[36px]"
                 style={{
                   color: brand,
                   fontFamily:
@@ -188,18 +205,19 @@ export function BrandedPublicLayout({ branding, children, topSlot }: Props) {
             shadow tail. */}
         <div className="z-10 mt-4 w-full max-w-md">{children}</div>
 
-        {/* Powered By footer (pinned to bottom of white card) */}
-        <div className="z-10 mt-auto flex flex-col items-center pt-8 pb-2">
+        {/* Powered By footer (pinned to bottom of white card).
+            Hotfix-9 — tighter top padding on mobile. */}
+        <div className="z-10 mt-auto flex flex-col items-center pt-5 pb-1 sm:pt-8 sm:pb-2">
           {isRectangledFooter ? (
             <>
-              <p className="text-[13px] font-medium text-slate-600">
+              <p className="text-[11px] font-medium text-slate-600 sm:text-[13px]">
                 Powered By
               </p>
-              <div className="mt-1.5 flex items-center gap-1.5">
+              <div className="mt-1 flex items-center gap-1.5 sm:mt-1.5">
                 {/* rectangled.io brand mark — speech-bubble with two
                     upward arches inside, dark navy fill */}
                 <svg
-                  className="h-6 w-6"
+                  className="h-5 w-5 sm:h-6 sm:w-6"
                   viewBox="0 0 100 100"
                   xmlns="http://www.w3.org/2000/svg"
                   aria-hidden="true"
@@ -224,7 +242,7 @@ export function BrandedPublicLayout({ branding, children, topSlot }: Props) {
                   />
                 </svg>
                 <span
-                  className="text-[18px] font-bold tracking-tight"
+                  className="text-[15px] font-bold tracking-tight sm:text-[18px]"
                   style={{ color: HEADER_NAVY }}
                 >
                   rectangled.io
@@ -234,7 +252,7 @@ export function BrandedPublicLayout({ branding, children, topSlot }: Props) {
           ) : (
             // White-labeled orgs see their custom footerText as plain
             // text (no rectangled.io branding).
-            <p className="text-[13px] font-medium text-slate-600">
+            <p className="text-[11px] font-medium text-slate-600 sm:text-[13px]">
               {branding.poweredByText}
             </p>
           )}
