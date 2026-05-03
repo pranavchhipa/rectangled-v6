@@ -131,7 +131,13 @@ export const completeSchema = z.object({
 
 export const submitLegacyJourneySchema = z.object({
   journeyId: z.string().uuid(),
-  journeyScreenId: z.string().uuid().optional(),
+  // Hotfix-4 — was `.uuid().optional()` but the renderer passes the
+  // synthetic screen id from getPublicLegacyJourney which is shaped as
+  // `${surveyId}-screen` (quick / custom) or `${surveyId}-adaptive`.
+  // Non-UUID → Zod rejects → frontend's silent catch → Continue button
+  // appears to do nothing. Relaxed to any short string; engine doesn't
+  // use this field anyway, it's purely informational for legacy parity.
+  journeyScreenId: z.string().min(1).max(128).optional(),
   locationId: z.string().uuid().optional(),
   sessionId: z.string(),
   responseData: z.record(z.unknown()),
