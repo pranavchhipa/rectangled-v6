@@ -144,6 +144,10 @@ export function CreateCustomJourneyWizard({
 
   const [step, setStep] = useState<WizardStep>(1)
   const [name, setName] = useState('')
+  // Hotfix-5 — every QR is bound to a single location so responses
+  // attribute correctly. For single-location workspaces this auto-
+  // picks; for multi-location, the owner picks (required to advance).
+  const [locationId, setLocationId] = useState<string | undefined>(undefined)
   const [metric, setMetric] = useState<WizardMetric>('csat')
   const [positiveAction, setPositiveAction] = useState<WizardPositiveAction>('redirect_google')
   const [askAspects, setAskAspects] = useState(true)
@@ -153,6 +157,36 @@ export function CreateCustomJourneyWizard({
   const [couponTemplateId, setCouponTemplateId] = useState<string | undefined>(undefined)
   const [threshold, setThreshold] = useState<number>(4)
   const [thresholdMode, setThresholdMode] = useState<'preset_a' | 'preset_b' | 'custom'>('preset_a')
+
+  // Hotfix-5 — workspace locations for the binding dropdown. Same
+  // rhythm as the coupon templates query: 0 → can't proceed (need a
+  // location to bind QR), 1 → auto-pick, 2+ → owner chooses.
+  const locationsQuery = trpc.location.list.useQuery(
+    { workspaceId },
+    { enabled: !!workspaceId && open },
+  )
+  const workspaceLocations = (locationsQuery.data ?? []) as Array<{
+    id: string
+    name: string
+    city: string | null
+    state: string | null
+    isActive: boolean
+  }>
+  const activeLocations = workspaceLocations.filter((l) => l.isActive)
+  const locationState: 'none' | 'single' | 'multiple' =
+    activeLocations.length === 0
+      ? 'none'
+      : activeLocations.length === 1
+        ? 'single'
+        : 'multiple'
+
+  // Auto-pick the lone location for single-location workspaces — owner
+  // shouldn't have to manually select "the one location they have".
+  useEffect(() => {
+    if (locationState === 'single' && !locationId) {
+      setLocationId(activeLocations[0]?.id)
+    }
+  }, [locationState, activeLocations, locationId])
 
   // Coupon templates drive the 0/1/2+ logic for the issueCoupon checkbox.
   const couponTemplatesQuery = trpc.coupon.listTemplates.useQuery(
@@ -210,6 +244,7 @@ export function CreateCustomJourneyWizard({
   function reset() {
     setStep(1)
     setName('')
+    setLocationId(undefined)
     setMetric('csat')
     setPositiveAction('redirect_google')
     setAskAspects(true)
@@ -251,6 +286,9 @@ export function CreateCustomJourneyWizard({
     }
     createMutation.mutate({
       workspaceId,
+      // Hotfix-5 — bind the journey to the chosen location so the QR is
+      // location-specific and responses are attributed correctly.
+      locationId,
       name: name.trim(),
       answers: {
         metric,
@@ -265,8 +303,11 @@ export function CreateCustomJourneyWizard({
   const isRandom = metric === 'random'
   const totalSteps = isRandom ? 1 : 4
 
-  // Validation per step — disables Continue until satisfied.
-  const canContinueFromStep1 = name.trim().length > 0
+  // Validation per step — disables Continue until satisfied. For
+  // multi-location workspaces, an explicit location pick is required
+  // before continuing past Q1 (single-location auto-fills via effect).
+  const canContinueFromStep1 =
+    name.trim().length > 0 && (locationState === 'none' || !!locationId)
   const canContinueFromStep3 =
     !issueCoupon ||
     couponState === 'single' ||
@@ -303,6 +344,54 @@ export function CreateCustomJourneyWizard({
                   autoFocus
                 />
               </div>
+
+              {/* Hotfix-5 — location binding. Hidden for single-location
+                  workspaces (auto-picked); shown as a select for 2+; an
+                  empty-state hint for 0 (can't proceed). */}
+              {locationState === 'multiple' && (
+                <div className="space-y-2">
+                  <Label htmlFor="cj-location">
+                    Which location is this journey for?
+                  </Label>
+                  <Select
+                    value={locationId}
+                    onValueChange={(v) => setLocationId(v)}
+                  >
+                    <SelectTrigger id="cj-location">
+                      <SelectValue placeholder="Pick a location…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {activeLocations.map((loc) => (
+                        <SelectItem key={loc.id} value={loc.id}>
+                          {loc.name}
+                          {(loc.city || loc.state) && (
+                            <span className="ml-2 text-xs text-muted-foreground">
+                              {[loc.city, loc.state].filter(Boolean).join(', ')}
+                            </span>
+                          )}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-[11px] text-muted-foreground">
+                    The QR for this journey will be tied to this location.
+                    Responses are attributed to it.
+                  </p>
+                </div>
+              )}
+              {locationState === 'single' && (
+                <p className="text-[11px] text-muted-foreground">
+                  Will be tied to{' '}
+                  <strong>{activeLocations[0]?.name}</strong> — your only
+                  active location.
+                </p>
+              )}
+              {locationState === 'none' && (
+                <p className="text-[11px] text-amber-700">
+                  No active locations. Add a location in Locations →
+                  before creating a journey, so QRs attribute correctly.
+                </p>
+              )}
 
               <div className="space-y-2">
                 <Label>What do you want to ask first?</Label>

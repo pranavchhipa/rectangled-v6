@@ -86,9 +86,18 @@ export default function SurveysListPage() {
 
   const [tplFilter, setTplFilter] = useState<FilterTemplate>('all')
   const [statusFilter, setStatusFilter] = useState<FilterStatus>('all')
+  // Hotfix-5 — per-page location filter (no global switcher; matches
+  // the Inbox / Dashboard "By Location" / Responses pattern). 'all' is
+  // the default; picking a location narrows the survey list to journeys
+  // bound to that location.
+  const [locFilter, setLocFilter] = useState<string>('all')
   const [createOpen, setCreateOpen] = useState(false)
   const [wizardOpen, setWizardOpen] = useState(false)
   const [newName, setNewName] = useState('')
+  // Hotfix-5 — every QR is bound to a single location so responses
+  // attribute correctly. Auto-picked for single-location workspaces;
+  // required for multi-location.
+  const [newLocationId, setNewLocationId] = useState<string | undefined>(undefined)
   // Hotfix §5 leakage fix — was hardcoded to 'quick' | 'deep'. Now picked
   // by the unified "+ New Journey" dropdown so owners can also create
   // adaptive (§2) journeys without dropping into the wizard for the
@@ -113,9 +122,39 @@ export default function SurveysListPage() {
       workspaceId: currentWorkspaceId!,
       template: tplFilter === 'all' ? undefined : tplFilter,
       status: statusFilter === 'all' ? undefined : statusFilter,
+      // Hotfix-5 — location filter; backend already supports it on
+      // listSurveysSchema.
+      locationId: locFilter === 'all' ? undefined : locFilter,
     },
     { enabled: !!currentWorkspaceId },
   )
+
+  // Workspace locations for the create-dialog dropdown + per-card chip
+  // lookup + filter chip-set.
+  const locationsQuery = trpc.location.list.useQuery(
+    { workspaceId: currentWorkspaceId! },
+    { enabled: !!currentWorkspaceId },
+  )
+  const workspaceLocations = (locationsQuery.data ?? []) as Array<{
+    id: string
+    name: string
+    city: string | null
+    state: string | null
+    isActive: boolean
+  }>
+  const activeLocations = workspaceLocations.filter((l) => l.isActive)
+  const locationsById = useMemo(
+    () => new Map(workspaceLocations.map((l) => [l.id, l])),
+    [workspaceLocations],
+  )
+
+  // Auto-pick the only active location when the create dialog opens
+  // for a single-location workspace.
+  useEffect(() => {
+    if (createOpen && activeLocations.length === 1 && !newLocationId) {
+      setNewLocationId(activeLocations[0]?.id)
+    }
+  }, [createOpen, activeLocations, newLocationId])
 
   const createMutation = trpc.survey.create.useMutation({
     onSuccess: (created) => {
@@ -150,6 +189,9 @@ export default function SurveysListPage() {
     template: 'quick' | 'deep' | 'adaptive' | 'custom'
     mode: 'intelligent' | 'builder'
     status: 'draft' | 'active' | 'archived'
+    // Hotfix-5 — locationId on each survey row drives the location
+    // chip on the card. Already populated by the backend list query.
+    locationId: string | null
     settings: Record<string, unknown>
     legacyJourneyId: string | null
     legacyTruformId: string | null
@@ -168,10 +210,19 @@ export default function SurveysListPage() {
 
   function handleCreate() {
     if (!currentWorkspaceId || !newName.trim()) return
+    // Hotfix-5 — multi-location workspaces require explicit location
+    // pick before create. Single-location auto-fills via the effect.
+    if (activeLocations.length > 1 && !newLocationId) {
+      toast.error('Pick a location for this journey first.')
+      return
+    }
     const settings: Record<string, unknown> = {}
     if (newTemplate === 'deep') settings.type = newDeepType
     createMutation.mutate({
       workspaceId: currentWorkspaceId,
+      // Hotfix-5 — bind the new journey to the selected location so
+      // its QR is location-specific and responses attribute correctly.
+      locationId: newLocationId,
       name: newName.trim(),
       template: newTemplate,
       settings,
@@ -186,6 +237,7 @@ export default function SurveysListPage() {
   function openCreateFor(template: CreateTemplate) {
     setNewTemplate(template)
     setNewName('')
+    setNewLocationId(undefined)
     if (template === 'deep') setNewDeepType('csat')
     setCreateOpen(true)
   }
@@ -338,6 +390,48 @@ export default function SurveysListPage() {
                   autoFocus
                 />
               </div>
+              {/* Hotfix-5 — location binding. Same 0/1/2+ rhythm as the
+                  custom wizard: hidden for single-location workspaces
+                  (auto-pick), required Select for 2+, amber hint for 0. */}
+              {activeLocations.length > 1 && (
+                <div className="space-y-2">
+                  <Label htmlFor="new-survey-location">
+                    Which location is this journey for?
+                  </Label>
+                  <Select
+                    value={newLocationId}
+                    onValueChange={(v) => setNewLocationId(v)}
+                  >
+                    <SelectTrigger id="new-survey-location">
+                      <SelectValue placeholder="Pick a location…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {activeLocations.map((loc) => (
+                        <SelectItem key={loc.id} value={loc.id}>
+                          {loc.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-[11px] text-muted-foreground">
+                    QR will be tied to this location. Responses attribute
+                    here.
+                  </p>
+                </div>
+              )}
+              {activeLocations.length === 1 && (
+                <p className="text-[11px] text-muted-foreground">
+                  Will be tied to{' '}
+                  <strong>{activeLocations[0]?.name}</strong> — your only
+                  active location.
+                </p>
+              )}
+              {activeLocations.length === 0 && (
+                <p className="text-[11px] text-amber-700">
+                  No active locations. Add one in <strong>Locations</strong>{' '}
+                  before creating a journey.
+                </p>
+              )}
               {newTemplate === 'deep' && (
                 <div className="space-y-2">
                   <Label>Deep type</Label>
@@ -370,7 +464,12 @@ export default function SurveysListPage() {
               </Button>
               <Button
                 onClick={handleCreate}
-                disabled={!newName.trim() || createMutation.isPending}
+                disabled={
+                  !newName.trim() ||
+                  createMutation.isPending ||
+                  activeLocations.length === 0 ||
+                  (activeLocations.length > 1 && !newLocationId)
+                }
               >
                 {createMutation.isPending && (
                   <Loader2 className="size-4 animate-spin" />
@@ -431,6 +530,25 @@ export default function SurveysListPage() {
             <SelectItem value="archived">Archived</SelectItem>
           </SelectContent>
         </Select>
+
+        {/* Hotfix-5 — location filter. Hidden for single-location
+            workspaces (no value), shown as a select for 2+. The list
+            query already supports `locationId` filter on the backend. */}
+        {activeLocations.length > 1 && (
+          <Select value={locFilter} onValueChange={setLocFilter}>
+            <SelectTrigger className="w-[200px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All locations</SelectItem>
+              {activeLocations.map((loc) => (
+                <SelectItem key={loc.id} value={loc.id}>
+                  📍 {loc.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
       </div>
 
       {/* List */}
@@ -492,10 +610,25 @@ export default function SurveysListPage() {
                     </div>
                   </div>
                   <CardDescription className="text-xs">
-                    /{s.template === 'quick' ? 'j' : 'f'}/{s.slug}
+                    {/* Hotfix-2 — every non-deep template uses /j/{slug}. */}
+                    /{s.template === 'deep' ? 'f' : 'j'}/{s.slug}
                     {isLegacy && (
                       <span className="ml-2 text-[10px] text-muted-foreground">
                         · migrated
+                      </span>
+                    )}
+                    {/* Hotfix-5 — location chip per card so owners can
+                        identify which QR is for which branch at a
+                        glance. Single-location workspaces still see it
+                        (consistent), 0-location surveys show "no
+                        location" hint in amber. */}
+                    {s.locationId && locationsById.get(s.locationId) ? (
+                      <span className="ml-2 inline-flex items-center gap-0.5 rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700">
+                        📍 {locationsById.get(s.locationId)!.name}
+                      </span>
+                    ) : (
+                      <span className="ml-2 inline-flex items-center gap-0.5 rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">
+                        📍 No location
                       </span>
                     )}
                   </CardDescription>

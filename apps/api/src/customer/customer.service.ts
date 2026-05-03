@@ -2,7 +2,7 @@ import { Injectable, Inject } from '@nestjs/common'
 import { TRPCError } from '@trpc/server'
 import { eq, and, or, like, sql, desc, isNotNull } from 'drizzle-orm'
 import type { Database } from '@rectangled/db'
-import { customers, members, reviews } from '@rectangled/db'
+import { customers, members, reviews, surveyResponses } from '@rectangled/db'
 import { hasPermission } from '@rectangled/shared'
 import type { Role } from '@rectangled/shared'
 
@@ -15,6 +15,11 @@ export class CustomerService {
       workspaceId: string
       search?: string
       tags?: string[]
+      // Hotfix-5 — narrow the customer directory to people who've
+      // submitted a response at this specific location. Customer rows
+      // don't carry a location_id directly; we resolve via a subquery
+      // on survey_responses.
+      locationId?: string
       page?: number
       limit?: number
     },
@@ -53,6 +58,21 @@ export class CustomerService {
     if (input.tags && input.tags.length > 0) {
       conditions.push(
         sql`${customers.tags} @> ${JSON.stringify(input.tags)}::jsonb`
+      )
+    }
+
+    // Hotfix-5 — restrict to customers who have at least one
+    // survey_response with this locationId. Subquery is cheap (indexed
+    // on customer_id + location_id) and keeps the customers query
+    // shape unchanged for non-filtered case.
+    if (input.locationId) {
+      conditions.push(
+        sql`${customers.id} IN (
+          SELECT DISTINCT customer_id FROM ${surveyResponses}
+          WHERE customer_id IS NOT NULL
+            AND workspace_id = ${input.workspaceId}
+            AND location_id = ${input.locationId}
+        )`
       )
     }
 

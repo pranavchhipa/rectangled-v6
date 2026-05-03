@@ -203,6 +203,11 @@ export const listSurveyResponsesSchema = z.object({
   // is used as a membership guard.
   workspaceId: z.string().uuid().optional(),
   surveyId: z.string().uuid().optional(),
+  // Hotfix-5 — location-aware data drill. Owners pick a location chip
+  // from the responses page and the list narrows to responses tied to
+  // that location (survey_responses.location_id, populated at submit
+  // time from input.locationId ?? survey.locationId).
+  locationId: z.string().uuid().optional(),
   filter: z.enum(['all', 'happy', 'unhappy', 'neutral']).optional(),
   search: z.string().max(255).optional(),
   dateFrom: z.union([z.string().datetime(), z.date()]).optional(),

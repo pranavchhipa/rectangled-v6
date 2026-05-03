@@ -7,6 +7,13 @@ import { useAuthStore } from '@/stores/auth-store'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { CustomerCard } from '@/components/customer/customer-card'
 import { CustomerDetailSheet } from '@/components/customer/customer-detail-sheet'
 import { CustomerFormSheet } from '@/components/customer/customer-form-sheet'
@@ -67,11 +74,29 @@ export default function CustomersPage() {
   const [formOpen, setFormOpen] = useState(false)
   const [uploadOpen, setUploadOpen] = useState(false)
 
+  // Hotfix-5 — per-page location filter. Customers don't carry a
+  // location_id directly; backend resolves "customers tied to this
+  // location" via subquery on survey_responses.location_id.
+  const [locFilter, setLocFilter] = useState<string>('all')
+
+  // Workspace locations for the filter dropdown.
+  const locationsQuery = trpc.location.list.useQuery(
+    { workspaceId: currentWorkspaceId! },
+    { enabled: !!currentWorkspaceId }
+  )
+  const workspaceLocations = (locationsQuery.data ?? []) as Array<{
+    id: string
+    name: string
+    isActive: boolean
+  }>
+  const activeLocations = workspaceLocations.filter((l) => l.isActive)
+
   // Customers list query
   const customersQuery = trpc.customer.list.useQuery(
     {
       workspaceId: currentWorkspaceId!,
       search: debouncedSearch || undefined,
+      locationId: locFilter === 'all' ? undefined : locFilter,
       page,
       limit,
     },
@@ -104,15 +129,43 @@ export default function CustomersPage() {
         </div>
       </div>
 
-      {/* Search */}
-      <div className="relative max-w-sm">
-        <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-        <Input
-          placeholder="Search customers..."
-          value={search}
-          onChange={(e) => handleSearchChange(e.target.value)}
-          className="pl-9"
-        />
+      {/* Search + location filter */}
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="relative max-w-sm flex-1">
+          <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            placeholder="Search customers..."
+            value={search}
+            onChange={(e) => handleSearchChange(e.target.value)}
+            className="pl-9"
+          />
+        </div>
+
+        {/* Hotfix-5 — location filter. Hidden for single-location
+            workspaces; shown as a select for 2+. Resolves via subquery
+            on survey_responses.location_id (any response from this
+            location → customer is in scope). */}
+        {activeLocations.length > 1 && (
+          <Select
+            value={locFilter}
+            onValueChange={(v) => {
+              setLocFilter(v)
+              setPage(1)
+            }}
+          >
+            <SelectTrigger className="w-[200px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All locations</SelectItem>
+              {activeLocations.map((loc) => (
+                <SelectItem key={loc.id} value={loc.id}>
+                  📍 {loc.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
       </div>
 
       {/* Content */}

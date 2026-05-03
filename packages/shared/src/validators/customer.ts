@@ -6,6 +6,11 @@ export const listCustomersSchema = z
     workspaceId: uuidSchema,
     search: z.string().max(200).optional(),
     tags: z.array(z.string()).optional(),
+    // Hotfix-5 — filter to customers who have at least one response
+    // tied to this location. Resolved via a subquery on
+    // survey_responses.location_id; customer rows themselves don't
+    // store a location, they're inferred from their response history.
+    locationId: uuidSchema.optional(),
   })
   .merge(paginationSchema)
 

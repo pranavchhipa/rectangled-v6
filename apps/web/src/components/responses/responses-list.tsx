@@ -80,6 +80,10 @@ export function ResponsesList({
   showSurveyColumn?: boolean
 }) {
   const [filter, setFilter] = useState<Filter>('all')
+  // Hotfix-5 — per-page location filter, same pattern as journeys
+  // list. 'all' = no narrowing; specific id narrows to responses
+  // attributed to that location at submit time.
+  const [locFilter, setLocFilter] = useState<string>('all')
   const [search, setSearch] = useState('')
   const [submittedSearch, setSubmittedSearch] = useState('')
   const [page, setPage] = useState(1)
@@ -87,10 +91,25 @@ export function ResponsesList({
 
   const limit = 25
 
+  // Workspace locations to populate the filter dropdown. Only fetched
+  // for workspace-wide views (per-survey views inherit the survey's
+  // location implicitly).
+  const locationsQuery = trpc.location.list.useQuery(
+    { workspaceId: workspaceId! },
+    { enabled: !!workspaceId },
+  )
+  const workspaceLocations = (locationsQuery.data ?? []) as Array<{
+    id: string
+    name: string
+    isActive: boolean
+  }>
+  const activeLocations = workspaceLocations.filter((l) => l.isActive)
+
   const listQuery = trpc.survey.listResponses.useQuery(
     {
       workspaceId,
       surveyId,
+      locationId: locFilter === 'all' ? undefined : locFilter,
       filter,
       search: submittedSearch || undefined,
       page,
@@ -142,6 +161,30 @@ export function ResponsesList({
             </button>
           ))}
         </div>
+
+        {/* Hotfix-5 — location filter, workspace-wide views only.
+            Backend filters via survey_responses.location_id. */}
+        {workspaceId && activeLocations.length > 1 && (
+          <Select
+            value={locFilter}
+            onValueChange={(v) => {
+              setLocFilter(v)
+              setPage(1)
+            }}
+          >
+            <SelectTrigger className="w-[180px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All locations</SelectItem>
+              {activeLocations.map((loc) => (
+                <SelectItem key={loc.id} value={loc.id}>
+                  📍 {loc.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
 
         <form onSubmit={submitSearch} className="relative ml-auto w-full max-w-xs">
           <Label htmlFor="resp-search" className="sr-only">

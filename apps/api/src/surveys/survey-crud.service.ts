@@ -382,6 +382,7 @@ export class SurveyCrudService {
     input: {
       workspaceId?: string
       surveyId?: string
+      locationId?: string
       filter?: 'all' | 'happy' | 'unhappy' | 'neutral'
       search?: string
       dateFrom?: string | Date
@@ -417,6 +418,13 @@ export class SurveyCrudService {
     const conditions = [eq(surveyResponses.workspaceId, workspaceId!)]
     if (input.surveyId) {
       conditions.push(eq(surveyResponses.surveyId, input.surveyId))
+    }
+    // Hotfix-5 — narrow to a specific location when picked. Filter on
+    // the response's location_id (populated at submit from input.location
+    // ?? survey.location_id), so unbound responses don't accidentally
+    // match a location filter.
+    if (input.locationId) {
+      conditions.push(eq(surveyResponses.locationId, input.locationId))
     }
     if (input.filter === 'happy')
       conditions.push(eq(surveyResponses.isPositive, true))
