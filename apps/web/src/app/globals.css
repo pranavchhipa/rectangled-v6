@@ -2,6 +2,11 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 
+/* Hotfix-8 — Cormorant Garamond for the public-page logo cursive
+   fallback (when no logoUrl is uploaded). Italic 700, used by
+   `BrandedPublicLayout`. Loaded from Google Fonts. */
+@import url("https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@1,500;1,600;1,700&display=swap");
+
 @custom-variant dark (&:is(.dark *));
 
 @theme {

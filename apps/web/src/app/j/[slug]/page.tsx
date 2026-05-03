@@ -324,12 +324,26 @@ export default function PublicJourneyPage() {
         )}
 
         {flowState === 'thank_you' && (
+          // Hotfix-8 — brand-color celebration ring, navy heading
           <div className="space-y-4 text-center">
-            <div className="mx-auto flex size-20 items-center justify-center rounded-full bg-emerald-100">
-              <CheckCircle2 className="size-10 text-emerald-600" />
+            <div
+              className="mx-auto flex size-20 items-center justify-center rounded-full"
+              style={{ backgroundColor: 'color-mix(in srgb, var(--brand) 15%, white)' }}
+            >
+              <CheckCircle2 className="size-10" style={{ color: 'var(--brand)' }} />
             </div>
-            <h1 className="text-2xl font-bold text-slate-800">Thank You!</h1>
-            <p className="text-slate-500">{thankYouText}</p>
+            <h1
+              className="text-[28px] font-extrabold leading-tight tracking-tight"
+              style={{ color: 'var(--navy)' }}
+            >
+              Thank You!
+            </h1>
+            <p
+              className="text-[15px] font-medium"
+              style={{ color: 'var(--navy)', opacity: 0.7 }}
+            >
+              {thankYouText}
+            </p>
           </div>
         )}
       </div>
@@ -364,11 +378,24 @@ function MetricInput({
     return out
   }, [range])
 
+  // Hotfix-8 — Afraa-style refactor. Navy heading, brand-color selected
+  // state, brand-color Continue button. Reads --navy / --brand / --gold
+  // CSS vars exposed by BrandedPublicLayout.
   return (
-    <div className="space-y-8">
-      <div className="text-center space-y-2">
-        <h1 className="text-2xl font-bold text-slate-800">{question}</h1>
-        <p className="text-xs uppercase tracking-wider text-slate-400">{metric.toUpperCase()}</p>
+    <div className="space-y-7">
+      <div className="text-center">
+        <h1
+          className="text-[28px] font-extrabold leading-[1.15] tracking-tight"
+          style={{ color: 'var(--navy)' }}
+        >
+          {question}
+        </h1>
+        <p
+          className="mt-2 text-[11px] font-bold uppercase tracking-[0.22em]"
+          style={{ color: 'var(--navy)', opacity: 0.55 }}
+        >
+          {metric.toUpperCase()}
+        </p>
       </div>
 
       <div className="space-y-3">
@@ -377,8 +404,8 @@ function MetricInput({
             values.length <= 5
               ? 'grid-cols-5'
               : values.length <= 7
-              ? 'grid-cols-7'
-              : 'grid-cols-6'
+                ? 'grid-cols-7'
+                : 'grid-cols-6'
           }`}
         >
           {values.map((v) => {
@@ -388,28 +415,41 @@ function MetricInput({
                 key={v}
                 type="button"
                 onClick={() => setPendingScore(v)}
-                className={`min-h-[44px] rounded-xl border-2 py-3 text-base font-semibold transition-all ${
-                  selected
-                    ? 'border-slate-800 bg-slate-800 text-white'
-                    : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
+                className={`min-h-[48px] rounded-xl border-2 py-3 text-[15px] font-bold transition-all ${
+                  selected ? 'scale-105 text-white shadow-md' : 'bg-white'
                 }`}
+                style={
+                  selected
+                    ? {
+                        backgroundColor: 'var(--brand)',
+                        borderColor: 'var(--brand)',
+                      }
+                    : {
+                        borderColor: 'rgba(17, 34, 79, 0.15)',
+                        color: 'var(--navy)',
+                      }
+                }
               >
                 {v}
               </button>
             )
           })}
         </div>
-        <div className="flex justify-between text-xs text-slate-500 px-1">
+        <div
+          className="flex justify-between px-1 text-[11px] font-semibold"
+          style={{ color: 'var(--navy)', opacity: 0.55 }}
+        >
           <span>{scaleLabels.low}</span>
           <span>{scaleLabels.high}</span>
         </div>
       </div>
 
       <Button
-        className="w-full h-14 rounded-xl text-base font-semibold shadow-sm"
+        className="h-14 w-full rounded-xl text-[15px] font-bold text-white shadow-md transition-all hover:opacity-90"
         size="lg"
         onClick={() => pendingScore !== null && onSubmit(pendingScore)}
         disabled={pendingScore === null || isSubmitting}
+        style={{ backgroundColor: 'var(--brand)' }}
       >
         {isSubmitting ? (
           <>
@@ -445,21 +485,40 @@ function HappyPrompt({
   const [showFallback, setShowFallback] = useState(false)
   const hasClipboard = typeof navigator !== 'undefined' && !!navigator.clipboard
 
+  // Hotfix-8 — Afraa-style refactor. Brand-color celebration ring on
+  // the checkmark, navy heading, brand-primary YES button + outline NO.
   return (
     <div className="space-y-6">
-      <div className="text-center space-y-2">
-        <div className="mx-auto flex size-16 items-center justify-center rounded-full bg-emerald-100">
-          <CheckCircle2 className="size-8 text-emerald-600" />
+      <div className="text-center">
+        <div
+          className="mx-auto flex size-16 items-center justify-center rounded-full"
+          style={{ backgroundColor: 'color-mix(in srgb, var(--brand) 15%, white)' }}
+        >
+          <CheckCircle2 className="size-8" style={{ color: 'var(--brand)' }} />
         </div>
-        <h1 className="text-2xl font-bold text-slate-800">{copy.question}</h1>
+        <h1
+          className="mt-4 text-[26px] font-extrabold leading-[1.15] tracking-tight"
+          style={{ color: 'var(--navy)' }}
+        >
+          {copy.question}
+        </h1>
       </div>
 
       {showFallback && (
-        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-3">
-          <p className="text-xs text-slate-500">Copy this and paste it on the review page:</p>
+        <div
+          className="space-y-3 rounded-xl border-2 p-4"
+          style={{
+            borderColor: 'rgba(17, 34, 79, 0.12)',
+            backgroundColor: 'rgba(17, 34, 79, 0.03)',
+          }}
+        >
+          <p className="text-xs font-medium" style={{ color: 'var(--navy)', opacity: 0.65 }}>
+            Copy this and paste it on the review page:
+          </p>
           <textarea
             readOnly
-            className="w-full min-h-[80px] rounded-lg bg-white border border-slate-200 px-3 py-2 text-sm"
+            className="w-full min-h-[80px] resize-none rounded-lg border-2 bg-white px-3 py-2 text-sm focus:outline-none"
+            style={{ borderColor: 'rgba(17, 34, 79, 0.15)', color: 'var(--navy)' }}
             value={reviewTemplate}
           />
           {redirectUrl && (
@@ -467,7 +526,8 @@ function HappyPrompt({
               href={redirectUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-2 text-sm font-medium text-blue-600"
+              className="inline-flex items-center gap-2 text-sm font-semibold"
+              style={{ color: 'var(--brand)' }}
             >
               Open review page <ExternalLink className="size-3" />
             </a>
@@ -477,13 +537,14 @@ function HappyPrompt({
 
       <div className="space-y-3">
         <Button
-          className="w-full h-14 rounded-xl text-base font-semibold"
+          className="h-14 w-full rounded-xl text-[15px] font-bold text-white shadow-md transition-all hover:opacity-90"
           size="lg"
           onClick={() => {
             if (!hasClipboard) setShowFallback(true)
             onYes()
           }}
           disabled={isSubmitting}
+          style={{ backgroundColor: 'var(--brand)' }}
         >
           {isSubmitting ? (
             <Loader2 className="size-5 animate-spin" />
@@ -495,10 +556,14 @@ function HappyPrompt({
           )}
         </Button>
         <Button
-          variant="outline"
-          className="w-full h-12 rounded-xl"
+          variant="ghost"
+          className="h-12 w-full rounded-xl border-2 text-[14px] font-semibold transition-colors hover:bg-slate-50"
           onClick={onNo}
           disabled={isSubmitting}
+          style={{
+            borderColor: 'rgba(17, 34, 79, 0.18)',
+            color: 'var(--navy)',
+          }}
         >
           {copy.noLabel}
         </Button>
@@ -541,11 +606,23 @@ function UnhappyFeedback({
   isSubmitting: boolean
   onSubmit: () => void
 }) {
+  // Hotfix-8 — Afraa-style refactor. Navy heading, brand-color selected
+  // chips, navy/brand input borders, brand-color Submit.
   return (
     <div className="space-y-5">
-      <div className="space-y-1">
-        <h2 className="text-xl font-bold text-slate-800">What went wrong?</h2>
-        <p className="text-sm text-slate-500">Help us improve your next experience.</p>
+      <div>
+        <h2
+          className="text-[24px] font-extrabold leading-tight tracking-tight"
+          style={{ color: 'var(--navy)' }}
+        >
+          What went wrong?
+        </h2>
+        <p
+          className="mt-1 text-[14px] font-medium"
+          style={{ color: 'var(--navy)', opacity: 0.65 }}
+        >
+          Help us improve your next experience.
+        </p>
       </div>
 
       <div className="flex flex-wrap gap-2">
@@ -556,11 +633,20 @@ function UnhappyFeedback({
               key={tag}
               type="button"
               onClick={() => onToggleAspect(tag)}
-              className={`min-h-[44px] rounded-full px-4 text-sm font-medium border transition-all ${
+              className="min-h-[40px] rounded-full border-2 px-4 text-[13px] font-semibold transition-all"
+              style={
                 selected
-                  ? 'bg-red-50 border-red-300 text-red-700'
-                  : 'bg-slate-50 border-slate-200 text-slate-600'
-              }`}
+                  ? {
+                      backgroundColor: 'var(--brand)',
+                      borderColor: 'var(--brand)',
+                      color: '#fff',
+                    }
+                  : {
+                      backgroundColor: '#fff',
+                      borderColor: 'rgba(17, 34, 79, 0.18)',
+                      color: 'var(--navy)',
+                    }
+              }
             >
               {tag}
             </button>
@@ -569,42 +655,72 @@ function UnhappyFeedback({
       </div>
 
       <textarea
-        className="w-full min-h-[100px] rounded-xl border-2 border-slate-200 bg-slate-50 px-4 py-3 text-sm placeholder:text-slate-400 focus:outline-none focus:border-slate-400 transition-colors resize-none"
+        className="min-h-[100px] w-full resize-none rounded-xl border-2 bg-white px-4 py-3 text-[14px] transition-colors focus:outline-none"
+        style={{
+          borderColor: 'rgba(17, 34, 79, 0.15)',
+          color: 'var(--navy)',
+        }}
         value={feedbackText}
         onChange={(e) => onFeedbackChange(e.target.value)}
         placeholder={feedbackPlaceholder}
+        onFocus={(e) => (e.currentTarget.style.borderColor = 'var(--brand)')}
+        onBlur={(e) =>
+          (e.currentTarget.style.borderColor = 'rgba(17, 34, 79, 0.15)')
+        }
       />
 
       <div className="space-y-3">
-        <p className="text-xs uppercase tracking-wider text-slate-400">Optional — so we can reach out</p>
-        <input
-          type="text"
-          className="w-full h-12 rounded-xl border-2 border-slate-200 bg-white px-4 text-sm focus:outline-none focus:border-slate-400"
-          placeholder="Your name"
-          value={name}
-          onChange={(e) => onNameChange(e.target.value)}
-        />
-        <input
-          type="tel"
-          className="w-full h-12 rounded-xl border-2 border-slate-200 bg-white px-4 text-sm focus:outline-none focus:border-slate-400"
-          placeholder="Phone"
-          value={phone}
-          onChange={(e) => onPhoneChange(e.target.value)}
-        />
-        <input
-          type="email"
-          className="w-full h-12 rounded-xl border-2 border-slate-200 bg-white px-4 text-sm focus:outline-none focus:border-slate-400"
-          placeholder="Email"
-          value={email}
-          onChange={(e) => onEmailChange(e.target.value)}
-        />
+        <p
+          className="text-[11px] font-bold uppercase tracking-[0.18em]"
+          style={{ color: 'var(--navy)', opacity: 0.5 }}
+        >
+          Optional — so we can reach out
+        </p>
+        {[
+          {
+            type: 'text',
+            placeholder: 'Your name',
+            value: name,
+            onChange: onNameChange,
+          },
+          {
+            type: 'tel',
+            placeholder: 'Phone',
+            value: phone,
+            onChange: onPhoneChange,
+          },
+          {
+            type: 'email',
+            placeholder: 'Email',
+            value: email,
+            onChange: onEmailChange,
+          },
+        ].map((f, i) => (
+          <input
+            key={i}
+            type={f.type}
+            className="h-12 w-full rounded-xl border-2 bg-white px-4 text-[14px] transition-colors focus:outline-none"
+            style={{
+              borderColor: 'rgba(17, 34, 79, 0.15)',
+              color: 'var(--navy)',
+            }}
+            placeholder={f.placeholder}
+            value={f.value}
+            onChange={(e) => f.onChange(e.target.value)}
+            onFocus={(e) => (e.currentTarget.style.borderColor = 'var(--brand)')}
+            onBlur={(e) =>
+              (e.currentTarget.style.borderColor = 'rgba(17, 34, 79, 0.15)')
+            }
+          />
+        ))}
       </div>
 
       <Button
-        className="w-full h-14 rounded-xl text-base font-semibold"
+        className="h-14 w-full rounded-xl text-[15px] font-bold text-white shadow-md transition-all hover:opacity-90"
         size="lg"
         onClick={onSubmit}
         disabled={isSubmitting}
+        style={{ backgroundColor: 'var(--brand)' }}
       >
         {isSubmitting ? (
           <Loader2 className="size-5 animate-spin" />

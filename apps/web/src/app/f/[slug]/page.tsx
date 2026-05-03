@@ -6,10 +6,12 @@ import { Star, CheckCircle2, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { trpc } from '@/lib/trpc'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { Card } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Label } from '@/components/ui/label'
+// Hotfix-8 — Label/Input imports dropped; we now use plain <input>
+// elements with inline focus handlers so the brand-color border focus
+// state can be applied without prop-drilling. Card/Skeleton stay for
+// loading + error states.
 import { BrandedPublicLayout } from '@/components/public/branded-layout'
 import type { PublicBranding } from '@rectangled/shared'
 
@@ -37,43 +39,45 @@ function NpsInput({
   onChange: (v: number) => void
   brandColor: string
 }) {
+  // Hotfix-8 — Afraa-style. Navy-bordered scale buttons with brand-color
+  // selected state. Uniform look (no red/amber/green tinting).
   return (
     <div className="space-y-3">
-      <p className="text-base font-medium sm:text-lg">
-        How likely are you to recommend us to a friend or colleague?
+      <p
+        className="text-center text-[26px] font-extrabold leading-[1.15] tracking-tight"
+        style={{ color: 'var(--navy)' }}
+      >
+        How likely are you to recommend us to a friend?
       </p>
-      <div className="grid grid-cols-11 gap-1 sm:gap-1.5">
+      <p
+        className="text-center text-[11px] font-bold uppercase tracking-[0.22em]"
+        style={{ color: 'var(--navy)', opacity: 0.55 }}
+      >
+        NPS
+      </p>
+      <div className="grid grid-cols-11 gap-1 pt-3 sm:gap-1.5">
         {Array.from({ length: 11 }).map((_, i) => {
           const isSelected = value === i
-          const bgColor =
-            i <= 6
-              ? 'bg-red-50 border-red-200 text-red-700 dark:bg-red-950 dark:border-red-800 dark:text-red-400'
-              : i <= 8
-                ? 'bg-amber-50 border-amber-200 text-amber-700 dark:bg-amber-950 dark:border-amber-800 dark:text-amber-400'
-                : 'bg-green-50 border-green-200 text-green-700 dark:bg-green-950 dark:border-green-800 dark:text-green-400'
-
           return (
             <button
               key={i}
               type="button"
               onClick={() => onChange(i)}
-              className={`flex aspect-square items-center justify-center rounded-lg border text-sm font-semibold transition-all sm:text-base ${
-                isSelected
-                  ? 'scale-110'
-                  : bgColor + ' hover:scale-105'
-              }`}
+              className="flex aspect-square items-center justify-center rounded-lg border-2 text-[13px] font-bold transition-all hover:scale-105 sm:text-base"
               style={
                 isSelected
                   ? {
                       backgroundColor: brandColor,
                       borderColor: brandColor,
                       color: '#fff',
-                      // Hotfix-7 — `ringColor` isn't a valid CSS prop
-                      // (it's Tailwind sugar). Use an explicit
-                      // box-shadow ring tinted with the brand color.
+                      transform: 'scale(1.1)',
                       boxShadow: `0 0 0 2px #fff, 0 0 0 4px ${brandColor}`,
                     }
-                  : undefined
+                  : {
+                      backgroundColor: '#fff',
+                      borderColor: 'rgba(17, 34, 79, 0.15)',
+                      color: 'var(--navy)',
+                    }
               }
             >
               {i}
@@ -81,7 +85,10 @@ function NpsInput({
           )
         })}
       </div>
-      <div className="flex justify-between text-xs text-muted-foreground">
+      <div
+        className="flex justify-between px-1 text-[11px] font-semibold"
+        style={{ color: 'var(--navy)', opacity: 0.55 }}
+      >
         <span>Not at all likely</span>
         <span>Extremely likely</span>
       </div>
@@ -100,16 +107,29 @@ function CsatInput({
 }) {
   const [hoveredStar, setHoveredStar] = useState<number | null>(null)
 
+  // Hotfix-8 — Afraa-style. Gold outlined stars by default, brand-color
+  // fill on hover/select. Big navy heading + small uppercase metric label.
   return (
     <div className="space-y-3">
-      <p className="text-base font-medium sm:text-lg">
-        How satisfied are you with our service?
+      <p
+        className="text-center text-[26px] font-extrabold leading-[1.15] tracking-tight"
+        style={{ color: 'var(--navy)' }}
+      >
+        How was your experience with us?
       </p>
-      <div className="flex justify-center gap-2 py-2 sm:gap-3">
+      <p
+        className="text-center text-[11px] font-bold uppercase tracking-[0.22em]"
+        style={{ color: 'var(--navy)', opacity: 0.55 }}
+      >
+        CSAT
+      </p>
+      <div className="flex justify-center gap-3 py-2 sm:gap-4">
         {Array.from({ length: 5 }).map((_, i) => {
           const starNum = i + 1
           const isFilled =
-            hoveredStar != null ? starNum <= hoveredStar : value != null && starNum <= value
+            hoveredStar != null
+              ? starNum <= hoveredStar
+              : value != null && starNum <= value
 
           return (
             <button
@@ -119,13 +139,14 @@ function CsatInput({
               onMouseEnter={() => setHoveredStar(starNum)}
               onMouseLeave={() => setHoveredStar(null)}
               className="transition-transform hover:scale-110"
+              aria-label={`${starNum} star${starNum > 1 ? 's' : ''}`}
             >
               <Star
-                className="size-10 sm:size-12"
+                className="size-11 sm:size-12"
                 style={
                   isFilled
                     ? { fill: brandColor, color: brandColor }
-                    : undefined
+                    : { color: 'var(--gold)' }
                 }
                 strokeWidth={1.5}
               />
@@ -133,7 +154,10 @@ function CsatInput({
           )
         })}
       </div>
-      <div className="flex justify-between text-xs text-muted-foreground">
+      <div
+        className="flex justify-between px-2 text-[11px] font-semibold"
+        style={{ color: 'var(--navy)', opacity: 0.55 }}
+      >
         <span>Very Dissatisfied</span>
         <span>Very Satisfied</span>
       </div>
@@ -160,12 +184,22 @@ function CesInput({
     'Very Easy',
   ]
 
+  // Hotfix-8 — Afraa-style. Same scale treatment as NPS but 7-point.
   return (
     <div className="space-y-3">
-      <p className="text-base font-medium sm:text-lg">
+      <p
+        className="text-center text-[26px] font-extrabold leading-[1.15] tracking-tight"
+        style={{ color: 'var(--navy)' }}
+      >
         How easy was it to get what you needed today?
       </p>
-      <div className="grid grid-cols-7 gap-1 sm:gap-1.5">
+      <p
+        className="text-center text-[11px] font-bold uppercase tracking-[0.22em]"
+        style={{ color: 'var(--navy)', opacity: 0.55 }}
+      >
+        CES
+      </p>
+      <div className="grid grid-cols-7 gap-1 pt-3 sm:gap-1.5">
         {Array.from({ length: 7 }).map((_, i) => {
           const num = i + 1
           const isSelected = value === num
@@ -175,18 +209,21 @@ function CesInput({
               key={i}
               type="button"
               onClick={() => onChange(num)}
-              className={`flex flex-col items-center justify-center rounded-lg border p-2 text-sm font-semibold transition-all sm:p-3 ${
-                isSelected
-                  ? 'ring-2 ring-offset-2 scale-105 text-white'
-                  : 'hover:bg-muted hover:scale-105'
-              }`}
+              className="flex aspect-square items-center justify-center rounded-lg border-2 text-[14px] font-bold transition-all hover:scale-105 sm:p-3"
               style={
                 isSelected
                   ? {
                       backgroundColor: brandColor,
                       borderColor: brandColor,
+                      color: '#fff',
+                      transform: 'scale(1.1)',
+                      boxShadow: `0 0 0 2px #fff, 0 0 0 4px ${brandColor}`,
                     }
-                  : undefined
+                  : {
+                      backgroundColor: '#fff',
+                      borderColor: 'rgba(17, 34, 79, 0.15)',
+                      color: 'var(--navy)',
+                    }
               }
             >
               {num}
@@ -194,7 +231,10 @@ function CesInput({
           )
         })}
       </div>
-      <div className="flex justify-between text-xs text-muted-foreground">
+      <div
+        className="flex justify-between px-1 text-[11px] font-semibold"
+        style={{ color: 'var(--navy)', opacity: 0.55 }}
+      >
         <span>Very Difficult</span>
         <span>Very Easy</span>
       </div>
@@ -267,17 +307,29 @@ export default function PublicFormPage() {
   if (submitted) {
     return (
       <BrandedPublicLayout branding={branding}>
-        {/* Hotfix-7 — outer Card removed; BrandedPublicLayout provides
-            the surrounding surface (varies per ?style= variant). */}
+        {/* Hotfix-8 — Afraa-style thank-you. Brand-color celebration ring,
+            navy heading. */}
         <div className="text-center">
           <div
-            className="mx-auto flex size-16 items-center justify-center rounded-full"
-            style={{ backgroundColor: brandColor + '20' }}
+            className="mx-auto flex size-20 items-center justify-center rounded-full"
+            style={{
+              backgroundColor: 'color-mix(in srgb, var(--brand) 15%, white)',
+            }}
           >
-            <CheckCircle2 className="size-8" style={{ color: brandColor }} />
+            <CheckCircle2 className="size-10" style={{ color: 'var(--brand)' }} />
           </div>
-          <h2 className="mt-6 text-2xl font-semibold">Thank You!</h2>
-          <p className="mt-2 text-muted-foreground">{thankYouMessage}</p>
+          <h2
+            className="mt-5 text-[28px] font-extrabold leading-tight tracking-tight"
+            style={{ color: 'var(--navy)' }}
+          >
+            Thank You!
+          </h2>
+          <p
+            className="mt-2 text-[15px] font-medium"
+            style={{ color: 'var(--navy)', opacity: 0.7 }}
+          >
+            {thankYouMessage}
+          </p>
         </div>
       </BrandedPublicLayout>
     )
@@ -299,15 +351,20 @@ export default function PublicFormPage() {
 
   return (
     <BrandedPublicLayout branding={branding}>
-      {/* Hotfix-7 — outer Card stripped. Surface comes from the layout
-          (each ?style= variant renders its own surrounding container).
-          The form name below stays — it's the SURVEY name (e.g. "NPS
-          Q4 2025"), distinct from the BUSINESS name in the header. */}
+      {/* Hotfix-8 — Afraa-style. Form name as small uppercase label
+          (since BrandedPublicLayout already shows the BUSINESS name in
+          the navy header). Score input + contact fields + submit all
+          tinted to navy/brand palette. */}
       <div>
-        <h1 className="mb-2 text-xl font-bold sm:text-2xl">{form.name}</h1>
-        <p className="mb-6 text-sm text-muted-foreground">
-          We value your feedback. It only takes a moment.
-        </p>
+        {/* Form name as eyebrow + scoring instruction */}
+        {form.name && (
+          <p
+            className="mb-4 text-center text-[11px] font-bold uppercase tracking-[0.22em]"
+            style={{ color: 'var(--navy)', opacity: 0.5 }}
+          >
+            {form.name}
+          </p>
+        )}
 
         {/* Score input */}
         {form.type === 'nps' && (
@@ -321,24 +378,42 @@ export default function PublicFormPage() {
         )}
         {form.type === 'custom' && (
           <div className="space-y-3">
-            <p className="text-base font-medium">Rate your experience (1-10)</p>
-            <div className="grid grid-cols-5 gap-1.5 sm:grid-cols-10">
+            <p
+              className="text-center text-[26px] font-extrabold leading-[1.15] tracking-tight"
+              style={{ color: 'var(--navy)' }}
+            >
+              Rate your experience
+            </p>
+            <p
+              className="text-center text-[11px] font-bold uppercase tracking-[0.22em]"
+              style={{ color: 'var(--navy)', opacity: 0.55 }}
+            >
+              1 – 10
+            </p>
+            <div className="grid grid-cols-5 gap-1.5 pt-3 sm:grid-cols-10">
               {Array.from({ length: 10 }).map((_, i) => {
                 const num = i + 1
+                const isSelected = score === num
                 return (
                   <button
                     key={i}
                     type="button"
                     onClick={() => setScore(num)}
-                    className={`flex size-10 items-center justify-center rounded-lg border text-sm font-semibold transition-all ${
-                      score === num
-                        ? 'text-white ring-2 ring-offset-2'
-                        : 'hover:bg-muted'
-                    }`}
+                    className="flex aspect-square size-11 items-center justify-center rounded-lg border-2 text-[14px] font-bold transition-all hover:scale-105"
                     style={
-                      score === num
-                        ? { backgroundColor: brandColor, borderColor: brandColor }
-                        : undefined
+                      isSelected
+                        ? {
+                            backgroundColor: brandColor,
+                            borderColor: brandColor,
+                            color: '#fff',
+                            transform: 'scale(1.1)',
+                            boxShadow: `0 0 0 2px #fff, 0 0 0 4px ${brandColor}`,
+                          }
+                        : {
+                            backgroundColor: '#fff',
+                            borderColor: 'rgba(17, 34, 79, 0.15)',
+                            color: 'var(--navy)',
+                          }
                     }
                   >
                     {num}
@@ -349,45 +424,58 @@ export default function PublicFormPage() {
           </div>
         )}
 
-        {/* Contact fields */}
+        {/* Contact fields — navy-bordered, brand focus */}
         <div className="mt-8 space-y-3">
-          <div className="space-y-1.5">
-            <Label className="text-xs text-muted-foreground">
-              Name (optional)
-            </Label>
-            <Input
-              placeholder="Your name"
-              value={customerName}
-              onChange={(e) => setCustomerName(e.target.value)}
+          <p
+            className="text-[11px] font-bold uppercase tracking-[0.18em]"
+            style={{ color: 'var(--navy)', opacity: 0.5 }}
+          >
+            Optional — your details
+          </p>
+          {[
+            {
+              type: 'text' as const,
+              placeholder: 'Your name',
+              value: customerName,
+              onChange: setCustomerName,
+            },
+            {
+              type: 'email' as const,
+              placeholder: 'your@email.com',
+              value: customerEmail,
+              onChange: setCustomerEmail,
+            },
+            {
+              type: 'tel' as const,
+              placeholder: '+91 98765 43210',
+              value: customerPhone,
+              onChange: setCustomerPhone,
+            },
+          ].map((f, i) => (
+            <input
+              key={i}
+              type={f.type}
+              className="h-12 w-full rounded-xl border-2 bg-white px-4 text-[14px] transition-colors focus:outline-none"
+              style={{
+                borderColor: 'rgba(17, 34, 79, 0.15)',
+                color: 'var(--navy)',
+              }}
+              placeholder={f.placeholder}
+              value={f.value}
+              onChange={(e) => f.onChange(e.target.value)}
+              onFocus={(e) =>
+                (e.currentTarget.style.borderColor = 'var(--brand)')
+              }
+              onBlur={(e) =>
+                (e.currentTarget.style.borderColor = 'rgba(17, 34, 79, 0.15)')
+              }
             />
-          </div>
-          <div className="space-y-1.5">
-            <Label className="text-xs text-muted-foreground">
-              Email (optional)
-            </Label>
-            <Input
-              type="email"
-              placeholder="your@email.com"
-              value={customerEmail}
-              onChange={(e) => setCustomerEmail(e.target.value)}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label className="text-xs text-muted-foreground">
-              Phone (optional)
-            </Label>
-            <Input
-              type="tel"
-              placeholder="+91 98765 43210"
-              value={customerPhone}
-              onChange={(e) => setCustomerPhone(e.target.value)}
-            />
-          </div>
+          ))}
         </div>
 
         {/* Submit */}
         <Button
-          className="mt-6 w-full text-white"
+          className="mt-6 h-14 w-full rounded-xl text-[15px] font-bold text-white shadow-md transition-all hover:opacity-90"
           size="lg"
           onClick={handleSubmit}
           disabled={score == null || submitMutation.isPending}
@@ -402,7 +490,6 @@ export default function PublicFormPage() {
             'Submit Feedback'
           )}
         </Button>
-
       </div>
     </BrandedPublicLayout>
   )

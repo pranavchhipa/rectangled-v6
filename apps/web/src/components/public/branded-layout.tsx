@@ -1,24 +1,28 @@
 'use client'
 
 /**
- * Hotfix PRD §4.5 — Branded layout for public QR pages.
+ * Hotfix PRD §4.5 + §8 — Branded layout for public QR pages.
  *
- * Wraps every screen on `/j/{slug}` and `/f/{slug}` with a branded
- * shell (logo + display name on a brand-colored surface) and a
- * subtle footer (white-label-aware "Powered by" tagline). Customer-
- * facing content sits in the middle.
+ * Wraps every screen on `/j/{slug}` and `/f/{slug}` with the same
+ * customer-facing shell:
  *
- * Hotfix-7 — visual refactor. The previous version was a thin
- * horizontal header strip + bare card; multiple owners flagged it as
- * "boring / generic". This version ships FOUR mobile-first style
- * variants, switchable via `?style=1|2|3|4`. Default is `1`. Owners
- * append the param to the QR URL to compare; once they pick one, we
- * lift it to a per-workspace branding setting (future hotfix).
- *
- *   1. Hero Gradient   — brand→fade gradient, big circular logo halo
- *   2. Glass Brand     — solid brand bg, frosted-glass card overlay
- *   3. Editorial Clean — pure white minimal, small horizontal header
- *   4. Polaroid Warm   — tinted bg, single card with logo embedded
+ *   ┌──────────────────────────────────┐
+ *   │ Top: navy with concentric rings  │  ← branding.displayName
+ *   │  emanating from bottom-center.   │
+ *   │     ╲                            │
+ *   │      ╲ curved boundary           │
+ *   │  ┌───╲──────╲──────────────┐    │
+ *   │  │  ●LOGO●  (152px circle, │    │  ← branding.logoUrl OR
+ *   │  │  straddles boundary)    │    │     cursive displayName fallback
+ *   │  │                          │    │
+ *   │  │  {children}              │    │  ← journey/truform content
+ *   │  │  (question + scale +     │    │
+ *   │  │   button stays here)     │    │
+ *   │  │                          │    │
+ *   │  │  Powered By              │    │  ← branding.poweredByText
+ *   │  │  [bubble] rectangled.io  │    │     (or white-label override)
+ *   │  └──────────────────────────┘    │
+ *   └──────────────────────────────────┘
  *
  * The `branding` prop comes from the public engine's GET response
  * (`getPublicLegacyJourney` / `getPublicLegacyTruform` /
@@ -26,22 +30,29 @@
  * `apps/api/src/surveys/branding.helper.ts` (location → workspace →
  * defaults) so the renderer is a pure consumer.
  *
+ * Hotfix-8 history — replaced the prior 4-style switcher (`?style=`) with
+ * a single premium Afraa-inspired design after owner feedback. Patterns:
+ *   - Dark navy header (#11224f) with concentric ring SVG emanating from
+ *     bottom-center → suggests focus / brand presence.
+ *   - White card with soft elliptical curved-top boundary
+ *     (`border-top-radius: 50% 50px`) and tiled topographic wave SVG.
+ *   - Logo at `top: -76px` of the white card, 152px circle, white outer
+ *     padding + brand-color inner ring + Cormorant Garamond italic
+ *     cursive fallback when no logoUrl.
+ *   - Powered By renders as the rectangled.io speech-bubble brand mark
+ *     + wordmark unless white-labeled (then plain text).
+ *
  * Accessibility:
- *   - Header is `<header role="banner">` with the display name as
- *     `<h1>`, so screen readers announce the business once.
- *   - Logo `<img>` carries an empty alt because the display name is
- *     already textual; the logo is decorative in this context.
- *   - Brand color is exposed as a CSS custom property `--brand` so
- *     descendant components (e.g. NPS button highlights in the
- *     truform renderer) can reference `var(--brand)` without prop-
- *     drilling.
+ *   - Header is `<header role="banner">` with `<h1>` displayName.
+ *   - Logo `<img>` carries empty alt (decorative).
+ *   - Brand color exposed as `--brand` CSS var so descendants can use
+ *     `var(--brand)` without prop-drilling.
  *   - All interactive elements keep min-height ≥44px (iOS HIG).
+ *   - Motion: only 150ms transitions on hover, no continuous animation.
  */
 
-import { useSearchParams } from 'next/navigation'
 import type { PublicBranding } from '@rectangled/shared'
-
-type Style = '1' | '2' | '3' | '4'
+import { DEFAULT_POWERED_BY_TEXT } from '@rectangled/shared'
 
 interface Props {
   branding: PublicBranding
@@ -53,267 +64,182 @@ interface Props {
   topSlot?: React.ReactNode
 }
 
+// Header navy is currently fixed (Afraa palette default). A future
+// hotfix will lift this into per-workspace branding (e.g. owners on
+// brands that clash with navy can pick another dark color).
+const HEADER_NAVY = '#11224f'
+
+// Concentric rings emanating from bottom-center of the navy header.
+// 7 circles, white at 13% opacity, 1.4px stroke. Encoded inline so no
+// external asset fetch on the public page (latency-sensitive).
+const RINGS_BG =
+  "url(\"data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 420 340' preserveAspectRatio='xMidYMax meet'%3E%3Cg fill='none' stroke='rgba(255,255,255,0.13)' stroke-width='1.4'%3E%3Ccircle cx='210' cy='340' r='90'/%3E%3Ccircle cx='210' cy='340' r='140'/%3E%3Ccircle cx='210' cy='340' r='190'/%3E%3Ccircle cx='210' cy='340' r='240'/%3E%3Ccircle cx='210' cy='340' r='290'/%3E%3Ccircle cx='210' cy='340' r='340'/%3E%3Ccircle cx='210' cy='340' r='390'/%3E%3C/g%3E%3C/svg%3E\")"
+
+// Topographic wavy contour lines, tiled. Slate at 8% opacity, 200px
+// tile. Adds organic texture to the white card without competing with
+// content readability.
+const WAVES_BG =
+  "url(\"data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200' viewBox='0 0 200 200'%3E%3Cg fill='none' stroke='rgba(17,34,79,0.08)' stroke-width='1'%3E%3Cpath d='M -20 30 Q 30 10 80 30 T 180 30 T 280 30'/%3E%3Cpath d='M -20 60 Q 30 40 80 60 T 180 60 T 280 60'/%3E%3Cpath d='M -20 90 Q 30 70 80 90 T 180 90 T 280 90'/%3E%3Cpath d='M -20 120 Q 30 100 80 120 T 180 120 T 280 120'/%3E%3Cpath d='M -20 150 Q 30 130 80 150 T 180 150 T 280 150'/%3E%3Cpath d='M -20 180 Q 30 160 80 180 T 180 180 T 280 180'/%3E%3C/g%3E%3C/svg%3E\")"
+
 export function BrandedPublicLayout({ branding, children, topSlot }: Props) {
-  const searchParams = useSearchParams()
-  const raw = searchParams?.get('style') ?? '1'
-  const style: Style = raw === '2' || raw === '3' || raw === '4' ? raw : '1'
+  const brand = branding.brandColor
 
-  switch (style) {
-    case '2':
-      return <Style2GlassBrand branding={branding} topSlot={topSlot}>{children}</Style2GlassBrand>
-    case '3':
-      return <Style3EditorialClean branding={branding} topSlot={topSlot}>{children}</Style3EditorialClean>
-    case '4':
-      return <Style4PolaroidWarm branding={branding} topSlot={topSlot}>{children}</Style4PolaroidWarm>
-    case '1':
-    default:
-      return <Style1HeroGradient branding={branding} topSlot={topSlot}>{children}</Style1HeroGradient>
-  }
-}
+  // Cursive fallback: first word of displayName lowercased, in italic
+  // serif. Long names truncate visually inside the 152px circle.
+  const cursiveFallback =
+    branding.displayName.trim().split(/\s+/)[0]?.toLowerCase() || '?'
 
-// ============================================================
-// Shared primitives
-// ============================================================
+  // Inline CSS vars so descendants can use `var(--brand)`, `var(--navy)`,
+  // `var(--gold)` without prop-drilling. Avoids tailwind arbitrary-value
+  // purge on dynamic owner-supplied colors.
+  //   --brand: owner's logo border + accent + button color
+  //   --navy:  shared header dark color (currently fixed; future hotfix
+  //            lifts to per-workspace setting)
+  //   --gold:  star outline color in CSAT-stars rendering
+  const cssVars = {
+    ['--brand' as string]: brand,
+    ['--navy' as string]: HEADER_NAVY,
+    ['--gold' as string]: '#d4af37',
+  } as React.CSSProperties
 
-function LogoMark({
-  branding,
-  size,
-  rounded,
-  ringStyle,
-  textColor,
-}: {
-  branding: PublicBranding
-  size: number // px
-  rounded: 'full' | '2xl' | 'lg'
-  ringStyle?: React.CSSProperties
-  textColor?: string
-}) {
-  const initial = branding.displayName.trim().charAt(0).toUpperCase() || '?'
-  const radius =
-    rounded === 'full' ? 'rounded-full' : rounded === '2xl' ? 'rounded-2xl' : 'rounded-lg'
+  // White-label detection: the helper replaces the default tagline with
+  // org-specific text. We only show the styled rectangled.io mark when
+  // it's the system default; otherwise we render the plain text the
+  // org configured.
+  const isRectangledFooter =
+    branding.poweredByText === DEFAULT_POWERED_BY_TEXT
 
-  if (branding.logoUrl) {
-    return (
-      <img
-        src={branding.logoUrl}
-        alt=""
-        className={`${radius} bg-white object-contain`}
+  return (
+    <div
+      className="flex min-h-screen flex-col"
+      style={{ backgroundColor: HEADER_NAVY, ...cssVars }}
+    >
+      {topSlot}
+
+      {/* Top: navy header with concentric rings */}
+      <header
+        role="banner"
+        className="relative px-7 pb-7 pt-14 sm:pt-16"
         style={{
-          width: size,
-          height: size,
-          padding: size >= 80 ? 8 : size >= 60 ? 6 : 4,
-          ...ringStyle,
+          backgroundColor: HEADER_NAVY,
+          backgroundImage: RINGS_BG,
+          backgroundSize: '100% 100%',
+          backgroundRepeat: 'no-repeat',
+          backgroundPosition: 'bottom center',
+          minHeight: '36vh',
         }}
-      />
-    )
-  }
-  return (
-    <div
-      aria-hidden
-      className={`flex items-center justify-center font-bold uppercase ${radius} bg-white`}
-      style={{
-        width: size,
-        height: size,
-        color: textColor ?? branding.brandColor,
-        fontSize: size >= 80 ? 30 : size >= 60 ? 22 : 16,
-        ...ringStyle,
-      }}
-    >
-      {initial}
-    </div>
-  )
-}
-
-// ============================================================
-// 1. Hero Gradient — branded, warm, the new default
-// ============================================================
-
-function Style1HeroGradient({ branding, children, topSlot }: Props) {
-  const brand = branding.brandColor
-  const cssVars = { ['--brand' as string]: brand } as React.CSSProperties
-
-  return (
-    <div
-      className="flex min-h-screen flex-col"
-      style={{
-        background: `linear-gradient(180deg, ${brand} 0%, ${brand}AA 22%, ${brand}33 45%, #f8fafc 70%)`,
-        ...cssVars,
-      }}
-    >
-      {topSlot}
-
-      <header role="banner" className="px-4 pb-6 pt-10 text-center sm:pt-14">
-        <div className="mx-auto inline-block">
-          <LogoMark
-            branding={branding}
-            size={96}
-            rounded="full"
-            ringStyle={{
-              boxShadow: `0 0 0 6px rgba(255,255,255,0.35), 0 12px 28px -8px rgba(0,0,0,0.25)`,
-            }}
-          />
-        </div>
-        <h1 className="mt-5 text-2xl font-bold tracking-tight text-white drop-shadow-sm sm:text-3xl">
-          {branding.displayName}
-        </h1>
-        <p className="mt-1 text-sm text-white/85">We'd love to hear from you</p>
-      </header>
-
-      <main className="flex-1 px-4 pb-6">
-        <div className="mx-auto w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl ring-1 ring-slate-100 sm:p-8">
-          {children}
-        </div>
-      </main>
-
-      <footer className="py-4 text-center text-xs text-slate-500">
-        {branding.poweredByText}
-      </footer>
-    </div>
-  )
-}
-
-// ============================================================
-// 2. Glass Brand — bold full-bleed, frosted card overlay
-// ============================================================
-
-function Style2GlassBrand({ branding, children, topSlot }: Props) {
-  const brand = branding.brandColor
-  const cssVars = { ['--brand' as string]: brand } as React.CSSProperties
-
-  return (
-    <div
-      className="relative flex min-h-screen flex-col overflow-hidden"
-      style={{ backgroundColor: brand, ...cssVars }}
-    >
-      {/* Decorative blobs for depth */}
-      <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
-        <div className="absolute -right-24 -top-24 size-72 rounded-full bg-white/15 blur-3xl" />
-        <div className="absolute -bottom-32 -left-24 size-96 rounded-full bg-white/10 blur-3xl" />
-        <div className="absolute right-1/4 top-1/3 size-48 rounded-full bg-white/5 blur-2xl" />
-      </div>
-
-      {topSlot}
-
-      <header role="banner" className="relative px-4 pb-5 pt-10 text-center sm:pt-12">
-        <div className="mx-auto inline-block">
-          <LogoMark
-            branding={branding}
-            size={80}
-            rounded="2xl"
-            ringStyle={{
-              boxShadow: `0 12px 24px -6px rgba(0,0,0,0.3)`,
-            }}
-            textColor={brand}
-          />
-        </div>
-        <h1 className="mt-3 text-xl font-bold tracking-tight text-white sm:text-2xl">
+      >
+        <h1 className="z-10 text-[28px] font-bold leading-[1.15] tracking-tight text-white sm:text-[30px]">
           {branding.displayName}
         </h1>
       </header>
 
-      <main className="relative flex-1 px-4 pb-6">
+      {/* Bottom: white card with curved top + waves + content */}
+      <main
+        className="relative -mt-6 flex flex-1 flex-col items-center bg-white px-5 pb-5 pt-24 sm:px-6"
+        style={{
+          borderTopLeftRadius: '50% 50px',
+          borderTopRightRadius: '50% 50px',
+          backgroundImage: WAVES_BG,
+          backgroundRepeat: 'repeat',
+          backgroundSize: '200px 200px',
+        }}
+      >
+        {/* Logo straddling the boundary. 152px circle, white outer pad,
+            brand-color inner ring. Image when logoUrl set; cursive
+            fallback otherwise. */}
         <div
-          className="mx-auto w-full max-w-md rounded-3xl border border-white/40 bg-white/95 p-6 shadow-2xl backdrop-blur-xl sm:p-8"
+          className="absolute left-1/2 z-20 -translate-x-1/2 rounded-full bg-white p-2"
+          style={{
+            top: -76,
+            width: 152,
+            height: 152,
+            boxShadow: '0 12px 30px rgba(0, 0, 0, 0.18)',
+          }}
         >
-          {children}
-        </div>
-      </main>
-
-      <footer className="relative py-4 text-center text-xs text-white/70">
-        {branding.poweredByText}
-      </footer>
-    </div>
-  )
-}
-
-// ============================================================
-// 3. Editorial Clean — minimal Apple/Stripe-style
-// ============================================================
-
-function Style3EditorialClean({ branding, children, topSlot }: Props) {
-  const brand = branding.brandColor
-  const cssVars = { ['--brand' as string]: brand } as React.CSSProperties
-
-  return (
-    <div className="flex min-h-screen flex-col bg-white" style={cssVars}>
-      {topSlot}
-
-      <header role="banner" className="border-b border-slate-100 px-4 py-4">
-        <div className="mx-auto flex max-w-md items-center gap-3">
-          <LogoMark
-            branding={branding}
-            size={40}
-            rounded="lg"
-            textColor="#fff"
-            ringStyle={
-              branding.logoUrl
-                ? undefined
-                : { backgroundColor: brand }
-            }
-          />
-          <h1 className="min-w-0 flex-1 truncate text-base font-semibold tracking-tight text-slate-900">
-            {branding.displayName}
-          </h1>
-        </div>
-      </header>
-
-      <main className="flex-1 px-4 py-8 sm:py-12">
-        <div className="mx-auto w-full max-w-md">{children}</div>
-      </main>
-
-      <footer className="border-t border-slate-100 py-4 text-center text-xs text-slate-400">
-        {branding.poweredByText}
-      </footer>
-    </div>
-  )
-}
-
-// ============================================================
-// 4. Polaroid Warm — single card, logo baked in, soft tinted bg
-// ============================================================
-
-function Style4PolaroidWarm({ branding, children, topSlot }: Props) {
-  const brand = branding.brandColor
-  const cssVars = { ['--brand' as string]: brand } as React.CSSProperties
-
-  return (
-    <div
-      className="flex min-h-screen flex-col"
-      style={{ backgroundColor: `${brand}10`, ...cssVars }}
-    >
-      {topSlot}
-
-      <main className="flex flex-1 items-center justify-center px-4 py-6 sm:py-10">
-        <div className="w-full max-w-md">
-          <div className="rounded-3xl bg-white p-6 shadow-xl ring-1 ring-slate-100 sm:p-8">
-            <header role="banner" className="mb-6 text-center">
-              <div className="mx-auto inline-block">
-                <LogoMark
-                  branding={branding}
-                  size={80}
-                  rounded="full"
-                  ringStyle={{
-                    boxShadow: `0 0 0 4px ${brand}30, 0 6px 14px -4px rgba(0,0,0,0.15)`,
-                  }}
-                  textColor={brand}
-                />
-              </div>
-              <h1 className="mt-4 text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">
-                {branding.displayName}
-              </h1>
-              <div
-                className="mx-auto mt-3 h-0.5 w-12 rounded-full opacity-40"
-                style={{ backgroundColor: brand }}
+          <div
+            className="flex h-full w-full flex-col items-center justify-center overflow-hidden rounded-full p-3"
+            style={{ border: `3px solid ${brand}` }}
+          >
+            {branding.logoUrl ? (
+              <img
+                src={branding.logoUrl}
+                alt=""
+                className="max-h-full max-w-full object-contain"
               />
-            </header>
-            {children}
+            ) : (
+              <span
+                className="text-[36px] font-bold italic leading-none lowercase"
+                style={{
+                  color: brand,
+                  fontFamily:
+                    '"Cormorant Garamond", "Brush Script MT", serif',
+                  letterSpacing: '-0.02em',
+                }}
+              >
+                {cursiveFallback}
+              </span>
+            )}
           </div>
         </div>
-      </main>
 
-      <footer className="py-3 text-center text-xs text-slate-500">
-        {branding.poweredByText}
-      </footer>
+        {/* Children — the journey/truform renderer's content. Q + scale
+            + button stack lives here. mt-4 nudges below the logo's
+            shadow tail. */}
+        <div className="z-10 mt-4 w-full max-w-md">{children}</div>
+
+        {/* Powered By footer (pinned to bottom of white card) */}
+        <div className="z-10 mt-auto flex flex-col items-center pt-8 pb-2">
+          {isRectangledFooter ? (
+            <>
+              <p className="text-[13px] font-medium text-slate-600">
+                Powered By
+              </p>
+              <div className="mt-1.5 flex items-center gap-1.5">
+                {/* rectangled.io brand mark — speech-bubble with two
+                    upward arches inside, dark navy fill */}
+                <svg
+                  className="h-6 w-6"
+                  viewBox="0 0 100 100"
+                  xmlns="http://www.w3.org/2000/svg"
+                  aria-hidden="true"
+                >
+                  <path
+                    d="M 16 8 H 84 Q 92 8 92 16 V 60 Q 92 68 84 68 H 60 L 50 84 L 50 68 H 16 Q 8 68 8 60 V 16 Q 8 8 16 8 Z"
+                    fill={HEADER_NAVY}
+                  />
+                  <path
+                    d="M 30 42 Q 36 30 42 42"
+                    stroke="white"
+                    strokeWidth="6"
+                    fill="none"
+                    strokeLinecap="round"
+                  />
+                  <path
+                    d="M 58 42 Q 64 30 70 42"
+                    stroke="white"
+                    strokeWidth="6"
+                    fill="none"
+                    strokeLinecap="round"
+                  />
+                </svg>
+                <span
+                  className="text-[18px] font-bold tracking-tight"
+                  style={{ color: HEADER_NAVY }}
+                >
+                  rectangled.io
+                </span>
+              </div>
+            </>
+          ) : (
+            // White-labeled orgs see their custom footerText as plain
+            // text (no rectangled.io branding).
+            <p className="text-[13px] font-medium text-slate-600">
+              {branding.poweredByText}
+            </p>
+          )}
+        </div>
+      </main>
     </div>
   )
 }
