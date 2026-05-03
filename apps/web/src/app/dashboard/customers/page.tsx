@@ -141,11 +141,12 @@ export default function CustomersPage() {
           />
         </div>
 
-        {/* Hotfix-5 — location filter. Hidden for single-location
-            workspaces; shown as a select for 2+. Resolves via subquery
-            on survey_responses.location_id (any response from this
+        {/* Hotfix-5 — location filter. Threshold relaxed in hotfix-6
+            from `> 1` to `>= 1` so single-location workspaces still
+            see the dropdown. Resolves via subquery on
+            survey_responses.location_id (any response from this
             location → customer is in scope). */}
-        {activeLocations.length > 1 && (
+        {activeLocations.length >= 1 && (
           <Select
             value={locFilter}
             onValueChange={(v) => {

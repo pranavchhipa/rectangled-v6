@@ -531,10 +531,12 @@ export default function SurveysListPage() {
           </SelectContent>
         </Select>
 
-        {/* Hotfix-5 — location filter. Hidden for single-location
-            workspaces (no value), shown as a select for 2+. The list
-            query already supports `locationId` filter on the backend. */}
-        {activeLocations.length > 1 && (
+        {/* Hotfix-5 — location filter. Threshold relaxed in hotfix-6
+            from `> 1` to `>= 1` so single-location workspaces still
+            see the dropdown (visibility / discoverability — owner can
+            see the feature exists). Hidden only when 0 active
+            locations (nothing to filter). */}
+        {activeLocations.length >= 1 && (
           <Select value={locFilter} onValueChange={setLocFilter}>
             <SelectTrigger className="w-[200px]">
               <SelectValue />

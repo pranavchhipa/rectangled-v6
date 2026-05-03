@@ -163,8 +163,10 @@ export function ResponsesList({
         </div>
 
         {/* Hotfix-5 — location filter, workspace-wide views only.
-            Backend filters via survey_responses.location_id. */}
-        {workspaceId && activeLocations.length > 1 && (
+            Backend filters via survey_responses.location_id.
+            Threshold relaxed in hotfix-6 from `> 1` to `>= 1` for
+            visibility on single-location workspaces. */}
+        {workspaceId && activeLocations.length >= 1 && (
           <Select
             value={locFilter}
             onValueChange={(v) => {

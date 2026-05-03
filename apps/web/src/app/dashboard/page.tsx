@@ -387,11 +387,14 @@ export default function DashboardPage() {
 
       {/*
         Hotfix PRD §7 — "By Location" section. Replaces the deleted
-        /dashboard/chain page. Conditionally rendered: single-location
-        workspaces never see this (keeps Dashboard clean for SMB owners
-        who don't need cross-location comparisons).
+        /dashboard/chain page. Threshold relaxed in hotfix-6 from
+        locationCount >= 2 to >= 1 — single-location workspaces still
+        see the section so the feature is discoverable (with 1 row,
+        leaderboard is technically a no-op but it surfaces what the
+        section will look like when more locations land). 0-location
+        workspaces still hide it (nothing to render).
       */}
-      {currentWorkspaceId && locationCount >= 2 && (
+      {currentWorkspaceId && locationCount >= 1 && (
         <ByLocationSection
           workspaceId={currentWorkspaceId}
           locations={(locationsQuery.data ?? []).map((l: any) => ({
