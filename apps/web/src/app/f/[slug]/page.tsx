@@ -59,7 +59,7 @@ function NpsInput({
               onClick={() => onChange(i)}
               className={`flex aspect-square items-center justify-center rounded-lg border text-sm font-semibold transition-all sm:text-base ${
                 isSelected
-                  ? 'ring-2 ring-offset-2 scale-110'
+                  ? 'scale-110'
                   : bgColor + ' hover:scale-105'
               }`}
               style={
@@ -68,7 +68,10 @@ function NpsInput({
                       backgroundColor: brandColor,
                       borderColor: brandColor,
                       color: '#fff',
-                      ringColor: brandColor,
+                      // Hotfix-7 — `ringColor` isn't a valid CSS prop
+                      // (it's Tailwind sugar). Use an explicit
+                      // box-shadow ring tinted with the brand color.
+                      boxShadow: `0 0 0 2px #fff, 0 0 0 4px ${brandColor}`,
                     }
                   : undefined
               }
@@ -264,7 +267,9 @@ export default function PublicFormPage() {
   if (submitted) {
     return (
       <BrandedPublicLayout branding={branding}>
-        <Card className="p-8 text-center">
+        {/* Hotfix-7 — outer Card removed; BrandedPublicLayout provides
+            the surrounding surface (varies per ?style= variant). */}
+        <div className="text-center">
           <div
             className="mx-auto flex size-16 items-center justify-center rounded-full"
             style={{ backgroundColor: brandColor + '20' }}
@@ -273,7 +278,7 @@ export default function PublicFormPage() {
           </div>
           <h2 className="mt-6 text-2xl font-semibold">Thank You!</h2>
           <p className="mt-2 text-muted-foreground">{thankYouMessage}</p>
-        </Card>
+        </div>
       </BrandedPublicLayout>
     )
   }
@@ -294,10 +299,11 @@ export default function PublicFormPage() {
 
   return (
     <BrandedPublicLayout branding={branding}>
-      <Card className="p-6 sm:p-8">
-        {/* Form name still surfaces here — the branded header above
-            shows the BUSINESS name (location → workspace), this shows
-            the SURVEY name (e.g. "NPS Q4 2025"). Different concepts. */}
+      {/* Hotfix-7 — outer Card stripped. Surface comes from the layout
+          (each ?style= variant renders its own surrounding container).
+          The form name below stays — it's the SURVEY name (e.g. "NPS
+          Q4 2025"), distinct from the BUSINESS name in the header. */}
+      <div>
         <h1 className="mb-2 text-xl font-bold sm:text-2xl">{form.name}</h1>
         <p className="mb-6 text-sm text-muted-foreground">
           We value your feedback. It only takes a moment.
@@ -397,7 +403,7 @@ export default function PublicFormPage() {
           )}
         </Button>
 
-      </Card>
+      </div>
     </BrandedPublicLayout>
   )
 }
