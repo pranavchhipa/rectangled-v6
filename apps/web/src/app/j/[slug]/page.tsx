@@ -58,8 +58,12 @@ export default function PublicJourneyPage() {
   // Phase 5 — reads now come from the survey engine (legacy shape).
   // The renderer's UI is unchanged; only the query target moved.
   // journey.getPublic was removed when the legacy tables dropped.
+  // Hotfix-2 — pass `preview` so draft journeys render in preview mode
+  // (the active-status filter on the engine is bypassed when preview
+  // is true). Without this, the editor's Preview button on a fresh
+  // draft journey 404s and the renderer hangs on its skeleton.
   const journeyQuery = trpc.survey.getPublicLegacyJourney.useQuery(
-    { slug },
+    { slug, preview: isPreview },
     { enabled: !!slug },
   )
   // Phase 3 Stage E — writes go through the new survey engine via the

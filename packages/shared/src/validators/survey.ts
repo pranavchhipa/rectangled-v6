@@ -174,10 +174,19 @@ export const submitLegacyTruformSchema = z.object({
 
 export const getPublicLegacyJourneySchema = z.object({
   slug: z.string().min(1).max(64),
+  /**
+   * Hotfix-2 — preview mode for the editor's Preview button. When true,
+   * the engine drops the `status='active'` filter so owners can walk
+   * draft journeys before activating them. Pairs with the same flag on
+   * `submitLegacyJourneySchema` (which already no-ops persistence).
+   * Without this flag, freshly-created draft surveys 404 in preview.
+   */
+  preview: z.boolean().optional(),
 })
 
 export const getPublicLegacyTruformSchema = z.object({
   slug: z.string().min(1).max(64),
+  preview: z.boolean().optional(),
 })
 
 // ─── Hotfix PRD §6 — Responses listing + detail ─────────────────────────

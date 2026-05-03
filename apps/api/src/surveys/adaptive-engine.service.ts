@@ -66,8 +66,15 @@ export class AdaptiveEngineService {
   async getInitialState(input: {
     slug: string
     sessionId?: string
+    /**
+     * Hotfix-2 — preview mode bypasses the active-status filter so the
+     * editor's Preview button can walk draft adaptive journeys.
+     */
+    preview?: boolean
   }): Promise<AdaptiveInitialState> {
-    const survey = await this.findActiveBySlug(input.slug)
+    const survey = await this.findActiveBySlug(input.slug, {
+      allowDraft: !!input.preview,
+    })
     const settings = (survey.settings ?? {}) as AdaptiveSettings
 
     const enabled = (settings.enabledMetrics ?? []).filter(isMetric)
@@ -420,10 +427,14 @@ export class AdaptiveEngineService {
     return isPositiveScore(metric, score, threshold)
   }
 
-  private async findActiveBySlug(slug: string) {
-    const survey = await this.db.query.surveys.findFirst({
-      where: and(eq(surveys.slug, slug), eq(surveys.status, 'active')),
-    })
+  private async findActiveBySlug(
+    slug: string,
+    options: { allowDraft?: boolean } = {},
+  ) {
+    const where = options.allowDraft
+      ? eq(surveys.slug, slug)
+      : and(eq(surveys.slug, slug), eq(surveys.status, 'active'))
+    const survey = await this.db.query.surveys.findFirst({ where })
     if (!survey || survey.archivedAt) {
       throw new TRPCError({ code: 'NOT_FOUND', message: 'Survey not found' })
     }

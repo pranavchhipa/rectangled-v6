@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { useParams } from 'next/navigation'
+import { useParams, useSearchParams } from 'next/navigation'
 import { Star, CheckCircle2, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { trpc } from '@/lib/trpc'
@@ -201,7 +201,14 @@ function CesInput({
 
 export default function PublicFormPage() {
   const params = useParams()
+  const searchParams = useSearchParams()
   const slug = params.slug as string
+
+  // Hotfix-2 — preview mode parity with /j/{slug}. Owners can open
+  // /f/{slug}?preview=true on a draft deep survey to walk it before
+  // activating; the engine drops the active-status filter when preview
+  // is true. Submit endpoints already no-op persistence on preview.
+  const isPreview = searchParams?.get('preview') === 'true'
 
   const [score, setScore] = useState<number | null>(null)
   const [customerName, setCustomerName] = useState('')
@@ -212,7 +219,7 @@ export default function PublicFormPage() {
   // Phase 5 — reads now come from the survey engine (legacy shape).
   // truform.getPublic was removed when the legacy tables dropped.
   const formQuery = trpc.survey.getPublicLegacyTruform.useQuery(
-    { slug },
+    { slug, preview: isPreview },
     { enabled: !!slug }
   )
 

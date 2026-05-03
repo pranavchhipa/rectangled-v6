@@ -738,13 +738,19 @@ export default function SurveyEditorPage() {
           <div>
             <h1 className="text-xl font-bold">{survey.name}</h1>
             <p className="text-xs text-muted-foreground">
-              /{survey.template === 'quick' ? 'j' : 'f'}/{survey.slug}{' '}
+              {/* Hotfix-2 — every non-deep template (quick / adaptive /
+                  custom) uses the /j/{slug} URL space. Deep is the only
+                  one that uses /f/. Was hardcoded to 'quick' check,
+                  which threw adaptive + custom into /f/ — a fresh-from-
+                  wizard custom journey would show "/f/j-..." in the
+                  header (visible bug from the smoke test). */}
+              /{survey.template === 'deep' ? 'f' : 'j'}/{survey.slug}{' '}
               <Badge
                 variant="outline"
                 className={
-                  survey.template === 'quick'
-                    ? 'ml-2 text-blue-700 border-blue-300 bg-blue-50'
-                    : 'ml-2 text-purple-700 border-purple-300 bg-purple-50'
+                  survey.template === 'deep'
+                    ? 'ml-2 text-purple-700 border-purple-300 bg-purple-50'
+                    : 'ml-2 text-blue-700 border-blue-300 bg-blue-50'
                 }
               >
                 {survey.template}
@@ -769,7 +775,7 @@ export default function SurveyEditorPage() {
           {survey.status === 'active' && (
             <Button asChild variant="outline" size="sm">
               <a
-                href={`/${survey.template === 'quick' ? 'j' : 'f'}/${survey.slug}`}
+                href={`/${survey.template === 'deep' ? 'f' : 'j'}/${survey.slug}`}
                 target="_blank"
                 rel="noreferrer"
               >
@@ -1287,10 +1293,14 @@ function SurveyQrDialog({
       format: 'png',
     },
     {
+      // Hotfix-2 — every non-deep template (quick / adaptive / custom)
+      // shares the journey QR generator since they all use /j/{slug}
+      // URLs. Was 'quick' only — adaptive + custom hit no QR path and
+      // showed "No QR available" in the dialog.
       enabled:
         open &&
         !!survey &&
-        survey.template === 'quick' &&
+        survey.template !== 'deep' &&
         !!currentWorkspaceId,
     },
   )
@@ -1330,13 +1340,16 @@ function SurveyQrDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, survey?.id])
 
-  const dataUrl =
-    survey?.template === 'quick' ? qrQuery.data?.qrDataUrl : deepUrl
-  const isLoading =
-    survey?.template === 'quick' ? qrQuery.isLoading : deepLoading
+  // Hotfix-2 — quick / adaptive / custom share the journey QR path;
+  // only deep uses the form QR mutation. Single derived flag instead
+  // of three template-equality checks (was 'quick' === so adaptive +
+  // custom fell through to the deep branch and showed empty data).
+  const isJourneyTemplate = !!survey && survey.template !== 'deep'
+  const dataUrl = isJourneyTemplate ? qrQuery.data?.qrDataUrl : deepUrl
+  const isLoading = isJourneyTemplate ? qrQuery.isLoading : deepLoading
   const publicUrl = survey
     ? `${typeof window !== 'undefined' ? window.location.origin : ''}/${
-        survey.template === 'quick' ? 'j' : 'f'
+        isJourneyTemplate ? 'j' : 'f'
       }/${survey.slug}`
     : ''
 
