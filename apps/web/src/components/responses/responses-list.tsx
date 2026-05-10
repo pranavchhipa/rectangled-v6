@@ -4,8 +4,8 @@
  * Hotfix PRD §6 — reusable Responses list.
  *
  * Used by:
- *   - /dashboard/surveys/[id]  (Responses tab — surveyId scoped)
- *   - /dashboard/responses     (workspace-wide page — workspaceId scoped)
+ *   - /dashboard/journeys/[id]  (Responses tab — surveyId scoped)
+ *   - /dashboard/responses      (workspace-wide page — workspaceId scoped)
  *
  * Renders a search/filter toolbar + a card grid of responses + a row-click
  * detail sheet. Pulls from trpc.survey.listResponses + getResponseById.

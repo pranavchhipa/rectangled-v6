@@ -62,10 +62,10 @@ import { CreateCustomJourneyWizard } from '@/components/surveys/create-custom-jo
 /**
  * Phase 3 Stage F — surveys list + create.
  *
- * The single unified surveys list (the old /dashboard/journeys and
- * /dashboard/truforms pages were deleted in Phase 5). Filter by template
- * (quick / deep) and status. Click a row to open the editor at
- * /dashboard/surveys/[id].
+ * The single unified surveys list (the old /dashboard/truforms page was
+ * deleted in Phase 5; /dashboard/surveys redirect deleted in Phase 6
+ * unify). Filter by template (quick / deep / adaptive / custom) and
+ * status. Click a row to open the editor at /dashboard/journeys/[id].
  */
 
 // Hotfix §5 leakage fix — filter chips now cover all 4 templates so

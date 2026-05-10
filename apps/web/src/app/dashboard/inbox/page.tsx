@@ -64,6 +64,7 @@ import {
 } from '@/components/ui/dialog'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { DateRangePicker } from '@/components/ui/date-range-picker'
+import { ReviewTable } from '@/components/review/review-table'
 
 type SourceTab = 'all' | 'gbp' | 'zomato' | 'negative'
 type StatusFilter = 'all' | 'responded' | 'pending' | 'escalated'
@@ -227,7 +228,6 @@ export default function InboxPage() {
   const [showScheduleDialog, setShowScheduleDialog] = useState(false)
   const [scheduleDate, setScheduleDate] = useState('')
   const [scheduleTime, setScheduleTime] = useState('')
-  const [expandedReviewId, setExpandedReviewId] = useState<string | null>(null)
   const [showCouponDialog, setShowCouponDialog] = useState(false)
   const [couponTargetReview, setCouponTargetReview] = useState<any | null>(null)
   const [selectedLocationId, setSelectedLocationId] = useState<string>('all')
@@ -626,140 +626,20 @@ export default function InboxPage() {
         </div>
       ) : (
         <>
-          <div className="space-y-3">
-            {reviews.map((review: any) => {
-              const isExpanded = expandedReviewId === review.id
-              const reviewTextFull = review.reviewText ?? review.text ?? ''
-              const isLong = reviewTextFull.length > 200
-
-              return (
-                <Card
-                  key={review.id}
-                  className="overflow-hidden transition-all hover:shadow-md"
-                >
-                  <div
-                    className="p-4 cursor-pointer"
-                    onClick={() => setSelectedReview(review)}
-                  >
-                    <div className="flex items-start gap-4">
-                      {/* Left: Rating + Source */}
-                      <div className="flex flex-col items-center gap-1.5 shrink-0 pt-0.5">
-                        <StarRating rating={review.rating ?? 0} />
-                        <SourceBadge
-                          source={review.source ?? 'online'}
-                          platform={review.platform}
-                        />
-                      </div>
-
-                      {/* Center: Content */}
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="text-sm font-semibold truncate">
-                            {review.reviewerName || 'Anonymous'}
-                          </span>
-                          {review.isEscalated && (
-                            <Badge variant="destructive" className="gap-1 text-[10px] px-1.5">
-                              <AlertTriangle className="size-2.5" />
-                              Escalated
-                            </Badge>
-                          )}
-                          {review.locationName && (
-                            <span className="text-xs bg-muted px-1.5 py-0.5 rounded text-muted-foreground">
-                              {review.locationName}
-                            </span>
-                          )}
-                          <span className="text-xs text-muted-foreground ml-auto">
-                            {review.reviewedAt ? formatDistanceToNow(new Date(review.reviewedAt), { addSuffix: true }) : ''}
-                          </span>
-                        </div>
-                        <p className={`text-sm text-muted-foreground ${isExpanded ? '' : 'line-clamp-2'}`}>
-                          {reviewTextFull}
-                        </p>
-                        {isLong && (
-                          <button
-                            className="text-xs text-primary hover:underline mt-0.5"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              setExpandedReviewId(isExpanded ? null : review.id)
-                            }}
-                          >
-                            {isExpanded ? 'Show less' : 'Show more'}
-                          </button>
-                        )}
-                        {review.aspectTags?.length > 0 && (
-                          <div className="flex flex-wrap gap-1 mt-2">
-                            {review.aspectTags.map((tag: string) => (
-                              <Badge
-                                key={tag}
-                                variant="outline"
-                                className="text-[10px] px-1.5 py-0"
-                              >
-                                {tag}
-                              </Badge>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Right: Date + Status */}
-                      <div className="flex flex-col items-end gap-1.5 shrink-0">
-                        <span className="text-xs text-muted-foreground">
-                          {review.reviewedAt
-                            ? format(new Date(review.reviewedAt), 'dd MMM yyyy')
-                            : ''}
-                        </span>
-                        <ResponseStatusIcon review={review} />
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Action buttons row */}
-                  <div className="flex items-center gap-2 px-4 pb-3 pt-0">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-7 text-xs gap-1"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        setSelectedReview(review)
-                        handleGenerateAI(review.id)
-                      }}
-                      disabled={generateMutation.isPending}
-                    >
-                      <Sparkles className="size-3" />
-                      {review.responseText || review.respondedAt ? 'Re-reply with AI' : 'AI Generate'}
-                    </Button>
-                    {!review.isEscalated && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 text-xs gap-1 text-orange-600 hover:text-orange-700 hover:bg-orange-50 dark:hover:bg-orange-950/30"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          handleEscalate(review.id)
-                        }}
-                      >
-                        <AlertTriangle className="size-3" />
-                        Escalate
-                      </Button>
-                    )}
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-7 text-xs gap-1 text-purple-600 hover:text-purple-700 hover:bg-purple-50 dark:hover:bg-purple-950/30"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        handleSendCoupon(review)
-                      }}
-                    >
-                      <Gift className="size-3" />
-                      Send Coupon
-                    </Button>
-                  </div>
-                </Card>
-              )
-            })}
-          </div>
+          {/* Phase 6 unify — single tabular surface for reviews. Replaces
+              the per-row Card with action buttons. All actions (AI generate,
+              escalate, send coupon, reply) are in the detail sheet that
+              opens on row click. */}
+          <ReviewTable
+            reviews={reviews as any}
+            onRowClick={(id) => {
+              const r = reviews.find((rev: any) => rev.id === id)
+              if (r) setSelectedReview(r)
+            }}
+            showSelect={false}
+            showLocation={locations.length > 1}
+            showEscalated
+          />
 
           {/* Pagination */}
           {totalPages > 1 && (

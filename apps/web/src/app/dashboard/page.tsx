@@ -86,7 +86,7 @@ export default function DashboardPage() {
     {
       label: 'Sync your first reviews',
       done: reviewCount > 0,
-      href: '/dashboard/reviews',
+      href: '/dashboard/inbox',
     },
   ]
 
