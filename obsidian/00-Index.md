@@ -45,7 +45,7 @@ AI-native ORM (Online Reputation Management) platform for Indian SMBs. Turborepo
 
 ## Code anchors
 - API modules: `apps/api/src/*` (27 modules)
-- Web pages: `apps/web/src/app/*` (28 dashboard pages + public `/j` `/f`)
+- Web pages: `apps/web/src/app/*` (dashboard routes + public `/j` `/f`). Inbox is the canonical review surface; Journeys the canonical surveys surface (post-refactor `79fa581`).
 - DB schema: `packages/db/src/schema/*` (28 schema files)
 - Shared: `packages/shared/src/{types,validators,constants}`
 - Top-level docs: `CLAUDE.md`, `PHASE_*_PLAN.md`, `docs/`

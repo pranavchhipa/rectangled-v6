@@ -13,7 +13,11 @@ The live engine is **Survey Engine V2**.
 
 ## Surface
 - API: `apps/api/src/surveys/` (engine, branding helper, screens)
-- Web (builder): `apps/web/src/app/dashboard/journeys/`, `apps/web/src/app/dashboard/journeys/[id]/`, `apps/web/src/app/dashboard/surveys/`, `apps/web/src/components/surveys/`
+- Web (builder, canonical): `apps/web/src/app/dashboard/journeys/page.tsx` — unified journeys/surveys list
+- Web (builder, detail): `apps/web/src/app/dashboard/journeys/[id]/page.tsx`
+- Web components: `apps/web/src/components/surveys/` (`create-custom-journey-wizard`, `decision-tree-editor`, `decision-tree-edit-panel`, `insert-step-modal`, `adaptive-settings-form`)
+
+> **Refactor `79fa581`:** `/dashboard/surveys/*` was a 5-line redirect to `/dashboard/journeys` and got deleted. **Journeys is now the single surveys/journeys surface.**
 - Web (public): `apps/web/src/app/j/[slug]/page.tsx`, `apps/web/src/app/f/[slug]/page.tsx` ([[Public-Pages]])
 - DB: `packages/db/src/schema/surveys.ts`
 - Validators: `packages/shared/src/validators/survey.ts`, `survey-steps.ts`, `survey-wizard.ts`

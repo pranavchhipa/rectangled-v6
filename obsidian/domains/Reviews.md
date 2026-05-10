@@ -9,7 +9,11 @@ Inbound review records pulled from [[Connectors|external platforms]] (Google, Zo
 
 ## Surface
 - API: `apps/api/src/review/`
-- Web: `apps/web/src/app/dashboard/reviews/`, `apps/web/src/app/dashboard/inbox/`, `apps/web/src/app/dashboard/responses/`, `apps/web/src/components/review/`, `apps/web/src/components/responses/`
+- Web (canonical surface): `apps/web/src/app/dashboard/inbox/page.tsx` — the unified review workflow tool (table + detail sheet, opens on row click)
+- Web (peer): `apps/web/src/app/dashboard/responses/page.tsx`
+- Web components: `apps/web/src/components/review/` (`review-table`, `review-detail-sheet`, `review-filters`, `review-stats-bar`, `bulk-action-bar`, `ai-response-section`, `star-rating`), `apps/web/src/components/responses/responses-list.tsx`
+
+> **Refactor `79fa581`:** `/dashboard/reviews/` was deleted as an orphan (only the home KPI linked to it). The tabular layout was ported into Inbox; per-row actions (AI Generate, Escalate, Send Coupon) live in the detail sheet. Home KPI "Sync your first reviews" now points to `/dashboard/inbox`.
 - DB: `packages/db/src/schema/reviews.ts`
 - Validators: `packages/shared/src/validators/review.ts`
 

@@ -18,9 +18,10 @@ Path: `apps/web/`. Port `3000`. App Router.
 
 ### Dashboard (`dashboard/*`)
 - `dashboard/page.tsx` — overview with rollups
-- `inbox/`, `responses/`, `reviews/` — review + response inbox ([[Reviews]], [[AI-Response]])
+- `inbox/` — **canonical** review workflow surface (table + detail sheet) ([[Reviews]], [[AI-Response]])
+- `responses/` — survey-response feed ([[Surveys]])
 - `analytics/` — 13 chart components, see [[Reports]]
-- `journeys/`, `surveys/` — journey + truform builders ([[Surveys]])
+- `journeys/`, `journeys/[id]/` — **canonical** journeys/surveys builder ([[Surveys]])
 - `coupons/` — [[Coupons]]
 - `escalations/` — [[Escalations]]
 - `automations/` — [[Automations]]
