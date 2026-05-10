@@ -164,6 +164,7 @@ export class WorkspaceService {
     const updateFields: Record<string, unknown> = { updatedAt: new Date() }
     if (updateData.name !== undefined) updateFields.name = updateData.name.trim()
     if (updateData.industry !== undefined) updateFields.industry = updateData.industry
+    if (updateData.logoUrl !== undefined) updateFields.logoUrl = updateData.logoUrl
     if (updateData.brandColors !== undefined) updateFields.brandColors = updateData.brandColors
     if (updateData.tonePreset !== undefined) updateFields.tonePreset = updateData.tonePreset
     if (updateData.settings !== undefined) {

@@ -286,7 +286,23 @@ export default function InboxPage() {
       utils.review.stats.invalidate()
     },
     onError: (error) => {
-      toast.error(error.message || 'Failed to send response')
+      // Log the full error so it shows up in DevTools Console / monitoring.
+      // Several real-world failure modes (expired GBP token, missing
+      // gbpResourceName, FORBIDDEN role) bubble up here — surface the
+      // shape/cause to the user instead of swallowing it.
+      // eslint-disable-next-line no-console
+      console.error('[Inbox] review.respond failed', error)
+      const code = (error as any)?.data?.code ?? (error as any)?.shape?.data?.code
+      const friendly =
+        code === 'FORBIDDEN'
+          ? "You don't have permission to reply to reviews."
+          : code === 'PRECONDITION_FAILED'
+            ? error.message ||
+              'Cannot reply: the connector is missing credentials. Reconnect Google Business Profile.'
+            : code === 'NOT_FOUND'
+              ? 'Review not found. Refresh the page and try again.'
+              : error.message || 'Failed to send response'
+      toast.error(friendly)
     },
   })
 
@@ -911,12 +927,29 @@ export default function InboxPage() {
 
                   <div className="flex gap-2">
                     <Button
-                      onClick={() =>
-                        respondMutation.mutate({
-                          reviewId: selectedReview.id,
-                          responseText,
+                      onClick={() => {
+                        const reviewId = selectedReview?.id
+                        const trimmed = responseText.trim()
+                        // eslint-disable-next-line no-console
+                        console.log('[Inbox] Send Now clicked', {
+                          reviewId,
+                          trimmedLength: trimmed.length,
                         })
-                      }
+                        if (!reviewId) {
+                          toast.error(
+                            'No review selected. Close this panel and click a review again.',
+                          )
+                          return
+                        }
+                        if (!trimmed) {
+                          toast.error('Reply cannot be empty.')
+                          return
+                        }
+                        respondMutation.mutate({
+                          reviewId,
+                          responseText: trimmed,
+                        })
+                      }}
                       disabled={!responseText.trim() || respondMutation.isPending}
                       className="flex-1"
                     >

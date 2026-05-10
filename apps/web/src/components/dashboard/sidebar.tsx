@@ -87,14 +87,29 @@ export function DashboardSidebar() {
   const workspaceInitial =
     currentWorkspace?.workspaceName?.[0]?.toUpperCase() ?? 'W'
 
+  const workspaceLogoUrl = currentWorkspace?.workspaceLogoUrl ?? null
+  const workspaceName = currentWorkspace?.workspaceName ?? 'Rectangled'
+
   return (
     <Sidebar>
       <SidebarHeader className="p-4">
         <Link href="/dashboard" className="flex items-center gap-2.5">
-          <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center shrink-0">
-            <span className="text-primary-foreground font-bold text-sm">R</span>
-          </div>
-          <span className="font-bold text-lg tracking-tight">rectangled</span>
+          {workspaceLogoUrl ? (
+            <img
+              src={workspaceLogoUrl}
+              alt={workspaceName}
+              className="w-8 h-8 rounded-lg object-cover shrink-0 border border-border bg-muted"
+            />
+          ) : (
+            <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center shrink-0">
+              <span className="text-primary-foreground font-bold text-sm">
+                {workspaceInitial}
+              </span>
+            </div>
+          )}
+          <span className="font-bold text-lg tracking-tight truncate">
+            {workspaceName}
+          </span>
         </Link>
       </SidebarHeader>
 

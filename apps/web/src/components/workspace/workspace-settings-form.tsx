@@ -52,6 +52,8 @@ function formatLabel(value: string): string {
 export function WorkspaceSettingsForm() {
   const queryClient = useQueryClient()
   const currentWorkspaceId = useAuthStore((s) => s.currentWorkspaceId)
+  const memberships = useAuthStore((s) => s.memberships)
+  const setMemberships = useAuthStore((s) => s.setMemberships)
 
   const { data: workspaces, isLoading } = trpc.workspace.list.useQuery()
 
@@ -60,19 +62,32 @@ export function WorkspaceSettingsForm() {
   const [name, setName] = useState('')
   const [industry, setIndustry] = useState('')
   const [tonePreset, setTonePreset] = useState('')
+  const [logoUrl, setLogoUrl] = useState('')
 
   useEffect(() => {
     if (workspace) {
       setName(workspace.name)
       setIndustry(workspace.industry ?? '')
       setTonePreset(workspace.tonePreset ?? '')
+      setLogoUrl((workspace as any).logoUrl ?? '')
     }
   }, [workspace])
 
   const updateMutation = trpc.workspace.update.useMutation({
-    onSuccess: () => {
+    onSuccess: (updated) => {
       toast.success('Workspace settings saved.')
       queryClient.invalidateQueries({ queryKey: [['workspace']] })
+      // Patch the in-memory auth store so the sidebar logo updates
+      // immediately without needing a hard refresh.
+      if (updated && currentWorkspaceId) {
+        setMemberships(
+          memberships.map((m) =>
+            m.workspaceId === currentWorkspaceId
+              ? { ...m, workspaceLogoUrl: (updated as any).logoUrl ?? null }
+              : m,
+          ),
+        )
+      }
     },
     onError: (error) => {
       toast.error(error.message || 'Failed to save workspace settings.')
@@ -92,11 +107,13 @@ export function WorkspaceSettingsForm() {
       return
     }
 
+    const trimmedLogo = logoUrl.trim()
     updateMutation.mutate({
       id: currentWorkspaceId,
       name: name.trim(),
       industry: industry || undefined,
       tonePreset: (tonePreset || undefined) as 'professional' | 'friendly' | 'empathetic' | 'witty' | undefined,
+      logoUrl: trimmedLogo === '' ? null : trimmedLogo,
     })
   }
 
@@ -191,6 +208,34 @@ export function WorkspaceSettingsForm() {
                 ))}
               </SelectContent>
             </Select>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="workspace-logo">Business Logo URL</Label>
+            <div className="flex items-start gap-3">
+              {logoUrl.trim() && (
+                <img
+                  src={logoUrl.trim()}
+                  alt="Logo preview"
+                  className="h-12 w-12 rounded-md border object-cover bg-muted shrink-0"
+                  onError={(e) => {
+                    (e.currentTarget as HTMLImageElement).style.opacity = '0.3'
+                  }}
+                />
+              )}
+              <div className="flex-1 space-y-1">
+                <Input
+                  id="workspace-logo"
+                  value={logoUrl}
+                  onChange={(e) => setLogoUrl(e.target.value)}
+                  placeholder="https://… (paste your business logo URL)"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Shown in the sidebar and on customer-facing review pages.
+                  You can grab the URL from your Google Business Profile (right-click logo → Copy image address) or any image host.
+                </p>
+              </div>
+            </div>
           </div>
         </CardContent>
 

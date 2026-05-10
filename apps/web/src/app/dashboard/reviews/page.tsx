@@ -11,24 +11,31 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ReviewStatsBar } from '@/components/review/review-stats-bar'
 import { ReviewFilters } from '@/components/review/review-filters'
-import { ReviewCard } from '@/components/review/review-card'
+import { ReviewTable } from '@/components/review/review-table'
 import { ReviewDetailSheet } from '@/components/review/review-detail-sheet'
 import { BulkActionBar } from '@/components/review/bulk-action-bar'
 
 function ReviewSkeletons() {
   return (
-    <div className="space-y-3">
-      {Array.from({ length: 5 }).map((_, i) => (
-        <div key={i} className="rounded-xl border bg-card p-4 space-y-3">
-          <div className="flex items-center gap-3">
-            <Skeleton className="size-9 rounded-full" />
-            <div className="space-y-1.5">
-              <Skeleton className="h-4 w-28" />
-              <Skeleton className="h-3 w-20" />
-            </div>
+    <div className="rounded-xl border bg-card overflow-hidden">
+      <div className="border-b bg-muted/40 px-4 py-3">
+        <Skeleton className="h-4 w-32" />
+      </div>
+      {Array.from({ length: 6 }).map((_, i) => (
+        <div
+          key={i}
+          className="flex items-center gap-4 border-b px-4 py-3 last:border-b-0"
+        >
+          <Skeleton className="size-4 rounded" />
+          <div className="flex items-center gap-2.5 min-w-[200px]">
+            <Skeleton className="size-8 rounded-full" />
+            <Skeleton className="h-4 w-28" />
           </div>
-          <Skeleton className="h-4 w-full" />
-          <Skeleton className="h-4 w-3/4" />
+          <Skeleton className="h-4 w-24" />
+          <Skeleton className="h-4 w-20" />
+          <Skeleton className="h-4 flex-1" />
+          <Skeleton className="h-4 w-20" />
+          <Skeleton className="h-4 w-16" />
         </div>
       ))}
     </div>
@@ -219,33 +226,13 @@ export default function ReviewsPage() {
         </div>
       ) : (
         <>
-          {/* Review list */}
-          <div className="space-y-3">
-            {reviews.map((review) => {
-              const hasResponse = !!(review as any).latestResponse
-              const isSelected = selectedIds.has(review.id)
-
-              return (
-                <div key={review.id} className="flex items-start gap-3">
-                  {!hasResponse && (
-                    <div className="pt-4 shrink-0">
-                      <Checkbox
-                        checked={isSelected}
-                        onCheckedChange={() => toggleSelectOne(review.id)}
-                        aria-label={`Select review by ${(review as any).reviewerName ?? 'Anonymous'}`}
-                      />
-                    </div>
-                  )}
-                  <div className={hasResponse ? 'w-full' : 'flex-1 min-w-0'}>
-                    <ReviewCard
-                      review={review as any}
-                      onClick={() => setSelectedReviewId(review.id)}
-                    />
-                  </div>
-                </div>
-              )
-            })}
-          </div>
+          {/* Review table */}
+          <ReviewTable
+            reviews={reviews as any}
+            selectedIds={selectedIds}
+            onToggleSelect={toggleSelectOne}
+            onRowClick={(id) => setSelectedReviewId(id)}
+          />
 
           {/* Pagination */}
           {totalPages > 1 && (

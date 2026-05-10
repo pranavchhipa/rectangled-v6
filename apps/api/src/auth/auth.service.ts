@@ -153,6 +153,7 @@ export class AuthService {
             workspaceId: m.workspaceId,
             workspaceName: ws?.name || '',
             workspaceSlug: ws?.slug || '',
+            workspaceLogoUrl: ws?.logoUrl ?? null,
             role: m.role,
           }
         }),

@@ -14,6 +14,7 @@ interface Membership {
   workspaceId: string
   workspaceName: string
   workspaceSlug: string
+  workspaceLogoUrl?: string | null
   role: string
 }
 

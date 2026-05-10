@@ -11,6 +11,10 @@ export const updateWorkspaceSchema = z.object({
   id: uuidSchema,
   name: nameSchema.optional(),
   industry: z.string().max(100).optional(),
+  // Workspace branding logo. Renders in the dashboard sidebar and is the
+  // default fallback for public review pages when no per-location logo is set.
+  // Accepts an https URL (image hosted anywhere) or null to clear.
+  logoUrl: z.string().url().max(2048).nullable().optional(),
   brandColors: z
     .object({
       primary: z.string(),

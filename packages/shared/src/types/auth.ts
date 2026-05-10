@@ -24,6 +24,7 @@ export interface MeResponse {
     workspaceId: string
     workspaceName: string
     workspaceSlug: string
+    workspaceLogoUrl: string | null
     role: Member['role']
   }>
 }
