@@ -23,6 +23,17 @@ import { z } from 'zod'
 /** Step IDs are arbitrary strings unique within a survey's `steps[]`. */
 export const stepRefSchema = z.string().min(1).max(64)
 
+/**
+ * Pointer to "the next step", or null/undefined when the edge is open
+ * (e.g. a freshly-inserted terminal step, or a branch target that was
+ * removed and not yet rewired). The editor uses `null` as its
+ * sentinel; the engine treats both null and undefined as "no next
+ * step" via falsy checks, so accepting both keeps the FE and engine
+ * in sync without forcing the editor to omit keys.
+ */
+const nextStepRefSchema = stepRefSchema.nullish()
+const nextStepRefRequiredKeySchema = stepRefSchema.nullable()
+
 /** Builder canvas coordinates. Engine ignores. Optional everywhere. */
 export const stepPositionSchema = z.object({
   x: z.number(),
@@ -53,7 +64,7 @@ export const askMetricStepSchema = baseStepSchema.extend({
     scaleLabels: z
       .object({ low: z.string(), high: z.string() })
       .optional(),
-    onComplete: z.object({ nextStepId: stepRefSchema.optional() }),
+    onComplete: z.object({ nextStepId: nextStepRefSchema }),
   }),
 })
 
@@ -75,7 +86,7 @@ export const askQuestionStepSchema = baseStepSchema.extend({
     question: z.string().min(1),
     options: z.array(z.string()).optional(),
     required: z.boolean().optional(),
-    onComplete: z.object({ nextStepId: stepRefSchema.optional() }),
+    onComplete: z.object({ nextStepId: nextStepRefSchema }),
   }),
 })
 
@@ -111,11 +122,11 @@ export const branchByScoreStepSchema = baseStepSchema.extend({
           op: branchByScoreOpSchema,
           value: branchByScoreValueSchema,
         }),
-        nextStepId: stepRefSchema,
+        nextStepId: nextStepRefRequiredKeySchema,
         label: z.string().optional(),
       }),
     ),
-    defaultNextStepId: stepRefSchema,
+    defaultNextStepId: nextStepRefRequiredKeySchema,
   }),
 })
 
@@ -138,11 +149,11 @@ export const branchByAnswerStepSchema = baseStepSchema.extend({
           op: branchByAnswerOpSchema,
           value: branchByAnswerValueSchema,
         }),
-        nextStepId: stepRefSchema,
+        nextStepId: nextStepRefRequiredKeySchema,
         label: z.string().optional(),
       }),
     ),
-    defaultNextStepId: stepRefSchema,
+    defaultNextStepId: nextStepRefRequiredKeySchema,
   }),
 })
 
@@ -153,7 +164,7 @@ export const showMessageStepSchema = baseStepSchema.extend({
   config: z.object({
     title: z.string().optional(),
     body: z.string().min(1),
-    nextStepId: stepRefSchema.optional(),
+    nextStepId: nextStepRefSchema,
   }),
 })
 
@@ -171,7 +182,7 @@ export const collectContactStepSchema = baseStepSchema.extend({
       }),
     ),
     privacyNote: z.string().optional(),
-    nextStepId: stepRefSchema.optional(),
+    nextStepId: nextStepRefSchema,
   }),
 })
 
