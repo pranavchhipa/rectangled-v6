@@ -20,6 +20,7 @@ import {
   Sparkles,
   ClipboardList,
   ListChecks,
+  QrCode,
 } from 'lucide-react'
 import {
   Sidebar,
@@ -62,6 +63,10 @@ const navItems = [
   // (frontend-only rename). Phase 6 unify — the legacy /dashboard/surveys
   // redirect was deleted; only /dashboard/journeys remains.
   { label: 'Customer Journeys', href: '/dashboard/journeys', icon: ClipboardList },
+  // QR Code Management System — every QR generated in the workspace,
+  // with click tracking + downloads. Sits next to Customer Journeys
+  // since most QRs target a journey or truform.
+  { label: 'QR Codes', href: '/dashboard/qr', icon: QrCode },
   // Hotfix PRD §6.6 — workspace-level responses view.
   { label: 'Responses', href: '/dashboard/responses', icon: ListChecks },
   { label: 'Post-Review Actions', href: '/dashboard/automations', icon: Zap },

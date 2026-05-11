@@ -1,9 +1,27 @@
 import { Injectable, Inject } from '@nestjs/common'
 import { TRPCError } from '@trpc/server'
-import { eq, and, or } from 'drizzle-orm'
+import { eq, and, or, desc, sql } from 'drizzle-orm'
+import { randomBytes } from 'crypto'
 import type { Database } from '@rectangled/db'
-import { surveys, members } from '@rectangled/db'
+import { surveys, members, qrCodes } from '@rectangled/db'
 import QRCode from 'qrcode'
+
+/**
+ * 8-char base64url short code. ~2.8 * 10^14 combinations — safe against
+ * collision for any single workspace's QR catalog. Generator uses Node's
+ * `crypto.randomBytes`, not `Math.random`.
+ */
+function generateShortCode(): string {
+  return randomBytes(6).toString('base64url')
+}
+
+function buildBaseUrl(): string {
+  return (
+    process.env.FRONTEND_URL ||
+    process.env.NEXT_PUBLIC_APP_URL ||
+    'http://localhost:3000'
+  )
+}
 
 @Injectable()
 export class QrService {
@@ -107,6 +125,226 @@ export class QrService {
       throw new TRPCError({ code: 'NOT_FOUND', message: 'Form not found' })
     }
     return survey.slug
+  }
+
+  // ─── QR Code Management System (registry CRUD) ────────────────────
+
+  /**
+   * List every QR in a workspace. Joined with `surveys` so the dashboard
+   * table can render the target name + slug without N+1 queries.
+   */
+  async listQrCodes(
+    workspaceId: string,
+    userId: string,
+    filters?: { status?: 'active' | 'archived'; locationId?: string },
+  ) {
+    await this.requireMembership(workspaceId, userId)
+
+    const where = [eq(qrCodes.workspaceId, workspaceId)]
+    if (filters?.status) where.push(eq(qrCodes.status, filters.status))
+    if (filters?.locationId)
+      where.push(eq(qrCodes.locationId, filters.locationId))
+
+    const rows = await this.db
+      .select({
+        id: qrCodes.id,
+        workspaceId: qrCodes.workspaceId,
+        locationId: qrCodes.locationId,
+        targetType: qrCodes.targetType,
+        targetId: qrCodes.targetId,
+        label: qrCodes.label,
+        shortCode: qrCodes.shortCode,
+        destinationUrl: qrCodes.destinationUrl,
+        clickCount: qrCodes.clickCount,
+        status: qrCodes.status,
+        createdAt: qrCodes.createdAt,
+        targetName: surveys.name,
+        targetSlug: surveys.slug,
+      })
+      .from(qrCodes)
+      .leftJoin(surveys, eq(qrCodes.targetId, surveys.id))
+      .where(and(...where))
+      .orderBy(desc(qrCodes.createdAt))
+
+    const base = buildBaseUrl()
+    return rows.map((r) => ({
+      ...r,
+      // The trackable short URL — what owners share / print.
+      trackingUrl: `${base}/q/${r.shortCode}`,
+    }))
+  }
+
+  /**
+   * Register a new QR. Looks up the target survey, picks a short code,
+   * caches the destination URL. Returns the row + tracking URL.
+   */
+  async createQrCode(
+    input: {
+      workspaceId: string
+      targetType: 'journey' | 'form'
+      targetId: string
+      label?: string
+      locationId?: string
+    },
+    userId: string,
+  ) {
+    await this.requireMembership(input.workspaceId, userId)
+
+    // Validate the target survey exists in this workspace AND matches the
+    // template (journey = quick/adaptive/custom, form = deep).
+    const survey = await this.db.query.surveys.findFirst({
+      where: and(
+        eq(surveys.id, input.targetId),
+        eq(surveys.workspaceId, input.workspaceId),
+      ),
+    })
+    if (!survey) {
+      throw new TRPCError({
+        code: 'NOT_FOUND',
+        message: 'Survey not found in this workspace',
+      })
+    }
+    const isForm = survey.template === 'deep'
+    if (input.targetType === 'form' && !isForm) {
+      throw new TRPCError({
+        code: 'BAD_REQUEST',
+        message: 'Survey is not a TruForm (template != "deep")',
+      })
+    }
+    if (input.targetType === 'journey' && isForm) {
+      throw new TRPCError({
+        code: 'BAD_REQUEST',
+        message: 'Survey is a TruForm — use targetType "form"',
+      })
+    }
+
+    const base = buildBaseUrl()
+    const path = isForm ? `/f/${survey.slug}` : `/j/${survey.slug}`
+    const destinationUrl = input.locationId
+      ? `${base}${path}?loc=${input.locationId}`
+      : `${base}${path}`
+
+    // Retry on the (very rare) short-code collision.
+    let attempt = 0
+    while (attempt < 5) {
+      const shortCode = generateShortCode()
+      try {
+        const [row] = await this.db
+          .insert(qrCodes)
+          .values({
+            workspaceId: input.workspaceId,
+            locationId: input.locationId,
+            targetType: input.targetType,
+            targetId: input.targetId,
+            label: input.label,
+            shortCode,
+            destinationUrl,
+            createdBy: userId,
+          })
+          .returning()
+        return {
+          ...row,
+          targetName: survey.name,
+          targetSlug: survey.slug,
+          trackingUrl: `${base}/q/${row.shortCode}`,
+        }
+      } catch (err: any) {
+        // Postgres unique violation on short_code → retry
+        if (err?.code === '23505' && /short_code/.test(err?.detail ?? '')) {
+          attempt++
+          continue
+        }
+        throw err
+      }
+    }
+    throw new TRPCError({
+      code: 'INTERNAL_SERVER_ERROR',
+      message: 'Could not allocate a unique short code after 5 attempts',
+    })
+  }
+
+  async updateQrCode(
+    input: { id: string; label?: string; status?: 'active' | 'archived' },
+    userId: string,
+  ) {
+    const row = await this.db.query.qrCodes.findFirst({
+      where: eq(qrCodes.id, input.id),
+    })
+    if (!row) {
+      throw new TRPCError({ code: 'NOT_FOUND', message: 'QR not found' })
+    }
+    await this.requireMembership(row.workspaceId, userId)
+
+    const patch: Partial<typeof qrCodes.$inferInsert> = { updatedAt: new Date() }
+    if (input.label !== undefined) patch.label = input.label
+    if (input.status !== undefined) patch.status = input.status
+
+    const [updated] = await this.db
+      .update(qrCodes)
+      .set(patch)
+      .where(eq(qrCodes.id, input.id))
+      .returning()
+    return updated
+  }
+
+  async archiveQrCode(id: string, userId: string) {
+    return this.updateQrCode({ id, status: 'archived' }, userId)
+  }
+
+  /**
+   * Generate a downloadable PNG/SVG for a registered QR. Encodes the
+   * trackable short URL (not the destination), so the QR routes through
+   * the click counter on every scan.
+   */
+  async downloadQrCode(
+    input: { id: string; format: 'png' | 'svg'; size: number },
+    userId: string,
+  ) {
+    const row = await this.db.query.qrCodes.findFirst({
+      where: eq(qrCodes.id, input.id),
+    })
+    if (!row) {
+      throw new TRPCError({ code: 'NOT_FOUND', message: 'QR not found' })
+    }
+    await this.requireMembership(row.workspaceId, userId)
+
+    const base = buildBaseUrl()
+    const trackingUrl = `${base}/q/${row.shortCode}`
+    const data = await this.generateQr(trackingUrl, {
+      size: input.size,
+      format: input.format,
+    })
+    return { data, format: input.format, shortCode: row.shortCode }
+  }
+
+  /**
+   * Public — atomic click recording. The Next.js `/q/[shortCode]` route
+   * handler calls this on every scan; we increment the counter and
+   * return the destination URL so the route handler can 302-redirect.
+   *
+   * Archived QRs still resolve (the destination URL doesn't disappear)
+   * but their click count is frozen — so an archived sticker that's
+   * still on a wall doesn't keep inflating numbers indefinitely. If you
+   * want the opposite policy (count archived too), drop the status
+   * check below.
+   */
+  async recordClickAndResolve(shortCode: string) {
+    const row = await this.db.query.qrCodes.findFirst({
+      where: eq(qrCodes.shortCode, shortCode),
+    })
+    if (!row) {
+      throw new TRPCError({
+        code: 'NOT_FOUND',
+        message: 'Unknown QR code',
+      })
+    }
+    if (row.status === 'active') {
+      await this.db
+        .update(qrCodes)
+        .set({ clickCount: sql`${qrCodes.clickCount} + 1` })
+        .where(eq(qrCodes.id, row.id))
+    }
+    return { destinationUrl: row.destinationUrl, status: row.status }
   }
 
   // --- Private ---

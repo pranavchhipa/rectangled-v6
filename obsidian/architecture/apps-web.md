@@ -22,6 +22,8 @@ Path: `apps/web/`. Port `3000`. App Router.
 - `responses/` — survey-response feed ([[Surveys]])
 - `analytics/` — 13 chart components, see [[Reports]]
 - `journeys/`, `journeys/[id]/` — **canonical** journeys/surveys builder ([[Surveys]])
+- `qr/` — [[QR|QR Code Management]] · per-workspace registry with click tracking
+- `q/[shortCode]/route.ts` — public scan handler (route handler, not a page); records click → 302 redirects
 - `coupons/` — [[Coupons]]
 - `escalations/` — [[Escalations]]
 - `automations/` — [[Automations]]
