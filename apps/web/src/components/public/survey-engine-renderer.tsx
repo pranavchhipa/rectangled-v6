@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Loader2,
   CheckCircle2,
@@ -73,6 +73,24 @@ export function SurveyEngineRenderer({
     boolean | undefined
   >(undefined)
 
+  // Refs mirror the accumulated state so `finish()` reads the latest
+  // values even when called synchronously after a setState (the
+  // setContact-then-advance-then-finish chain in submitContact would
+  // otherwise see a stale empty `contact` in the closure and persist
+  // "No contact" responses).
+  const metricShownRef = useRef<Metric | undefined>(undefined)
+  const metricScoreRef = useRef<number | undefined>(undefined)
+  const answersRef = useRef<Record<string, unknown>>({})
+  const contactRef = useRef<{
+    name?: string
+    email?: string
+    phone?: string
+  }>({})
+  const redirectedToRef = useRef<
+    'google' | 'zomato' | 'swiggy' | undefined
+  >(undefined)
+  const acceptedReviewPromptRef = useRef<boolean | undefined>(undefined)
+
   // ---- engine calls ----
   const initial = trpc.survey.getInitialState.useQuery(
     { slug, preview },
@@ -99,17 +117,23 @@ export function SurveyEngineRenderer({
   const finish = useCallback(
     async (terminalIdOverride?: string | null) => {
       if (!surveyId || !sessionId) return
+      // Read from refs so finish always sees the latest values, even
+      // when called synchronously after a setState (e.g. submitContact
+      // sets contact then immediately calls advance → finish; the
+      // closure capture of `contact` would still be empty).
+      const finalContact = contactRef.current
       try {
         const r = await completeMutation.mutateAsync({
           surveyId,
           sessionId,
           finalState: {
-            metricShown,
-            metricScore,
-            answers,
-            contact: Object.keys(contact).length > 0 ? contact : undefined,
-            redirectedTo,
-            acceptedReviewPrompt,
+            metricShown: metricShownRef.current,
+            metricScore: metricScoreRef.current,
+            answers: answersRef.current,
+            contact:
+              Object.keys(finalContact).length > 0 ? finalContact : undefined,
+            redirectedTo: redirectedToRef.current,
+            acceptedReviewPrompt: acceptedReviewPromptRef.current,
           },
           terminalStepId: terminalIdOverride ?? terminalStepId ?? undefined,
           preview,
@@ -121,19 +145,7 @@ export function SurveyEngineRenderer({
         setIsDone(true)
       }
     },
-    [
-      surveyId,
-      sessionId,
-      metricShown,
-      metricScore,
-      answers,
-      contact,
-      redirectedTo,
-      acceptedReviewPrompt,
-      terminalStepId,
-      preview,
-      completeMutation,
-    ],
+    [surveyId, sessionId, terminalStepId, preview, completeMutation],
   )
 
   const advance = useCallback(
@@ -198,6 +210,13 @@ export function SurveyEngineRenderer({
   function submitMetric(score: number, metric: Metric) {
     if (!currentStep) return
     setLastAction({ type: 'metric', payload: { score, metric } })
+    // Update refs synchronously so finish() reads the latest.
+    metricShownRef.current = metric
+    metricScoreRef.current = score
+    answersRef.current = {
+      ...answersRef.current,
+      [currentStep.id]: { metric, score },
+    }
     setMetricShown(metric)
     setMetricScore(score)
     setAnswers((prev) => ({ ...prev, [currentStep.id]: { metric, score } }))
@@ -211,6 +230,7 @@ export function SurveyEngineRenderer({
   function submitQuestion(answer: unknown) {
     if (!currentStep) return
     setLastAction({ type: 'question', payload: answer })
+    answersRef.current = { ...answersRef.current, [currentStep.id]: answer }
     setAnswers((prev) => ({ ...prev, [currentStep.id]: answer }))
     advance({ fromStepId: currentStep.id, answer })
   }
@@ -224,6 +244,12 @@ export function SurveyEngineRenderer({
   function submitContact(c: { name?: string; email?: string; phone?: string }) {
     if (!currentStep) return
     setLastAction({ type: 'contact', payload: c })
+    // Critical — write contact to the ref synchronously. finish() reads
+    // from this ref; without the synchronous write, the contact form
+    // submission would land "Anonymous / No contact" because the
+    // setContact state update hasn't settled before finish runs.
+    contactRef.current = { ...contactRef.current, ...c }
+    answersRef.current = { ...answersRef.current, [currentStep.id]: c }
     setContact((prev) => ({ ...prev, ...c }))
     setAnswers((prev) => ({ ...prev, [currentStep.id]: c }))
     advance({ fromStepId: currentStep.id, answer: c })
@@ -237,6 +263,8 @@ export function SurveyEngineRenderer({
       url?: string
       reviewTemplate?: string
     }
+    acceptedReviewPromptRef.current = true
+    redirectedToRef.current = cfg.platform
     setAcceptedReviewPrompt(true)
     setRedirectedTo(cfg.platform)
 
@@ -272,6 +300,7 @@ export function SurveyEngineRenderer({
   function submitRedirectNo() {
     if (!currentStep) return
     setLastAction({ type: 'redirect-no' })
+    acceptedReviewPromptRef.current = false
     setAcceptedReviewPrompt(false)
     advance({ fromStepId: currentStep.id, answer: 'no' })
   }
