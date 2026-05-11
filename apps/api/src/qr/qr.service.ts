@@ -1,6 +1,6 @@
-import { Injectable, Inject } from '@nestjs/common'
+import { Injectable, Inject, Logger } from '@nestjs/common'
 import { TRPCError } from '@trpc/server'
-import { eq, and, or, desc, sql } from 'drizzle-orm'
+import { eq, and, or, desc, sql, isNull } from 'drizzle-orm'
 import { randomBytes } from 'crypto'
 import type { Database } from '@rectangled/db'
 import { surveys, members, qrCodes } from '@rectangled/db'
@@ -25,6 +25,7 @@ function buildBaseUrl(): string {
 
 @Injectable()
 export class QrService {
+  private readonly logger = new Logger(QrService.name)
   constructor(@Inject('DATABASE') private readonly db: Database) {}
 
   async generateJourneyQr(
@@ -139,6 +140,14 @@ export class QrService {
     filters?: { status?: 'active' | 'archived'; locationId?: string },
   ) {
     await this.requireMembership(workspaceId, userId)
+
+    // Auto-backfill: for active surveys in this workspace that don't yet
+    // have a QR row, create a default one. Owners arriving at
+    // /dashboard/qr expect to see one entry per existing journey/truform
+    // out of the box, not an empty table. Idempotent — wrapped in
+    // try/catch so a race condition (two parallel list calls) doesn't
+    // surface a duplicate-short-code error.
+    await this.backfillDefaultQrsForWorkspace(workspaceId, userId)
 
     const where = [eq(qrCodes.workspaceId, workspaceId)]
     if (filters?.status) where.push(eq(qrCodes.status, filters.status))
@@ -348,6 +357,70 @@ export class QrService {
   }
 
   // --- Private ---
+
+  /**
+   * Find every active survey in the workspace that doesn't yet have a
+   * `qr_codes` row pointing at it, and create one default QR per survey.
+   * Called from `listQrCodes` so owners arriving at /dashboard/qr see
+   * their existing journeys/truforms immediately instead of an empty
+   * "Create your first QR" CTA.
+   *
+   * Idempotent on retry — once a survey has a QR row, this is a no-op
+   * for it. Errors during creation are swallowed and logged: a single
+   * bad survey shouldn't block the whole list view.
+   */
+  private async backfillDefaultQrsForWorkspace(
+    workspaceId: string,
+    userId: string,
+  ) {
+    try {
+      // Surveys in this workspace that have no matching qr_codes row.
+      const missing = await this.db
+        .select({
+          id: surveys.id,
+          template: surveys.template,
+          name: surveys.name,
+          locationId: surveys.locationId,
+        })
+        .from(surveys)
+        .leftJoin(qrCodes, eq(qrCodes.targetId, surveys.id))
+        .where(
+          and(
+            eq(surveys.workspaceId, workspaceId),
+            eq(surveys.status, 'active'),
+            isNull(surveys.archivedAt),
+            isNull(qrCodes.id),
+          ),
+        )
+
+      for (const s of missing) {
+        try {
+          await this.createQrCode(
+            {
+              workspaceId,
+              targetType: s.template === 'deep' ? 'form' : 'journey',
+              targetId: s.id,
+              label: s.name,
+              locationId: s.locationId ?? undefined,
+            },
+            userId,
+          )
+        } catch (err: any) {
+          // Most likely a race (parallel list calls) or a transient
+          // short-code collision after 5 retries — log and continue.
+          this.logger.warn(
+            `Backfill QR for survey ${s.id} skipped: ${err?.message ?? err}`,
+          )
+        }
+      }
+    } catch (err: any) {
+      // Don't let backfill failure block the list response — the
+      // existing QRs (if any) should still render.
+      this.logger.error(
+        `Backfill scan failed for workspace ${workspaceId}: ${err?.message ?? err}`,
+      )
+    }
+  }
 
   private async generateQr(
     url: string,
