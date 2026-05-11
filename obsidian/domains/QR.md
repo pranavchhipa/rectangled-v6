@@ -73,8 +73,16 @@ Customer lands on /j/<slug> or /f/<slug>
 - **Active** — counts scans, redirects to destination
 - **Archived** — still redirects (so a printed sticker doesn't 404) but the counter is frozen. Prevents an in-the-wild sticker from indefinitely inflating an old campaign's numbers.
 
-## What changed (commit `TBD`)
+## What changed (commit `fae9ea3`)
 Before this work, the `qr/` module only generated QR images on demand for the journeys/[id] editor's QR dialog — no persistence, no tracking, no list view. The legacy `generateJourneyQr` / `generateFormQr` / `generateBulkQr` mutations are kept for back-compat with that dialog; new code paths use the registry.
+
+## Auto-backfill (commit `5a092df`)
+
+On every `qr.list` call, the service scans for active surveys in the workspace that don't yet have a `qr_codes` row and creates one default QR per missing survey (label = survey name, default short code, no location override). Idempotent — once a survey has any row, backfill is a no-op for it.
+
+Why: the empty registry was a UX dead-end. Owners with N existing journeys arrived at `/dashboard/qr` expecting to see N QRs, and got the "Create your first QR" CTA instead. Backfill closes that gap without taking away the ability to add ADDITIONAL purpose-labeled QRs for the same survey.
+
+Single bad survey doesn't break the whole list — backfill errors are swallowed + logged.
 
 ## DB migration
 The new schema requires `npm run db:push` (or equivalent drizzle-kit push) before runtime. See [[Local-Dev]] for the push command. Without the push, `trpc.qr.list` returns "relation 'qr_codes' does not exist".
