@@ -17,6 +17,7 @@ The unit of tenancy. Every domain row is workspace-scoped — see [[Workspace-Sc
 ## What it owns
 - Display name, slug, logo, **brand colors** (used in [[Branding-Resolution]])
 - White-label flags (`white_label.enabled`, `white_label.footerText`) — see [[White-Label]]
+- `settings` JSONB — timezone, AI auto-respond, response-delay window, frequency caps, customer rate caps, and (Phase 2 `29393f7`) **`defaultRedirectLinks`** = `{ google?, zomato?, swiggy? }` — the URLs the survey engine falls back to for [[Customer-Journeys|Journey A Step 3a.1]]. Populated by [[Onboarding]] Step 4.
 - Belongs to an [[Organization]]
 - Has many [[Locations]], [[Members]], [[Customers]], [[Reviews]], etc.
 

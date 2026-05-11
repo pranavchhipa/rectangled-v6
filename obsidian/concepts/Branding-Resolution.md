@@ -34,9 +34,14 @@ When `logoUrl` is null, the layout shows a cursive fallback in the logo circle. 
 - "Pranav's Business — Woof Nest" → "woof" (first word of "Woof Nest")
 - NOT the first word of the workspace half ("pranav's" was the bug)
 
+## Phase 1 — same split, second consumer
+
+`SurveyEngineService.generateHappyReviewDraft` (commit `0eee598`) uses the same `displayName.split(" — ")` logic to extract the location half for the AI prompt context, so the generated review mentions the specific location (e.g. "Woof Nest"), not just the parent workspace name. If you ever change the displayName composition or separator, both the cursive renderer AND the AI prompt need to move together.
+
 ## Connects to
 - [[Public-Pages]] — consumer
-- [[Surveys]] — engine that calls the helper
+- [[Surveys]] — engine that calls the helper + Phase 1 AI review draft
 - [[Workspaces]], [[Locations]], [[Organization]] — input layers
 - [[White-Label]] — `poweredByText` override layer
+- [[Customer-Journeys]] — Step 3a.1 uses this for prompt context
 - [[Hotfix-Trail]]

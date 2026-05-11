@@ -20,6 +20,10 @@ AI-generated draft replies to inbound [[Reviews]]. Uses [[OpenRouter]] (default 
 5. User approves / edits in inbox → status `approved`
 6. Connector adapter posts back → status `posted`
 
+## Not to be confused with…
+
+`survey-engine.service.ts → generateHappyReviewDraft` (added in Phase 1, `0eee598`). That endpoint composes the **customer's own** positive-review text for the clipboard hand-off in [[Public-Pages|/j/{slug}]] Step 3a.1. Different direction — this module drafts the **owner's reply** to an existing inbound review. The two share the OpenAI client construction pattern but live in different modules.
+
 ## Connects to
 - [[Reviews]] — parent rows
 - [[OpenRouter]] — AI provider
@@ -27,3 +31,4 @@ AI-generated draft replies to inbound [[Reviews]]. Uses [[OpenRouter]] (default 
 - [[Business-Aspects]] — aspect-aware drafting
 - [[Notifications]] — alert when low-rating review needs attention
 - [[Reports]] — response-rate-card metric
+- [[Surveys]] — peer AI surface (customer-side review drafting)

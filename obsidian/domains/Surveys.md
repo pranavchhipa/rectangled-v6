@@ -34,6 +34,18 @@ Step builders in `constants/survey-step-builders.ts`.
 - `submitLegacyJourneySchema.journeyScreenId` is `z.string().min(1).max(128)` (not UUID) because synthetic IDs `${surveyId}-screen` aren't UUIDs (Hotfix-4).
 - `template !== 'deep'` is the right check, not `template === 'quick'` (Hotfix-3).
 
+## Phase 1 — AI happy-review draft (`0eee598`)
+
+New public mutation `trpc.survey.generateHappyReviewDraft`. Composed in `survey-engine.service.ts → generateHappyReviewDraft({ journeyId, metricShown?, metricScore? })`:
+- Looks up the survey + workspace, resolves branding for business name + location half of `displayName`
+- Calls [[OpenRouter]] (`openai/gpt-4o-mini` default) with a "write a short positive review for this business" prompt
+- Falls back to `"Had a great experience at <name>!"` static template if `OPENROUTER_API_KEY` is missing or the call fails
+- Wired into `/j/[slug]` `handleHappyYes` — called BEFORE submit + redirect, returned text goes to `navigator.clipboard`
+
+## Phase 2 — workspace redirect-URL fallback (`29393f7`)
+
+`getPublicLegacyJourney` now merges `workspaces.settings.defaultRedirectLinks` into `screen.redirectLinks`. Survey-step's explicit URL still wins per-platform; workspace defaults fill the gaps. Lets legacy surveys inherit the URLs set in [[Onboarding]] without re-saving each one.
+
 ## Connects to
 - [[Public-Pages]] — what users see at `/j` and `/f`
 - [[QR]] — the QR generator embeds the slug
@@ -43,4 +55,7 @@ Step builders in `constants/survey-step-builders.ts`.
 - [[Escalations]] — unhappy-path branch can fire CX rules
 - [[NEV]] — emotion vector inputs come from survey responses
 - [[Business-Aspects]] — aspect chips on responses
+- [[OpenRouter]] — Phase 1 happy-review draft generation
+- [[Onboarding]] — Phase 2 redirect-URL source
+- [[Customer-Journeys]] — every flow that touches this engine
 - [[Hotfix-Trail]]

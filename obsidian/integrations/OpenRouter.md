@@ -18,7 +18,8 @@ AI_MODEL=openai/gpt-4o-mini   # default
 Pattern matches [[Razorpay]] — created on first use to avoid module-load crashes when the key is absent.
 
 ## Used by
-- [[AI-Response]] — review reply drafting
+- [[AI-Response]] — review reply drafting (owner → customer)
+- [[Surveys]] — happy-YES review draft for the customer's clipboard (customer → external platform). Phase 1 `0eee598` — `survey-engine.service.ts → generateHappyReviewDraft`. See [[Customer-Journeys]] Step 3a.1.
 - [[AI-Agent]] — orchestration / multi-step prompts
 - [[RAIS]] — social post copy
 - [[NEV]] — likely emotion classification path
