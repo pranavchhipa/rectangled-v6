@@ -160,6 +160,7 @@ export function SurveyEngineRenderer({
           return
         }
         setCurrentStep(r.nextStep)
+        setWalkerError(null) // clear on successful step advance
       } catch (err: any) {
         setWalkerError(err?.message ?? 'Could not advance to the next step.')
       }
@@ -167,9 +168,36 @@ export function SurveyEngineRenderer({
     [surveyId, sessionId, preview, advanceMutation, finish],
   )
 
+  // Last action so the customer can retry after a transient failure
+  // without restarting the whole flow. Cleared on success.
+  const [lastAction, setLastAction] = useState<null | {
+    type: 'metric' | 'question' | 'message' | 'contact' | 'redirect-yes' | 'redirect-no'
+    payload?: any
+  }>(null)
+
+  function retryLastAction() {
+    if (!lastAction) return
+    setWalkerError(null)
+    if (lastAction.type === 'metric') {
+      const { score, metric } = lastAction.payload
+      submitMetric(score, metric)
+    } else if (lastAction.type === 'question') {
+      submitQuestion(lastAction.payload)
+    } else if (lastAction.type === 'message') {
+      submitMessageContinue()
+    } else if (lastAction.type === 'contact') {
+      submitContact(lastAction.payload)
+    } else if (lastAction.type === 'redirect-yes') {
+      submitRedirectYes()
+    } else if (lastAction.type === 'redirect-no') {
+      submitRedirectNo()
+    }
+  }
+
   // ---- per-step submit handlers ----
   function submitMetric(score: number, metric: Metric) {
     if (!currentStep) return
+    setLastAction({ type: 'metric', payload: { score, metric } })
     setMetricShown(metric)
     setMetricScore(score)
     setAnswers((prev) => ({ ...prev, [currentStep.id]: { metric, score } }))
@@ -182,17 +210,20 @@ export function SurveyEngineRenderer({
 
   function submitQuestion(answer: unknown) {
     if (!currentStep) return
+    setLastAction({ type: 'question', payload: answer })
     setAnswers((prev) => ({ ...prev, [currentStep.id]: answer }))
     advance({ fromStepId: currentStep.id, answer })
   }
 
   function submitMessageContinue() {
     if (!currentStep) return
+    setLastAction({ type: 'message' })
     advance({ fromStepId: currentStep.id })
   }
 
   function submitContact(c: { name?: string; email?: string; phone?: string }) {
     if (!currentStep) return
+    setLastAction({ type: 'contact', payload: c })
     setContact((prev) => ({ ...prev, ...c }))
     setAnswers((prev) => ({ ...prev, [currentStep.id]: c }))
     advance({ fromStepId: currentStep.id, answer: c })
@@ -200,6 +231,7 @@ export function SurveyEngineRenderer({
 
   async function submitRedirectYes() {
     if (!currentStep || !surveyId) return
+    setLastAction({ type: 'redirect-yes' })
     const cfg = currentStep.config as {
       platform: 'google' | 'zomato' | 'swiggy'
       url?: string
@@ -239,6 +271,7 @@ export function SurveyEngineRenderer({
 
   function submitRedirectNo() {
     if (!currentStep) return
+    setLastAction({ type: 'redirect-no' })
     setAcceptedReviewPrompt(false)
     advance({ fromStepId: currentStep.id, answer: 'no' })
   }
@@ -286,14 +319,31 @@ export function SurveyEngineRenderer({
               color: '#991b1b',
             }}
           >
-            {walkerError}
+            <p className="font-medium">{walkerError}</p>
+            {lastAction && (
+              <button
+                type="button"
+                onClick={retryLastAction}
+                className="mt-2 inline-flex items-center gap-1.5 text-[12px] font-semibold underline"
+              >
+                Try again
+              </button>
+            )}
           </div>
         )}
 
         {isDone ? (
           <TerminalScreen message={terminalMessage} />
         ) : (
+          // key={currentStep.id} — force the step component to remount on
+          // every step change. Per-step components own local input state
+          // (text, multi-select, pending score, hovered star, contact
+          // fields). Without remount, React reconciles by position and
+          // reuses the old instance with stale state — e.g. the textarea
+          // of the previous Open Question would still hold its content
+          // when the next Open Question loads.
           <StepRenderer
+            key={currentStep.id}
             step={currentStep}
             onMetricSubmit={submitMetric}
             onQuestionSubmit={submitQuestion}
