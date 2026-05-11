@@ -55,6 +55,15 @@ export const workspaces = pgTable('workspaces', {
         zomato?: string
         swiggy?: string
       }
+      /**
+       * Phase 2.1 — Google Place ID for this workspace's primary
+       * business. Captured by the "Find your business on Google" search
+       * in onboarding Step 4 (Places API Text Search). Stored so the
+       * later GBP connector flow can claim the exact place rather than
+       * making the owner pick again, and so we can re-derive the
+       * review URL if the construction format ever changes.
+       */
+      googlePlaceId?: string
     }>()
     .default({
       defaultTimezone: 'Asia/Kolkata',

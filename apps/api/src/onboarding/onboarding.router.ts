@@ -6,6 +6,7 @@ import {
   setOnboardingFlowSchema,
   getRedirectLinksSchema,
   setRedirectLinksSchema,
+  searchGooglePlacesSchema,
 } from '@rectangled/shared'
 import { OnboardingService } from './onboarding.service'
 
@@ -40,6 +41,18 @@ export function createOnboardingRouter(service: OnboardingService) {
         return service.setRedirectLinks(
           input.workspaceId,
           input.redirectLinks,
+          ctx.user.sub,
+          input.googlePlaceId,
+        )
+      }),
+
+    // Phase 2.1 — Places API search for auto-resolving Google review URL.
+    searchGooglePlaces: protectedProcedure
+      .input(searchGooglePlacesSchema)
+      .query(async ({ input, ctx }) => {
+        return service.searchGooglePlaces(
+          input.workspaceId,
+          input.query,
           ctx.user.sub,
         )
       }),

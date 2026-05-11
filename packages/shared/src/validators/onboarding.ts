@@ -45,4 +45,19 @@ export const setRedirectLinksSchema = z.object({
     zomato: z.string().url().optional(),
     swiggy: z.string().url().optional(),
   }),
+  // Phase 2.1 — optional; persisted on workspace.settings.googlePlaceId
+  // so the later GBP connector can claim the exact place without making
+  // the owner pick again.
+  googlePlaceId: z.string().min(1).max(255).optional(),
+})
+
+// ─── Phase 2.1 — Places API search for auto-resolve ─────────────────────
+//
+// Onboarding Step 4 search box. Owner types their business name; server
+// hits Google Places API Text Search (using GOOGLE_API_KEY) and returns
+// top matches. Picking one constructs the writereview URL deterministically
+// and prefills the Google input. See obsidian/domains/Onboarding.md.
+export const searchGooglePlacesSchema = z.object({
+  workspaceId: z.string().uuid(),
+  query: z.string().min(3).max(200),
 })

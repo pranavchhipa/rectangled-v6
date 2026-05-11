@@ -111,6 +111,15 @@ export default function OnboardingPage() {
     swiggy: string
   }>({ google: '', zomato: '', swiggy: '' })
 
+  // Phase 2.1 — Google Places auto-resolve. Owner types their business
+  // name → debounced server search → picks a result → we construct the
+  // writereview URL deterministically and persist the Place ID for the
+  // later GBP connector flow.
+  const [placeQuery, setPlaceQuery] = useState('')
+  const [debouncedPlaceQuery, setDebouncedPlaceQuery] = useState('')
+  const [selectedPlaceId, setSelectedPlaceId] = useState<string | null>(null)
+  const [placeDropdownOpen, setPlaceDropdownOpen] = useState(false)
+
   // Queries
   const onboardingQuery = trpc.onboarding.getState.useQuery(
     { workspaceId: currentWorkspaceId! },
@@ -128,6 +137,23 @@ export default function OnboardingPage() {
   const redirectLinksQuery = trpc.onboarding.getRedirectLinks.useQuery(
     { workspaceId: currentWorkspaceId! },
     { enabled: !!currentWorkspaceId && step >= 4 },
+  )
+
+  // Phase 2.1 — Places API search. Disabled until the owner has typed
+  // 3+ characters AND the debounce window has elapsed. trpc.useQuery
+  // caches per-input so re-typing the same query hits the React Query
+  // cache, not the Places API.
+  const placesSearchQuery = trpc.onboarding.searchGooglePlaces.useQuery(
+    { workspaceId: currentWorkspaceId!, query: debouncedPlaceQuery },
+    {
+      enabled:
+        !!currentWorkspaceId &&
+        debouncedPlaceQuery.length >= 3 &&
+        step === 4,
+      // Don't refetch on focus — the result is stable per query string.
+      refetchOnWindowFocus: false,
+      staleTime: 5 * 60 * 1000,
+    },
   )
 
   // Mutations
@@ -221,6 +247,14 @@ export default function OnboardingPage() {
     }
   }, [redirectLinksQuery.data])
 
+  // Phase 2.1 — debounce the Places search query so we don't fire one
+  // request per keystroke. 400ms is enough to feel responsive while
+  // throttling a fast typer down to ~2-3 requests per business name.
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedPlaceQuery(placeQuery), 400)
+    return () => clearTimeout(t)
+  }, [placeQuery])
+
   const progressPercent = (step / TOTAL_STEPS) * 100
   const aspects = aspectsQuery.data ?? []
 
@@ -285,6 +319,9 @@ export default function OnboardingPage() {
               zomato: redirectLinks.zomato.trim() || undefined,
               swiggy: redirectLinks.swiggy.trim() || undefined,
             },
+            // Phase 2.1 — only set when the owner picked from search.
+            // Otherwise the server keeps the previously stored value.
+            googlePlaceId: selectedPlaceId ?? undefined,
           })
         } catch {
           return // toast already shown by onError
@@ -571,6 +608,90 @@ export default function OnboardingPage() {
           </div>
 
           <div className="space-y-4">
+            {/* Phase 2.1 — Google Places auto-resolve. Search box above
+                the Google URL input. Picking a result prefills the URL
+                deterministically; owner can still skip and paste below. */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label
+                  className="text-sm font-semibold"
+                  htmlFor="place-search"
+                >
+                  Find your business on Google
+                </label>
+                <Badge variant="outline" className="text-xs">
+                  Auto-resolve
+                </Badge>
+              </div>
+              <div className="relative">
+                <Input
+                  id="place-search"
+                  type="text"
+                  placeholder="Start typing your business name…"
+                  value={placeQuery}
+                  onChange={(e) => {
+                    setPlaceQuery(e.target.value)
+                    setPlaceDropdownOpen(true)
+                    if (selectedPlaceId) setSelectedPlaceId(null)
+                  }}
+                  onFocus={() => setPlaceDropdownOpen(true)}
+                  onBlur={() => {
+                    // Defer the close so a click on a result still fires.
+                    setTimeout(() => setPlaceDropdownOpen(false), 150)
+                  }}
+                  autoComplete="off"
+                />
+                {placeDropdownOpen && debouncedPlaceQuery.length >= 3 && (
+                  <div className="absolute z-10 mt-1 w-full overflow-hidden rounded-lg border bg-popover shadow-lg">
+                    {placesSearchQuery.isLoading && (
+                      <div className="flex items-center gap-2 p-3 text-sm text-muted-foreground">
+                        <Loader2 className="size-4 animate-spin" />
+                        Searching Google…
+                      </div>
+                    )}
+                    {!placesSearchQuery.isLoading &&
+                      placesSearchQuery.data?.results.length === 0 && (
+                        <div className="p-3 text-sm text-muted-foreground">
+                          No matches. Paste the URL manually below.
+                        </div>
+                      )}
+                    {!placesSearchQuery.isLoading &&
+                      placesSearchQuery.error && (
+                        <div className="p-3 text-sm text-muted-foreground">
+                          Search unavailable. Paste the URL manually below.
+                        </div>
+                      )}
+                    {!placesSearchQuery.isLoading &&
+                      placesSearchQuery.data?.results.map((p) => (
+                        <button
+                          key={p.placeId}
+                          type="button"
+                          className="block w-full border-b border-border/50 px-3 py-2.5 text-left last:border-b-0 hover:bg-muted focus:bg-muted focus:outline-none"
+                          onClick={() => {
+                            setRedirectLinks((prev) => ({
+                              ...prev,
+                              google: p.reviewUrl,
+                            }))
+                            setSelectedPlaceId(p.placeId)
+                            setPlaceQuery(p.name)
+                            setPlaceDropdownOpen(false)
+                          }}
+                        >
+                          <div className="text-sm font-medium">{p.name}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {p.formattedAddress}
+                          </div>
+                        </button>
+                      ))}
+                  </div>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                We'll figure out your Google review URL for you. If you
+                can't find your business, just paste the URL below.
+              </p>
+            </div>
+
             {/* Google */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
@@ -578,23 +699,32 @@ export default function OnboardingPage() {
                   className="text-sm font-semibold"
                   htmlFor="redirect-google"
                 >
-                  Google
+                  Google review URL
                 </label>
-                <Badge variant="outline" className="text-xs">
-                  Recommended
-                </Badge>
+                {selectedPlaceId && (
+                  <Badge
+                    variant="outline"
+                    className="border-green-500/50 bg-green-50 text-xs text-green-700"
+                  >
+                    <Check className="mr-1 size-3" />
+                    Auto-filled
+                  </Badge>
+                )}
               </div>
               <Input
                 id="redirect-google"
                 type="url"
                 placeholder="https://search.google.com/local/writereview?placeid=..."
                 value={redirectLinks.google}
-                onChange={(e) =>
+                onChange={(e) => {
                   setRedirectLinks((prev) => ({
                     ...prev,
                     google: e.target.value,
                   }))
-                }
+                  // Manual edit clears the place-id link, since the URL
+                  // may no longer point at the same place.
+                  if (selectedPlaceId) setSelectedPlaceId(null)
+                }}
               />
               <p className="text-xs text-muted-foreground">
                 Tip: open Google Maps, find your business, click "Write a

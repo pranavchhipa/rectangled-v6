@@ -34,11 +34,17 @@ Onboarding **must** produce a working positive-path redirect URL for EVERY platf
 - **Completion gate:** `OnboardingService.complete()` throws `PRECONDITION_FAILED` if zero URLs are set, with a friendly message pointing back to the URL step.
 - **Survey engine fallback:** `getPublicLegacyJourney` now merges `workspaces.settings.defaultRedirectLinks` into the `screen.redirectLinks` object the FE receives. Survey-step explicit URL still wins per-key; workspace defaults fill the gaps.
 
-### Open follow-up
+## Phase 2.1 — Auto-resolve Google URL via Places API (SHIPPED)
 
-- **Auto-resolve from GBP Place ID** is not implemented yet. Currently the wizard prompts for manual paste only. When the owner connects a GBP location, the Google URL could be derived as `https://search.google.com/local/writereview?placeid=<PLACEID>` and pre-filled. Spec calls for it; code doesn't do it yet.
+Step 4 now has a "Find your business on Google" search box above the manual Google URL input. Owner types ≥3 chars → 400ms debounce → server hits Google Places API Text Search (`GOOGLE_API_KEY` env) → returns up to 5 matches (name + formatted address) → owner clicks one → the writereview URL is constructed deterministically as `https://search.google.com/local/writereview?placeid=<PLACEID>` and prefilled into the Google URL field.
 
-Without the URL gate, the customer's happy path silently broke — they clicked YES, no tab opened, the AI-drafted review on their clipboard went nowhere. The Phase 2 commit closes that loophole.
+- **Endpoint:** `trpc.onboarding.searchGooglePlaces({ workspaceId, query })`
+- **Place ID storage:** persisted on `workspaces.settings.googlePlaceId` so the later [[Google-Business-Profile|GBP]] connector flow can claim the exact place without making the owner pick again.
+- **Auto-filled badge:** appears on the Google URL field when the value came from search; clears if the owner manually edits.
+- **Fallback chain:** if `GOOGLE_API_KEY` is missing the server returns `{ results: [] }` cleanly; if Places API errors the UI shows "Search unavailable. Paste the URL manually below." — the manual URL field is always usable as escape hatch.
+- **Cost:** Places API Text Search is paid (~$32/1000 requests) but covered by Google's $200/mo Maps Platform free credit at onboarding volume.
+
+Without the URL gate, the customer's happy path silently broke — they clicked YES, no tab opened, the AI-drafted review on their clipboard went nowhere. Phase 2 closed that loophole; Phase 2.1 reduces the manual-paste burden so most SMB owners click their business name once and move on.
 
 ## Connects to
 - [[Auth]] — first-login redirect lands here

@@ -1,11 +1,25 @@
-import { Injectable, Inject } from '@nestjs/common'
+import { Injectable, Inject, Logger } from '@nestjs/common'
 import { TRPCError } from '@trpc/server'
 import { eq, and } from 'drizzle-orm'
 import type { Database } from '@rectangled/db'
 import { onboardingState, workspaces, members } from '@rectangled/db'
 
+/**
+ * Phase 2.1 — Google Places review URL constructor.
+ *
+ * The deterministic "leave a review" URL for a Place ID. Google's docs
+ * have shifted this format a few times; the `search.google.com/local/
+ * writereview?placeid=` variant has been stable since 2021 and is the
+ * one Google's own "Get more reviews" share links use. If they ever
+ * break it, this is the only place that knows about the format.
+ */
+function buildGoogleReviewUrl(placeId: string): string {
+  return `https://search.google.com/local/writereview?placeid=${encodeURIComponent(placeId)}`
+}
+
 @Injectable()
 export class OnboardingService {
+  private readonly logger = new Logger(OnboardingService.name)
   constructor(@Inject('DATABASE') private readonly db: Database) {}
 
   async getState(workspaceId: string, userId: string) {
@@ -118,11 +132,15 @@ export class OnboardingService {
    * Phase 2 — persist the URLs the owner enabled in the wizard. Merges
    * into workspace.settings (not a wholesale replace) so the rest of
    * the settings shape (timezone, frequency caps, etc.) stays intact.
+   *
+   * Phase 2.1 — also accepts an optional `googlePlaceId` so the search
+   * pick from Step 4 is stored for later use by the GBP connector flow.
    */
   async setRedirectLinks(
     workspaceId: string,
     redirectLinks: { google?: string; zomato?: string; swiggy?: string },
     userId: string,
+    googlePlaceId?: string,
   ) {
     await this.requireMembership(workspaceId, userId)
 
@@ -143,6 +161,11 @@ export class OnboardingService {
     const newSettings = {
       ...workspace.settings,
       defaultRedirectLinks: cleaned,
+      ...(googlePlaceId
+        ? { googlePlaceId }
+        : workspace.settings?.googlePlaceId
+          ? { googlePlaceId: workspace.settings.googlePlaceId }
+          : {}),
     }
 
     await this.db
@@ -150,7 +173,95 @@ export class OnboardingService {
       .set({ settings: newSettings, updatedAt: new Date() })
       .where(eq(workspaces.id, workspaceId))
 
-    return { success: true, redirectLinks: cleaned }
+    return { success: true, redirectLinks: cleaned, googlePlaceId }
+  }
+
+  /**
+   * Phase 2.1 — Google Places API Text Search.
+   *
+   * Owner-typed business name → up to 5 candidate matches. Used by
+   * onboarding Step 4 to derive the writereview URL deterministically
+   * once the owner picks the right place.
+   *
+   * Pricing: Text Search is paid via Google Maps Platform. The $200/mo
+   * free credit covers ~6,000 searches/mo, which is plenty for
+   * onboarding-only invocation. If GOOGLE_API_KEY is missing, returns
+   * an empty list so the wizard falls through to manual paste cleanly.
+   */
+  async searchGooglePlaces(
+    workspaceId: string,
+    query: string,
+    userId: string,
+  ): Promise<{
+    results: Array<{
+      placeId: string
+      name: string
+      formattedAddress: string
+      reviewUrl: string
+    }>
+  }> {
+    await this.requireMembership(workspaceId, userId)
+
+    const apiKey = process.env.GOOGLE_API_KEY
+    if (!apiKey) {
+      this.logger.warn(
+        'searchGooglePlaces called but GOOGLE_API_KEY is not set — returning empty list. Owner will fall back to manual URL paste.',
+      )
+      return { results: [] }
+    }
+
+    try {
+      const url = new URL(
+        'https://maps.googleapis.com/maps/api/place/textsearch/json',
+      )
+      url.searchParams.set('query', query)
+      url.searchParams.set('key', apiKey)
+
+      const res = await fetch(url.toString())
+      if (!res.ok) {
+        throw new Error(`Places API HTTP ${res.status}`)
+      }
+      const data = (await res.json()) as {
+        status: string
+        error_message?: string
+        results?: Array<{
+          place_id: string
+          name: string
+          formatted_address: string
+        }>
+      }
+
+      if (data.status === 'ZERO_RESULTS') {
+        return { results: [] }
+      }
+      if (data.status !== 'OK') {
+        // Surface a friendly message; keep the upstream detail in logs.
+        this.logger.warn(
+          `Places API non-OK status: ${data.status} ${data.error_message ?? ''}`,
+        )
+        throw new TRPCError({
+          code: 'BAD_GATEWAY',
+          message: `Google Places search is unavailable right now (${data.status}). You can paste the review URL manually.`,
+        })
+      }
+
+      const results = (data.results ?? []).slice(0, 5).map((r) => ({
+        placeId: r.place_id,
+        name: r.name,
+        formattedAddress: r.formatted_address,
+        reviewUrl: buildGoogleReviewUrl(r.place_id),
+      }))
+
+      return { results }
+    } catch (err) {
+      if (err instanceof TRPCError) throw err
+      this.logger.error(`searchGooglePlaces failed: ${(err as Error).message}`)
+      throw new TRPCError({
+        code: 'BAD_GATEWAY',
+        message:
+          'Could not reach Google Places. Try again, or paste the review URL manually.',
+      })
+    }
   }
 
   async complete(workspaceId: string, userId: string) {
