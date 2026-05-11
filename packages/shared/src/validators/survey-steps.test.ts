@@ -261,6 +261,128 @@ describe('endJourneyStepSchema', () => {
   })
 })
 
+/**
+ * Phase: Form builder defaults — every shape that
+ * `defaultConfigFor(type)` in apps/web/src/app/dashboard/journeys/[id]/
+ * page.tsx produces for a freshly-added step must round-trip through
+ * the validator without erroring. These steps are saved IMMEDIATELY on
+ * insertion (handleAddStep → updateMutation.mutate), so any validator
+ * rejection blocks the owner from adding the step at all.
+ *
+ * Mirror each `defaultConfigFor` case verbatim. If the editor's defaults
+ * change, mirror the change here so this regression test catches drift.
+ */
+describe('fresh step defaults from journey editor', () => {
+  it('Rating Question — ask_metric default config', () => {
+    const r = surveyStepSchema.safeParse({
+      id: 's_new',
+      type: 'ask_metric',
+      config: {
+        metric: 'csat',
+        question: 'How was your experience?',
+        onComplete: { nextStepId: null },
+      },
+    })
+    expect(r.success).toBe(true)
+  })
+
+  it('Open Question — ask_question default config', () => {
+    const r = surveyStepSchema.safeParse({
+      id: 's_new',
+      type: 'ask_question',
+      config: {
+        fieldType: 'textarea',
+        question: 'Tell us more',
+        required: false,
+        onComplete: { nextStepId: null },
+      },
+    })
+    expect(r.success).toBe(true)
+  })
+
+  it('Route by Score — branch_by_score default config (empty source, no branches yet)', () => {
+    const r = surveyStepSchema.safeParse({
+      id: 's_new',
+      type: 'branch_by_score',
+      config: {
+        metricFromStepId: '', // FE seeds empty until user wires it
+        branches: [],
+        defaultNextStepId: null,
+      },
+    })
+    expect(r.success).toBe(true)
+  })
+
+  it('Route by Answer — branch_by_answer default config (null source, no branches yet)', () => {
+    const r = surveyStepSchema.safeParse({
+      id: 's_new',
+      type: 'branch_by_answer',
+      config: {
+        answerFromStepId: null,
+        branches: [],
+        defaultNextStepId: null,
+      },
+    })
+    expect(r.success).toBe(true)
+  })
+
+  it('Info Screen — show_message default config', () => {
+    const r = surveyStepSchema.safeParse({
+      id: 's_new',
+      type: 'show_message',
+      config: {
+        title: 'Heads up',
+        body: 'Some helpful copy here.',
+        nextStepId: null,
+      },
+    })
+    expect(r.success).toBe(true)
+  })
+
+  it('Contact Form — collect_contact default config', () => {
+    const r = surveyStepSchema.safeParse({
+      id: 's_new',
+      type: 'collect_contact',
+      config: {
+        fields: [
+          { key: 'name', required: false },
+          { key: 'email', required: false },
+          { key: 'phone', required: false },
+        ],
+        privacyNote: '',
+        nextStepId: null,
+      },
+    })
+    expect(r.success).toBe(true)
+  })
+
+  it('Review Redirect — redirect default config (null next pointers)', () => {
+    const r = surveyStepSchema.safeParse({
+      id: 's_new',
+      type: 'redirect',
+      config: {
+        platform: 'google',
+        url: '',
+        reviewTemplate: '',
+        yesLabel: 'Sure',
+        noLabel: 'Maybe later',
+        onYesNextStepId: null,
+        onNoNextStepId: null,
+      },
+    })
+    expect(r.success).toBe(true)
+  })
+
+  it('Thank You Screen — end_journey default config', () => {
+    const r = surveyStepSchema.safeParse({
+      id: 's_new',
+      type: 'end_journey',
+      config: { message: 'Thank you!' },
+    })
+    expect(r.success).toBe(true)
+  })
+})
+
 describe('surveyStepSchema (discriminated union)', () => {
   it('routes by `type` discriminator', () => {
     const askMetric = surveyStepSchema.safeParse({
