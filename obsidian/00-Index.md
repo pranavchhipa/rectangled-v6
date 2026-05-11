@@ -35,6 +35,7 @@ AI-native ORM (Online Reputation Management) platform for Indian SMBs. Turborepo
 - [[Email]] · [[WapiSnap]] · [[Billing]]
 
 ## Cross-cutting concepts
+- [[Customer-Journeys]] — **every customer-facing flow with data + module dependencies**
 - [[Branding-Resolution]] · [[Workspace-Scoping]] · [[Membership-RBAC]] · [[White-Label]] · [[Hotfix-Trail]] · [[Mobile-First-Design]]
 
 ## Integrations

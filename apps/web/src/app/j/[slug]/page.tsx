@@ -71,6 +71,11 @@ export default function PublicJourneyPage() {
   // below didn't have to change. journey.submitResponse is frozen as
   // of Phase 4.
   const submitMutation = trpc.survey.submitLegacyJourney.useMutation()
+  // Journey A Step 3a.1 — AI review draft mutation. Fired on YES click
+  // before the submit + redirect; the returned text goes to the user's
+  // clipboard. Falls back to the static template inside handleHappyYes
+  // if this call fails, so the customer is never stranded.
+  const draftMutation = trpc.survey.generateHappyReviewDraft.useMutation()
 
   const journey = journeyQuery.data as
     | undefined
@@ -144,12 +149,27 @@ export default function PublicJourneyPage() {
     if (!journey || !screen || !responseId) return
     setIsSubmitting(true)
 
-    // Copy review template to clipboard (best-effort).
-    if (screen.reviewTemplate && typeof navigator !== 'undefined' && navigator.clipboard) {
+    // Journey A Step 3a.1 — fetch an AI-composed positive review tailored
+    // to the business + the score the customer just gave. Falls back to
+    // the static `screen.reviewTemplate` if the AI call fails or returns
+    // empty, so the clipboard always has something paste-able.
+    let clipboardText: string = screen.reviewTemplate
+    try {
+      const draft = await draftMutation.mutateAsync({
+        journeyId: journey.id,
+        metricShown: screen.metricShown,
+        metricScore: score ?? undefined,
+      })
+      if (draft?.text) clipboardText = draft.text
+    } catch (err) {
+      console.warn('AI review draft failed, using template fallback', err)
+    }
+
+    if (clipboardText && typeof navigator !== 'undefined' && navigator.clipboard) {
       try {
-        await navigator.clipboard.writeText(screen.reviewTemplate)
+        await navigator.clipboard.writeText(clipboardText)
       } catch {
-        /* fallback below */
+        /* clipboard write may fail on some browsers — UX still proceeds */
       }
     }
 
@@ -175,7 +195,18 @@ export default function PublicJourneyPage() {
     } finally {
       setIsSubmitting(false)
     }
-  }, [journey, screen, responseId, sessionId, submitMutation, platform, redirectUrl])
+  }, [
+    journey,
+    screen,
+    responseId,
+    sessionId,
+    score,
+    submitMutation,
+    draftMutation,
+    platform,
+    redirectUrl,
+    isPreview,
+  ])
 
   const handleHappyNo = useCallback(async () => {
     if (!journey || !screen || !responseId) return
@@ -540,25 +571,36 @@ function HappyPrompt({
       )}
 
       <div className="space-y-2.5 sm:space-y-3">
-        <Button
-          className="h-12 w-full rounded-xl text-[14px] font-bold text-white shadow-md transition-all hover:opacity-90 sm:h-14 sm:text-[15px]"
-          size="lg"
-          onClick={() => {
-            if (!hasClipboard) setShowFallback(true)
-            onYes()
-          }}
-          disabled={isSubmitting}
-          style={{ backgroundColor: 'var(--brand)' }}
-        >
-          {isSubmitting ? (
-            <Loader2 className="size-5 animate-spin" />
-          ) : (
-            <>
-              <Copy className="size-4" />
-              {copy.yesLabel}
-            </>
-          )}
-        </Button>
+        <div>
+          <Button
+            className="h-12 w-full rounded-xl text-[14px] font-bold text-white shadow-md transition-all hover:opacity-90 sm:h-14 sm:text-[15px]"
+            size="lg"
+            onClick={() => {
+              if (!hasClipboard) setShowFallback(true)
+              onYes()
+            }}
+            disabled={isSubmitting}
+            style={{ backgroundColor: 'var(--brand)' }}
+          >
+            {isSubmitting ? (
+              <Loader2 className="size-5 animate-spin" />
+            ) : (
+              <>
+                <Copy className="size-4" />
+                {copy.yesLabel}
+              </>
+            )}
+          </Button>
+          {/* Journey A Step 3a.1 helper — explains the clipboard hand-off
+              to the customer so the "Copy" icon on the button isn't a
+              surprise once they paste on Google / Zomato. */}
+          <p
+            className="mt-2 text-center text-[11px] font-medium leading-snug sm:text-[12px]"
+            style={{ color: 'var(--navy)', opacity: 0.6 }}
+          >
+            An AI-generated review will be copied for you to paste
+          </p>
+        </div>
         <Button
           variant="ghost"
           className="h-11 w-full rounded-xl border-2 text-[13px] font-semibold transition-colors hover:bg-slate-50 sm:h-12 sm:text-[14px]"

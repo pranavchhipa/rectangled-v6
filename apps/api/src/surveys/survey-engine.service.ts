@@ -2,6 +2,7 @@ import { Injectable, Inject, Logger } from '@nestjs/common'
 import { TRPCError } from '@trpc/server'
 import { eq, and, sql } from 'drizzle-orm'
 import { randomUUID } from 'crypto'
+import OpenAI from 'openai'
 import type { Database } from '@rectangled/db'
 import {
   surveys,
@@ -39,6 +40,22 @@ import {
   pickRandomMetric,
   METRIC_DEFAULT_THRESHOLDS,
 } from '@rectangled/shared'
+
+// OpenRouter client for Journey A Step 3a.1 (happy review draft). Mirrors
+// the pattern in ai-response.service.ts — created at module load with
+// `|| ''` so the SDK doesn't crash when OPENROUTER_API_KEY is missing;
+// the call site checks the env var before invoking and falls back to a
+// static template if absent.
+const openrouter = new OpenAI({
+  apiKey: process.env.OPENROUTER_API_KEY || '',
+  baseURL: process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1',
+  defaultHeaders: {
+    'HTTP-Referer': process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000',
+    'X-Title': 'OptimizerV6 - Rectangled.io',
+  },
+})
+
+const AI_MODEL = process.env.AI_MODEL || 'openai/gpt-4o-mini'
 
 /**
  * Phase 3 — survey engine.
@@ -1198,6 +1215,96 @@ export class SurveyEngineService {
           settings.thankYouMessage ?? 'Thank you for your feedback!',
       },
     }
+  }
+
+  /**
+   * Journey A Step 3a.1 — AI review draft.
+   *
+   * When the customer clicks YES on the happy prompt, the FE calls this
+   * endpoint to fetch an AI-composed positive review tailored to the
+   * business + the score the customer just gave. The FE then writes the
+   * returned text to the clipboard and opens the redirect URL so the
+   * customer can paste on Google / Zomato / Swiggy / etc.
+   *
+   * The happy YES path is TERMINAL for Journey A — see
+   * obsidian/concepts/Customer-Journeys.md. Whatever the customer does on
+   * the external platform is observed asynchronously via Connectors
+   * polling (Journey E loopback), not from this endpoint.
+   *
+   * Falls back to a static template when OPENROUTER_API_KEY is unset or
+   * the AI call fails, so the happy path never strands the customer with
+   * an empty clipboard.
+   */
+  async generateHappyReviewDraft(input: {
+    journeyId: string
+    metricShown?: SurveyMetric
+    metricScore?: number
+  }): Promise<{ text: string; source: 'ai' | 'fallback' }> {
+    const survey = await this.findSurveyById(input.journeyId)
+    const branding = await resolvePublicBranding(
+      this.db,
+      survey.workspaceId,
+      survey.locationId,
+    )
+    const businessName = branding.workspaceName || 'this business'
+    // Branding-Resolution composes displayName as "Workspace — Location"
+    // when both differ. Strip out the location half for the prompt so
+    // the AI mentions the specific place, not the parent workspace alias.
+    const displayParts = branding.displayName?.split(' — ') ?? []
+    const locationName =
+      displayParts.length > 1
+        ? displayParts[displayParts.length - 1]!.trim()
+        : ''
+    const fullName = locationName
+      ? `${businessName} — ${locationName}`
+      : businessName
+
+    // Static fallback used when OpenRouter is unconfigured or fails.
+    const fallback = `Had a great experience at ${fullName}!`
+
+    if (!process.env.OPENROUTER_API_KEY) {
+      return { text: fallback, source: 'fallback' }
+    }
+
+    try {
+      const systemPrompt = `You write short, authentic-sounding positive reviews for small businesses. The customer just rated their experience highly and wants to post the review on Google / Zomato / Swiggy.
+
+Rules:
+- 1-2 sentences. Never longer.
+- Sound like a real customer, NOT an AI. Avoid "amazing experience", "highly recommend", "five stars", "would definitely recommend".
+- Casual, specific, natural. Use contractions.
+- Mention the business name naturally (once, not in every sentence).
+- NO sign-off. NO emoji.
+- Vary structure across runs.`
+
+      const scoreLine =
+        input.metricShown && input.metricScore !== undefined
+          ? `\nCustomer signal: ${input.metricShown.toUpperCase()} = ${input.metricScore} (positive)`
+          : ''
+
+      const userPrompt = `Business: ${fullName}${scoreLine}\n\nWrite the review (just the review text, nothing else):`
+
+      const completion = await openrouter.chat.completions.create({
+        model: AI_MODEL,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+        max_tokens: 120,
+        temperature: 0.9,
+      })
+
+      const aiText = completion.choices[0]?.message?.content?.trim()
+      if (aiText) {
+        return { text: aiText, source: 'ai' }
+      }
+    } catch (err: any) {
+      this.logger.warn(
+        `Happy review draft generation failed: ${err?.message ?? err}`,
+      )
+    }
+
+    return { text: fallback, source: 'fallback' }
   }
 }
 

@@ -13,6 +13,7 @@ import {
   submitLegacyTruformSchema,
   getPublicLegacyJourneySchema,
   getPublicLegacyTruformSchema,
+  generateHappyReviewDraftSchema,
   listSurveyResponsesSchema,
   getSurveyResponseByIdSchema,
 } from '@rectangled/shared'
@@ -84,6 +85,17 @@ export function createSurveyRouter(
       .input(getPublicLegacyTruformSchema)
       .query(async ({ input }) => {
         return engine.getPublicLegacyTruform(input)
+      }),
+
+    // Journey A Step 3a.1 — AI review draft for the customer to paste on
+    // the external review platform. Called from /j/[slug] page.tsx when
+    // the customer clicks YES on the happy prompt. publicProcedure
+    // because the journey itself is unauthenticated. See
+    // obsidian/concepts/Customer-Journeys.md.
+    generateHappyReviewDraft: publicProcedure
+      .input(generateHappyReviewDraftSchema)
+      .mutation(async ({ input }) => {
+        return engine.generateHappyReviewDraft(input)
       }),
 
     // ─── Protected CRUD ─────────────────────────────────────────────────

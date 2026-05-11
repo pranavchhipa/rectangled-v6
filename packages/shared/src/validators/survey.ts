@@ -195,6 +195,20 @@ export const getPublicLegacyTruformSchema = z.object({
   preview: z.boolean().optional(),
 })
 
+// ─── Happy-path AI review draft ─────────────────────────────────────────
+//
+// Journey A Step 3a.1 — when the customer clicks YES on the happy prompt,
+// the FE calls this endpoint to fetch an AI-composed review draft
+// tailored to the business + the score the customer just gave. The text
+// is written to the clipboard so the customer can paste it on the
+// external review platform (Google / Zomato / Swiggy / …).
+// See obsidian/concepts/Customer-Journeys.md.
+export const generateHappyReviewDraftSchema = z.object({
+  journeyId: z.string().uuid(),
+  metricShown: z.enum(['csat', 'nps', 'ces', 'nev', 'cli']).optional(),
+  metricScore: z.number().optional(),
+})
+
 // ─── Hotfix PRD §6 — Responses listing + detail ─────────────────────────
 
 export const listSurveyResponsesSchema = z.object({
