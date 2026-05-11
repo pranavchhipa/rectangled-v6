@@ -22,16 +22,23 @@ First-run wizard for new workspaces — collects industry, primary location, bra
 5. **Resolve a positive-path redirectURL for each enabled platform** — see hard requirement below
 6. Generate first QR ([[QR]]) and first journey ([[Surveys]])
 
-## redirectURL hard requirement (per platform) — spec rule
+## redirectURL hard requirement (per platform) — SHIPPED
 
 Onboarding **must** produce a working positive-path redirect URL for EVERY platform the owner enables, BEFORE onboarding can complete. This URL is what Journey A Step 3a.1 sends the customer to after a happy YES (see [[Customer-Journeys]]).
 
-Resolution chain:
-1. **Auto-resolve first.** For Google, use the location's Place ID (from the connected [[Google-Business-Profile]]) to construct the "write a review" URL deterministically. For Zomato / Swiggy / others, use search + heuristics.
-2. **Manual fallback.** If auto-resolve fails for a platform, **block onboarding completion** and prompt the owner to paste the URL manually for that platform. Don't silently skip — Journey A's happy YES has nowhere to send the customer if this URL is missing.
-3. Resolved URLs are stored on `surveys.settings.redirectLinks` (and platform IDs on `locations.gbpPlaceId` etc.) so the survey engine can read them at public-page render time.
+### How it's wired (Phase 2)
 
-Without this guarantee, the customer's happy path silently breaks — they click YES, no tab opens, the AI-drafted review on their clipboard goes nowhere. Treat the URL set as a completion gate, not a nice-to-have.
+- **New Step 4 in the wizard** (`apps/web/src/app/dashboard/onboarding/page.tsx`): three URL inputs — Google, Zomato, Swiggy. Empty = platform not enabled.
+- **Storage:** `workspaces.settings.defaultRedirectLinks` (`{ google?, zomato?, swiggy? }`). No schema migration — extension of the existing JSONB type.
+- **API endpoints:** `trpc.onboarding.getRedirectLinks` + `trpc.onboarding.setRedirectLinks`.
+- **Completion gate:** `OnboardingService.complete()` throws `PRECONDITION_FAILED` if zero URLs are set, with a friendly message pointing back to the URL step.
+- **Survey engine fallback:** `getPublicLegacyJourney` now merges `workspaces.settings.defaultRedirectLinks` into the `screen.redirectLinks` object the FE receives. Survey-step explicit URL still wins per-key; workspace defaults fill the gaps.
+
+### Open follow-up
+
+- **Auto-resolve from GBP Place ID** is not implemented yet. Currently the wizard prompts for manual paste only. When the owner connects a GBP location, the Google URL could be derived as `https://search.google.com/local/writereview?placeid=<PLACEID>` and pre-filled. Spec calls for it; code doesn't do it yet.
+
+Without the URL gate, the customer's happy path silently broke — they clicked YES, no tab opened, the AI-drafted review on their clipboard went nowhere. The Phase 2 commit closes that loophole.
 
 ## Connects to
 - [[Auth]] — first-login redirect lands here

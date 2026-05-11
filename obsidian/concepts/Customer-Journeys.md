@@ -152,14 +152,15 @@ QR scan / WhatsApp link / Email link
 │   (records ONLY that YES was     │    │
 │    clicked + which platform)     │    │
 │                                  │    │
-│ Status: AI-generation is SPEC.   │    │
-│   Current code passes a static   │    │
-│   `screen.reviewTemplate` from   │    │
-│   journey-metrics.ts. Wiring     │    │
-│   [[OpenRouter]] into the engine │    │
-│   so `reviewTemplate` is         │    │
-│   server-composed per request    │    │
-│   is OPEN WORK.                  │    │
+│ Status: SHIPPED — see           │    │
+│   apps/api/src/surveys/          │    │
+│   survey-engine.service.ts       │    │
+│   `generateHappyReviewDraft` +   │    │
+│   `trpc.survey.generate          │    │
+│   HappyReviewDraft` mutation.    │    │
+│   FE calls it before clipboard   │    │
+│   write; falls back to static    │    │
+│   template if OpenRouter fails.  │    │
 │                                  │    │
 │ External-review loopback is a    │    │
 │ SEPARATE flow → see Journey E.   │    │

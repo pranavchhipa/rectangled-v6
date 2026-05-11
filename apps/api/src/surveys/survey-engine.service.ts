@@ -1117,6 +1117,17 @@ export class SurveyEngineService {
     }
     const platform = settings.reviewPlatform ?? 'google'
 
+    // Phase 2 — fall back to workspace-level default redirect URLs (set
+    // during onboarding's review-platform step). The redirect step's
+    // explicit URL on the survey takes precedence; if absent, every
+    // platform's URL from workspace.settings.defaultRedirectLinks gets
+    // surfaced so the renderer can resolve `redirectLinks[platform]`.
+    const workspaceRow = await this.db.query.workspaces.findFirst({
+      where: eq(workspaces.id, survey.workspaceId),
+    })
+    const workspaceDefaults =
+      workspaceRow?.settings?.defaultRedirectLinks ?? {}
+
     // Map terminal step ids back to the legacy thank-you slots. The
     // intelligent step builder uses fixed ids (s4_thanks_yes / _no /
     // _unhappy); deep-builder surveys may use different ids — fall back
@@ -1161,9 +1172,15 @@ export class SurveyEngineService {
           yesLabel: redirectStep?.config.yesLabel ?? 'Sure',
           noLabel: redirectStep?.config.noLabel ?? 'Maybe later',
         },
-        redirectLinks: redirectStep
-          ? { [redirectStep.config.platform]: redirectStep.config.url }
-          : {},
+        // Phase 2 — survey-step URL wins; workspace defaults fill the gaps.
+        redirectLinks: {
+          ...(workspaceDefaults.google ? { google: workspaceDefaults.google } : {}),
+          ...(workspaceDefaults.zomato ? { zomato: workspaceDefaults.zomato } : {}),
+          ...(workspaceDefaults.swiggy ? { swiggy: workspaceDefaults.swiggy } : {}),
+          ...(redirectStep
+            ? { [redirectStep.config.platform]: redirectStep.config.url }
+            : {}),
+        },
         reviewTemplate: redirectStep?.config.reviewTemplate ?? '',
         thankYouHappyYes: thanksYes,
         thankYouHappyNo: thanksNo,

@@ -86,7 +86,10 @@ const FLOW_OPTIONS: Array<{
 ]
 
 // Phase 1 Stage G — TOTAL_STEPS = 4 with the flow picker prepended.
-const TOTAL_STEPS = 4
+// Phase 2 — TOTAL_STEPS bumped to 5 with the review-platform URL step
+// wedged in before the completion screen. Step 5 is the old "Get Started"
+// summary; step 4 is the new hard-gated URL form.
+const TOTAL_STEPS = 5
 
 export default function OnboardingPage() {
   const router = useRouter()
@@ -99,6 +102,15 @@ export default function OnboardingPage() {
   const [newAspectName, setNewAspectName] = useState('')
   const [seeded, setSeeded] = useState(false)
 
+  // Phase 2 — review-platform URLs. Each is the positive-path redirect
+  // for Journey A Step 3a.1 (happy YES). Empty = platform not enabled.
+  // Onboarding completion is blocked server-side until at least one is set.
+  const [redirectLinks, setRedirectLinks] = useState<{
+    google: string
+    zomato: string
+    swiggy: string
+  }>({ google: '', zomato: '', swiggy: '' })
+
   // Queries
   const onboardingQuery = trpc.onboarding.getState.useQuery(
     { workspaceId: currentWorkspaceId! },
@@ -108,6 +120,14 @@ export default function OnboardingPage() {
   const aspectsQuery = trpc.businessAspect.list.useQuery(
     { workspaceId: currentWorkspaceId! },
     { enabled: !!currentWorkspaceId && step >= 3 }
+  )
+
+  // Phase 2 — pre-fill any URLs that were saved on a previous onboarding
+  // attempt (resume case). Enabled on step >= 4 so we don't fetch until
+  // the wizard reaches the URL step.
+  const redirectLinksQuery = trpc.onboarding.getRedirectLinks.useQuery(
+    { workspaceId: currentWorkspaceId! },
+    { enabled: !!currentWorkspaceId && step >= 4 },
   )
 
   // Mutations
@@ -152,6 +172,13 @@ export default function OnboardingPage() {
     },
   })
 
+  // Phase 2 — persist the review-platform URLs the owner entered.
+  const setRedirectLinksMutation = trpc.onboarding.setRedirectLinks.useMutation({
+    onError: (error) => {
+      toast.error(error.message || 'Failed to save review-platform URLs')
+    },
+  })
+
   const completeOnboarding = trpc.onboarding.complete.useMutation({
     onSuccess: async () => {
       toast.success('Onboarding complete! Welcome aboard.')
@@ -182,6 +209,17 @@ export default function OnboardingPage() {
       }
     }
   }, [onboardingQuery.data, router])
+
+  // Phase 2 — hydrate redirectLinks state when the saved URLs load.
+  useEffect(() => {
+    if (redirectLinksQuery.data) {
+      setRedirectLinks({
+        google: redirectLinksQuery.data.google ?? '',
+        zomato: redirectLinksQuery.data.zomato ?? '',
+        swiggy: redirectLinksQuery.data.swiggy ?? '',
+      })
+    }
+  }, [redirectLinksQuery.data])
 
   const progressPercent = (step / TOTAL_STEPS) * 100
   const aspects = aspectsQuery.data ?? []
@@ -225,6 +263,35 @@ export default function OnboardingPage() {
         updateStep.mutate({ workspaceId: currentWorkspaceId, step: nextStep })
       }
       setStep(nextStep)
+    } else if (step === 4) {
+      // Phase 2 — review-platform URL gate. At least one platform must
+      // have a valid URL or the customer's "Yes, leave a review" click
+      // in Journey A goes nowhere. Backend `complete()` re-enforces.
+      const filled = (Object.values(redirectLinks) as string[]).filter(
+        (v) => v.trim().length > 0,
+      )
+      if (filled.length === 0) {
+        toast.error(
+          'Add at least one review-platform URL — Google, Zomato, or Swiggy. This is where customers land when they click "Yes" to leave a review.',
+        )
+        return
+      }
+      if (currentWorkspaceId) {
+        try {
+          await setRedirectLinksMutation.mutateAsync({
+            workspaceId: currentWorkspaceId,
+            redirectLinks: {
+              google: redirectLinks.google.trim() || undefined,
+              zomato: redirectLinks.zomato.trim() || undefined,
+              swiggy: redirectLinks.swiggy.trim() || undefined,
+            },
+          })
+        } catch {
+          return // toast already shown by onError
+        }
+        updateStep.mutate({ workspaceId: currentWorkspaceId, step: 5 })
+      }
+      setStep(5)
     }
   }
 
@@ -484,8 +551,110 @@ export default function OnboardingPage() {
         </div>
       )}
 
-      {/* Step 4: Completion */}
+      {/* Step 4: Review Platforms (Phase 2 — Onboarding hard requirement).
+          Owner pastes the URL where customers will land after clicking
+          YES on the journey's happy prompt. Backend `complete()` blocks
+          unless at least one platform has a URL. */}
       {step === 4 && (
+        <div className="space-y-6">
+          <div className="text-center space-y-2">
+            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
+              <MapPin className="h-6 w-6 text-primary" />
+            </div>
+            <h1 className="text-2xl font-bold">Where should reviews land?</h1>
+            <p className="text-muted-foreground">
+              When a happy customer clicks <strong>"Yes, leave a review"</strong>
+              {' '}in your journey, we open this URL in a new tab. Paste the
+              link for every platform you want to collect reviews on. Leave
+              the others blank.
+            </p>
+          </div>
+
+          <div className="space-y-4">
+            {/* Google */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label
+                  className="text-sm font-semibold"
+                  htmlFor="redirect-google"
+                >
+                  Google
+                </label>
+                <Badge variant="outline" className="text-xs">
+                  Recommended
+                </Badge>
+              </div>
+              <Input
+                id="redirect-google"
+                type="url"
+                placeholder="https://search.google.com/local/writereview?placeid=..."
+                value={redirectLinks.google}
+                onChange={(e) =>
+                  setRedirectLinks((prev) => ({
+                    ...prev,
+                    google: e.target.value,
+                  }))
+                }
+              />
+              <p className="text-xs text-muted-foreground">
+                Tip: open Google Maps, find your business, click "Write a
+                review", then copy the URL from the address bar.
+              </p>
+            </div>
+
+            {/* Zomato */}
+            <div className="space-y-2">
+              <label
+                className="text-sm font-semibold"
+                htmlFor="redirect-zomato"
+              >
+                Zomato
+              </label>
+              <Input
+                id="redirect-zomato"
+                type="url"
+                placeholder="https://www.zomato.com/.../reviews"
+                value={redirectLinks.zomato}
+                onChange={(e) =>
+                  setRedirectLinks((prev) => ({
+                    ...prev,
+                    zomato: e.target.value,
+                  }))
+                }
+              />
+            </div>
+
+            {/* Swiggy */}
+            <div className="space-y-2">
+              <label
+                className="text-sm font-semibold"
+                htmlFor="redirect-swiggy"
+              >
+                Swiggy
+              </label>
+              <Input
+                id="redirect-swiggy"
+                type="url"
+                placeholder="https://www.swiggy.com/restaurants/..."
+                value={redirectLinks.swiggy}
+                onChange={(e) =>
+                  setRedirectLinks((prev) => ({
+                    ...prev,
+                    swiggy: e.target.value,
+                  }))
+                }
+              />
+            </div>
+          </div>
+
+          <p className="text-center text-xs text-muted-foreground">
+            At least one URL is required to finish setup.
+          </p>
+        </div>
+      )}
+
+      {/* Step 5: Completion (was Step 4 pre-Phase-2). */}
+      {step === 5 && (
         <div className="space-y-6 text-center">
           <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-green-100">
             <Rocket className="h-8 w-8 text-green-600" />
@@ -578,10 +747,12 @@ export default function OnboardingPage() {
             onClick={handleNext}
             disabled={
               (step === 2 && !selectedIndustry) ||
-              setFlowMutation.isPending
+              setFlowMutation.isPending ||
+              setRedirectLinksMutation.isPending
             }
           >
-            {setFlowMutation.isPending && (
+            {(setFlowMutation.isPending ||
+              setRedirectLinksMutation.isPending) && (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             )}
             Next

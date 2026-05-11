@@ -89,8 +89,89 @@ export class OnboardingService {
     return updated
   }
 
+  /**
+   * Phase 2 — review-platform redirect URLs (hard requirement).
+   *
+   * Returns the URLs currently saved on workspace.settings.defaultRedirectLinks.
+   * The wizard's Step 4 reads this on mount; missing platforms come back
+   * undefined and the owner is prompted to paste a URL.
+   */
+  async getRedirectLinks(workspaceId: string, userId: string) {
+    await this.requireMembership(workspaceId, userId)
+
+    const workspace = await this.db.query.workspaces.findFirst({
+      where: eq(workspaces.id, workspaceId),
+    })
+    if (!workspace) {
+      throw new TRPCError({ code: 'NOT_FOUND', message: 'Workspace not found' })
+    }
+
+    const links = workspace.settings?.defaultRedirectLinks ?? {}
+    return {
+      google: links.google,
+      zomato: links.zomato,
+      swiggy: links.swiggy,
+    }
+  }
+
+  /**
+   * Phase 2 — persist the URLs the owner enabled in the wizard. Merges
+   * into workspace.settings (not a wholesale replace) so the rest of
+   * the settings shape (timezone, frequency caps, etc.) stays intact.
+   */
+  async setRedirectLinks(
+    workspaceId: string,
+    redirectLinks: { google?: string; zomato?: string; swiggy?: string },
+    userId: string,
+  ) {
+    await this.requireMembership(workspaceId, userId)
+
+    const workspace = await this.db.query.workspaces.findFirst({
+      where: eq(workspaces.id, workspaceId),
+    })
+    if (!workspace) {
+      throw new TRPCError({ code: 'NOT_FOUND', message: 'Workspace not found' })
+    }
+
+    // Strip empty strings so absent keys mean "not configured" (rather
+    // than "" which round-trips through the Zod URL validator anyway).
+    const cleaned: { google?: string; zomato?: string; swiggy?: string } = {}
+    if (redirectLinks.google) cleaned.google = redirectLinks.google
+    if (redirectLinks.zomato) cleaned.zomato = redirectLinks.zomato
+    if (redirectLinks.swiggy) cleaned.swiggy = redirectLinks.swiggy
+
+    const newSettings = {
+      ...workspace.settings,
+      defaultRedirectLinks: cleaned,
+    }
+
+    await this.db
+      .update(workspaces)
+      .set({ settings: newSettings, updatedAt: new Date() })
+      .where(eq(workspaces.id, workspaceId))
+
+    return { success: true, redirectLinks: cleaned }
+  }
+
   async complete(workspaceId: string, userId: string) {
     await this.requireMembership(workspaceId, userId)
+
+    // Phase 2 hard requirement — onboarding cannot complete unless at
+    // least one redirect URL is set. Journey A Step 3a.1 has nowhere
+    // to send the customer otherwise, breaking the happy-path silently.
+    // Surface a friendly error pointing back to the wizard step.
+    const workspace = await this.db.query.workspaces.findFirst({
+      where: eq(workspaces.id, workspaceId),
+    })
+    const links = workspace?.settings?.defaultRedirectLinks ?? {}
+    const hasAnyUrl = !!(links.google || links.zomato || links.swiggy)
+    if (!hasAnyUrl) {
+      throw new TRPCError({
+        code: 'PRECONDITION_FAILED',
+        message:
+          'Add at least one review-platform URL (Google / Zomato / Swiggy) before finishing setup. Customers who click "Yes, leave a review" need somewhere to land.',
+      })
+    }
 
     // Mark onboarding state as complete
     await this.db

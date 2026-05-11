@@ -22,3 +22,27 @@ export const setOnboardingFlowSchema = z.object({
   workspaceId: z.string().uuid(),
   flow: onboardingFlowSchema,
 })
+
+// ─── Phase 2 — review-platform redirect URLs (hard requirement) ─────────
+//
+// The Customer-Journeys spec gates onboarding completion on the owner
+// supplying a working positive-path URL for every platform they want to
+// onboard. Journey A Step 3a.1 (happy YES) opens this URL after writing
+// the AI review to the customer's clipboard. See
+// obsidian/domains/Onboarding.md → "redirectURL hard requirement".
+
+// redirectPlatformSchema already exported from validators/survey-steps.ts
+// for the survey RedirectStep config; we just inline the same enum here
+// to avoid a cross-validator import cycle.
+export const getRedirectLinksSchema = z.object({
+  workspaceId: z.string().uuid(),
+})
+
+export const setRedirectLinksSchema = z.object({
+  workspaceId: z.string().uuid(),
+  redirectLinks: z.object({
+    google: z.string().url().optional(),
+    zomato: z.string().url().optional(),
+    swiggy: z.string().url().optional(),
+  }),
+})

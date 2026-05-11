@@ -39,6 +39,22 @@ export const workspaces = pgTable('workspaces', {
         maxCouponsPerMonth?: number
         maxActionsPerWeek?: number
       }
+      /**
+       * Phase 2 (Customer-Journeys spec) — workspace-level default URLs
+       * the public Journey A Step 3a.1 "happy YES" redirects to per
+       * platform. Captured in onboarding (the URL hard requirement),
+       * gated on `complete()`. The survey engine reads `surveys.settings
+       * .redirectLinks` first and falls back to these defaults so legacy
+       * surveys keep working after onboarding is run.
+       *
+       * Only the platforms the owner enabled in onboarding will have
+       * keys here — absent keys mean the platform is not configured.
+       */
+      defaultRedirectLinks?: {
+        google?: string
+        zomato?: string
+        swiggy?: string
+      }
     }>()
     .default({
       defaultTimezone: 'Asia/Kolkata',
