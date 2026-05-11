@@ -855,6 +855,8 @@ All schemas live in `packages/db/src/schema/` and are exported via `@rectangled/
 
 **Migrations** live in `scripts/migrations/NNNN_*.sql` and are applied by `scripts/migrate.mjs` (idempotent — tracking table `_app_migrations`). The API container runs pending migrations on every boot per `Dockerfile.api`'s `CMD`.
 
+For the `qr_codes` table specifically, there's also an inline fallback in `apps/api/src/main.ts → ensureQrCodesSchema()` that runs before `app.listen()`. This was added in commit `d343ba7` after migration 0022 failed to apply on the live deploy via the Dockerfile path (root cause: still under investigation — either `scripts/migrations/` isn't being COPY'd into the runner image, or `migrate.mjs` is failing without propagating its exit code). The inline path uses `CREATE TABLE IF NOT EXISTS` + `DO $$` enum guards so it's safe to keep running indefinitely.
+
 ---
 
 ## Environment Variables

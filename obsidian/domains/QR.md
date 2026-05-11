@@ -85,7 +85,11 @@ Why: the empty registry was a UX dead-end. Owners with N existing journeys arriv
 Single bad survey doesn't break the whole list — backfill errors are swallowed + logged.
 
 ## DB migration
-The new schema requires `npm run db:push` (or equivalent drizzle-kit push) before runtime. See [[Local-Dev]] for the push command. Without the push, `trpc.qr.list` returns "relation 'qr_codes' does not exist".
+The new schema requires `scripts/migrations/0022_qr_codes_management.sql` to apply. Two paths in code:
+1. **Primary (intended):** Dockerfile.api CMD runs `node scripts/migrate.mjs && node apps/api/dist/main.js` on every container boot. Idempotent via the `_app_migrations` tracking table.
+2. **Fallback (commit `d343ba7`):** `apps/api/src/main.ts → ensureQrCodesSchema()` runs the same DDL inline at bootstrap, before `app.listen()`. Uses `CREATE TABLE IF NOT EXISTS` + `DO $$` guards on the enums — safe to re-run.
+
+The fallback was added because the Dockerfile path silently no-op'd on the live deploy (root cause unconfirmed — either `scripts/migrations/` isn't being COPY'd into the runner image or migrate.mjs fails without propagating its exit code). Long-term the migrate runner path should still be debugged — but the inline path means `qr_codes` is guaranteed to exist on every API boot regardless.
 
 ## Connects to
 - [[Locations]] — optional location scope on each QR
