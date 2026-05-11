@@ -7,16 +7,18 @@ aliases: [Customer Journeys, Customer Flows, Journey Map]
 
 Every customer-facing flow in the product, with what data is collected, which module owns it, and what fires downstream.
 
-Two public routes, four templates, five metrics, two branches.
+Two public routes, four templates, five metrics, branching graphs.
 
 ## The two public surfaces
 
 | Route | Template values it serves | UX shape |
 |---|---|---|
 | `/j/[slug]` | `quick`, `adaptive`, `custom` | Multi-screen branching |
-| `/f/[slug]` | `deep` | Single-screen |
+| `/f/[slug]` | `deep` | Multi-screen branching (was single-screen pre-Path B) |
 
-Both are unauthenticated, both go through `apps/api/src/surveys/survey-engine.service.ts`, both resolve branding via `branding.helper.ts` (see [[Branding-Resolution]]).
+Both are unauthenticated. Both delegate to the shared `SurveyEngineRenderer` (see [[Public-Pages]]) which walks the survey step graph one step at a time via `trpc.survey.getInitialState` → `advance` → `complete`. Both resolve branding through `branding.helper.ts` (see [[Branding-Resolution]]).
+
+> **Status (post commits `1524fb6` Path B + `ce89a82` state reset + `1a013e6` refs fix):** the decision-tree editor's graph drives customer-facing walks end-to-end. Every branch routes correctly server-side; every per-step answer + contact data persists. Live-verified across detractor / else / promoter branches on a freshly-built deep survey — see [[Hotfix-Trail]] for the chain.
 
 ---
 
