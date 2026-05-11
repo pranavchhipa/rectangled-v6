@@ -92,8 +92,18 @@ export class SurveyEngineService {
   async getInitialState(input: {
     slug: string
     sessionId?: string
+    /**
+     * Path B — preview mode parity with the legacy shims. When true the
+     * engine drops the `status='active'` filter so owners can walk a
+     * draft survey end-to-end from the editor's Preview button, and
+     * skips the `survey_starts` insert so preview traffic doesn't
+     * pollute the abandonment metric.
+     */
+    preview?: boolean
   }): Promise<InitialStateResponse> {
-    const survey = await this.findActiveSurveyBySlug(input.slug)
+    const survey = await this.findActiveSurveyBySlug(input.slug, {
+      allowDraft: !!input.preview,
+    })
     const steps = (survey.steps as SurveyStep[]) ?? []
     if (steps.length === 0) {
       throw new TRPCError({
@@ -124,11 +134,23 @@ export class SurveyEngineService {
 
     const sessionId = input.sessionId ?? randomUUID()
 
-    // Idempotent — UNIQUE(survey_id, session_id) prevents dupes.
-    await this.db
-      .insert(surveyStarts)
-      .values({ surveyId: survey.id, sessionId, metadata: {} })
-      .onConflictDoNothing()
+    // Preview traffic doesn't write a start row (would pollute the
+    // abandonment / completion-rate metric).
+    if (!input.preview) {
+      // Idempotent — UNIQUE(survey_id, session_id) prevents dupes.
+      await this.db
+        .insert(surveyStarts)
+        .values({ surveyId: survey.id, sessionId, metadata: {} })
+        .onConflictDoNothing()
+    }
+
+    // Path B — resolve branding the same way the legacy shims do so the
+    // step-walker renderer has everything it needs in one round trip.
+    const branding = await resolvePublicBranding(
+      this.db,
+      survey.workspaceId,
+      survey.locationId,
+    )
 
     return {
       surveyId: survey.id,
@@ -138,6 +160,7 @@ export class SurveyEngineService {
       metricShown,
       // Public helpers for the renderer (interpolated server-side).
       businessName: await this.resolveBusinessName(survey.workspaceId, survey.locationId),
+      branding,
     }
   }
 
@@ -193,25 +216,52 @@ export class SurveyEngineService {
       }
     }
 
-    // Resolve next step.
-    const nextStepId = this.resolveNextStepId(fromStep, survey, input)
-    if (!nextStepId) {
-      // No next step — implies terminal (or misconfigured).
-      return { done: true, terminalStep: null }
+    // Path B — auto-traverse internal-only steps (branch_by_score,
+    // branch_by_answer) so the FE only ever receives renderable steps.
+    // Customers never "see" a branch — it's a server-side routing
+    // decision. We keep the caller's `input` context (metricShown +
+    // metricScore + answer) in scope while traversing because a branch
+    // immediately after a metric step needs to read the score that was
+    // just submitted to that metric step. Branches further in the graph
+    // that reference distant context will fall through to
+    // `defaultNextStepId` (see resolveNextStepId for the contract).
+    let cursor: SurveyStep = fromStep
+    // Guard against pathological cycles in user-built graphs.
+    for (let hops = 0; hops < 32; hops++) {
+      const nextStepId = this.resolveNextStepId(cursor, survey, input)
+      if (!nextStepId) {
+        // No next step — implies terminal (or misconfigured).
+        return { done: true, terminalStep: null }
+      }
+      const nextStep = steps.find((s) => s.id === nextStepId)
+      if (!nextStep) {
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: `Survey step graph references unknown step "${nextStepId}"`,
+        })
+      }
+      // end_journey is terminal — surface it as terminalStep so the FE
+      // calls complete() with that step's id for coupon/triggerEvent.
+      if (isEndJourney(nextStep)) {
+        return { done: true, terminalStep: this.publicStep(nextStep) }
+      }
+      // Renderable step — hand it to the FE.
+      if (
+        isAskMetric(nextStep) ||
+        isAskQuestion(nextStep) ||
+        isShowMessage(nextStep) ||
+        isCollectContact(nextStep) ||
+        isRedirect(nextStep)
+      ) {
+        return { done: false, nextStep: this.publicStep(nextStep) }
+      }
+      // Branch — keep traversing using the same input context.
+      cursor = nextStep
     }
-
-    const nextStep = steps.find((s) => s.id === nextStepId)
-    if (!nextStep) {
-      throw new TRPCError({
-        code: 'INTERNAL_SERVER_ERROR',
-        message: `Survey step graph references unknown step "${nextStepId}"`,
-      })
-    }
-
-    return {
-      done: false,
-      nextStep: this.publicStep(nextStep),
-    }
+    this.logger.warn(
+      `advance: 32-hop traversal cap hit for survey ${input.surveyId} starting at ${input.fromStepId} — possible cycle in step graph`,
+    )
+    return { done: true, terminalStep: null }
   }
 
   /**
@@ -232,9 +282,44 @@ export class SurveyEngineService {
     /** Optional terminal step id so the engine knows which end_journey
      *  fired (for triggerEvent / coupon issuance). */
     terminalStepId?: string
+    /** Path B — preview mode. No writes; just compute the terminal
+     *  message + isPositive for the renderer's thank-you screen. */
+    preview?: boolean
   }): Promise<CompleteResponse> {
     const survey = await this.findSurveyById(input.surveyId)
     const steps = (survey.steps as SurveyStep[]) ?? []
+
+    // Preview short-circuit — compute the thank-you message + isPositive
+    // for the renderer, but skip all writes so editor previews don't
+    // pollute customers / survey_responses / survey_starts.
+    if (input.preview) {
+      let isPositive: boolean | null = null
+      if (
+        input.finalState.metricShown &&
+        typeof input.finalState.metricScore === 'number'
+      ) {
+        const threshold = this.resolveThreshold(survey, input.finalState.metricShown)
+        if (threshold !== null) {
+          isPositive = isPositiveScore(
+            input.finalState.metricShown,
+            input.finalState.metricScore,
+            threshold,
+          )
+        }
+      }
+      const terminal = input.terminalStepId
+        ? (steps.find((s) => s.id === input.terminalStepId) as
+            | EndJourneyStep
+            | undefined)
+        : (steps.find((s) => isEndJourney(s)) as EndJourneyStep | undefined)
+      return {
+        responseId: 'preview',
+        isPositive,
+        terminalMessage: terminal?.config.message ?? 'Thank you!',
+        triggerEvent: terminal?.config.triggerEvent ?? null,
+        issueCouponTemplateId: terminal?.config.issueCoupon?.templateId ?? null,
+      }
+    }
 
     // Optional customer upsert if contact info present.
     let customerId: string | null = null
@@ -1379,6 +1464,9 @@ export interface InitialStateResponse {
   step: SurveyStep
   metricShown?: SurveyMetric
   businessName: string
+  // Path B — resolved branding (location → workspace → defaults) so the
+  // step-walker renderer can paint the branded layout immediately.
+  branding: PublicBranding
 }
 
 export type AdvanceResponse =

@@ -87,6 +87,9 @@ export const archiveSurveySchema = z.object({
 export const getInitialStateSchema = z.object({
   slug: z.string().min(1).max(64),
   sessionId: z.string().uuid().optional(),
+  // Path B — preview mode for the editor's Preview button. Drops the
+  // status='active' filter and skips survey_starts insertion.
+  preview: z.boolean().optional(),
 })
 
 export const advanceSchema = z.object({
@@ -98,6 +101,9 @@ export const advanceSchema = z.object({
   answer: z.unknown(),
   metricShown: surveyMetricSchema.optional(),
   metricScore: z.number().optional(),
+  // Path B — preview mode (no-op for engine traversal; the FE includes
+  // it as a hint for telemetry and to forward to complete()).
+  preview: z.boolean().optional(),
 })
 
 export const completeSchema = z.object({
@@ -118,6 +124,10 @@ export const completeSchema = z.object({
     acceptedReviewPrompt: z.boolean().optional(),
   }),
   terminalStepId: z.string().min(1).max(64).optional(),
+  // Path B — preview mode. Engine no-ops survey_responses/customers
+  // writes when true so the editor's Preview button doesn't pollute
+  // analytics with synthetic responses.
+  preview: z.boolean().optional(),
 })
 
 // ─── Phase 3 Stage E — legacy compat shim ───────────────────────────────
