@@ -625,8 +625,12 @@ export default function SurveyEditorPage() {
           defaultNextStepId: null,
         }
       case 'branch_by_answer':
+        // Field is `answerFromStepId` per branchByAnswerStepSchema (was
+        // a typo `fromStepId` here, which silently dropped + tripped a
+        // "required" validator error every time a Route by Answer was
+        // added). null = "not yet wired", validator accepts it.
         return {
-          fromStepId: '',
+          answerFromStepId: null,
           branches: [],
           defaultNextStepId: null,
         }

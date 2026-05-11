@@ -34,6 +34,17 @@ export const stepRefSchema = z.string().min(1).max(64)
 const nextStepRefSchema = stepRefSchema.nullish()
 const nextStepRefRequiredKeySchema = stepRefSchema.nullable()
 
+/**
+ * Source step reference (e.g. branch_by_score.metricFromStepId,
+ * branch_by_answer.answerFromStepId). The editor seeds these as `''`
+ * for freshly-added branch nodes that haven't been wired to a source
+ * yet, or as undefined when no source has been picked. The engine
+ * treats empty/null/undefined as "no source — use defaultNextStepId".
+ * Tolerating draft state here lets the owner save partial graphs;
+ * a stricter "active survey" guard can re-validate on activation.
+ */
+const sourceStepRefSchema = z.string().max(64).nullish()
+
 /** Builder canvas coordinates. Engine ignores. Optional everywhere. */
 export const stepPositionSchema = z.object({
   x: z.number(),
@@ -115,7 +126,7 @@ const branchByScoreValueSchema = z.union([
 export const branchByScoreStepSchema = baseStepSchema.extend({
   type: z.literal('branch_by_score'),
   config: z.object({
-    metricFromStepId: stepRefSchema,
+    metricFromStepId: sourceStepRefSchema,
     branches: z.array(
       z.object({
         condition: z.object({
@@ -142,7 +153,7 @@ const branchByAnswerValueSchema = z.union([
 export const branchByAnswerStepSchema = baseStepSchema.extend({
   type: z.literal('branch_by_answer'),
   config: z.object({
-    answerFromStepId: stepRefSchema,
+    answerFromStepId: sourceStepRefSchema,
     branches: z.array(
       z.object({
         condition: z.object({
@@ -203,8 +214,8 @@ export const redirectStepSchema = baseStepSchema.extend({
     reviewTemplate: z.string(),
     yesLabel: z.string(),
     noLabel: z.string(),
-    onYesNextStepId: stepRefSchema.optional(),
-    onNoNextStepId: stepRefSchema.optional(),
+    onYesNextStepId: nextStepRefSchema,
+    onNoNextStepId: nextStepRefSchema,
   }),
 })
 
