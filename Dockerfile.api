@@ -38,5 +38,18 @@ COPY --from=builder /app/package.json ./
 # Copy seed file for initial setup
 COPY packages/db/seed-demo.mjs ./packages/db/
 
+# Tracked SQL migrations + runner. The CMD below applies any pending
+# migrations on container start before launching the API. The runner is
+# idempotent — already-applied migrations are skipped via the
+# _app_migrations tracking table. Pre-deploy migration via the local
+# CLI is impossible because DO Postgres Trusted Sources blocks direct
+# connections from outside the platform, so the container itself runs
+# the migration during its boot phase.
+COPY scripts/migrate.mjs ./scripts/
+COPY scripts/migrations ./scripts/migrations
+
 EXPOSE 3001
-CMD ["node", "apps/api/dist/main.js"]
+# Run pending migrations, then start the API. Migration failure exits
+# non-zero → DO marks the deploy failed and rolls back, instead of
+# bringing up an API on a half-migrated schema.
+CMD ["sh", "-c", "node scripts/migrate.mjs && node apps/api/dist/main.js"]
